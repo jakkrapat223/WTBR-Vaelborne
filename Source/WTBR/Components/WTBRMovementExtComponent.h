@@ -1,0 +1,65 @@
+// Copyright Vaelborne: Dominion. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Components/ActorComponent.h"
+#include "WTBRMovementExtComponent.generated.h"
+
+// All speed penalties stack MULTIPLICATIVELY: FinalSpeed = Base × (1-Limb) × (1-Stamina) × (1-Debuff)
+// Never additive — prevents negative speed under combined debuffs (GDD §2.4, Lock)
+USTRUCT(BlueprintType)
+struct FWTBRSpeedModifiers
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly)
+    float LimbPenalty    = 0.f; // composite from all destroyed limbs
+
+    UPROPERTY(BlueprintReadOnly)
+    float StaminaPenalty = 0.f; // from stamina exhaustion
+
+    UPROPERTY(BlueprintReadOnly)
+    float DebuffPenalty  = 0.f; // external debuffs (e.g. Kazan Entropy)
+};
+
+UCLASS(ClassGroup=(WTBR), meta=(BlueprintSpawnableComponent))
+class WTBR_API UWTBRMovementExtComponent : public UActorComponent
+{
+    GENERATED_BODY()
+
+public:
+    UWTBRMovementExtComponent();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement")
+    float BaseWalkSpeed = 600.f; // override per DataAsset in BeginPlay
+
+    UFUNCTION(BlueprintCallable, Category="Movement")
+    void SetLimbPenalty(float Penalty);
+
+    UFUNCTION(BlueprintCallable, Category="Movement")
+    void SetStaminaPenalty(float Penalty);
+
+    UFUNCTION(BlueprintCallable, Category="Movement")
+    void SetDebuffPenalty(float Penalty);
+
+    UFUNCTION(BlueprintPure, Category="Movement")
+    float ComputeFinalSpeed() const;
+
+    UFUNCTION(BlueprintPure, Category="Movement")
+    FWTBRSpeedModifiers GetSpeedModifiers() const { return SpeedModifiers; }
+
+protected:
+    virtual void BeginPlay() override;
+
+private:
+    UPROPERTY(ReplicatedUsing=OnRep_SpeedModifiers)
+    FWTBRSpeedModifiers SpeedModifiers;
+
+    UFUNCTION()
+    void OnRep_SpeedModifiers();
+
+    void PushSpeedToMovement();
+
+    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+};

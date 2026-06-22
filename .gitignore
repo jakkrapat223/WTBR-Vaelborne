@@ -1,0 +1,31 @@
+# =========================
+# Unreal Engine 5 .gitignore
+# =========================
+
+# Ignore Build and Cache Folders (This prevents conflicts between PC and Notebook!)
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+
+# Ignore Visual Studio & IDE Files
+.vs/
+.vscode/
+.idea/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.xcworkspace
+*.DS_Store
+
+# Ignore specific config files that are user-local
+Saved/Config/WindowsEditor/
+Saved/Config/Windows/
+
+# Ignore Crash Reports and Logs
+Saved/Crashes/
+Saved/Logs/
+
+# Note: Content/, Source/, and Config/ are NOT ignored. They will go to Git.
