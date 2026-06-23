@@ -184,6 +184,11 @@ void UWTBRTriggerSetComponent::Server_SetTriggerLoadout_Implementation(
     }
 }
 
+void UWTBRTriggerSetComponent::OnRep_TriggerSlots()
+{
+    // Client-side: slot array received from server — no cosmetic action needed yet.
+}
+
 void UWTBRTriggerSetComponent::OnRep_DualWieldState()
 {
     // Client-side: react for animation/UI

@@ -101,7 +101,12 @@ protected:
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
-    UPROPERTY(Replicated)
+    // EditDefaultsOnly added: allows designers to set loadout directly
+    // in BP_WTBRCharacter Details panel without Blueprint scripting.
+    // ReplicatedUsing retained: clients still get OnRep_ for cosmetic updates.
+    UPROPERTY(EditDefaultsOnly, ReplicatedUsing = OnRep_TriggerSlots,
+        BlueprintReadOnly, Category = "WTBR | Trigger Set | Slots",
+        meta = (AllowPrivateAccess = "true"))
     TArray<FWTBRTriggerSlot> TriggerSlots;
 
     UPROPERTY(Replicated)
@@ -123,6 +128,9 @@ private:
     bool IsValidSlotIndex(int32 Index) const { return TriggerSlots.IsValidIndex(Index); }
 
     void AsyncLoadSlot(int32 SlotIndex, TFunction<void()> OnComplete);
+
+    UFUNCTION()
+    void OnRep_TriggerSlots();
 
     UFUNCTION()
     void OnRep_DualWieldState();

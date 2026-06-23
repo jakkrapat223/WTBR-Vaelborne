@@ -21,6 +21,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Trigger")
     ETriggerCategory Category = ETriggerCategory::Melee;
 
+    // Called by TriggerSetComponent after spawn to bind owner and data.
+    virtual void InitializeTrigger(AWTBRCharacter* InOwnerCharacter, UWTBRTriggerDataAsset* InDataAsset);
+
     // Main activation entry point — called by TriggerSetComponent on button press.
     UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Trigger")
     bool Activate(const FInputActionValue& InputValue, bool bIsDualWield);

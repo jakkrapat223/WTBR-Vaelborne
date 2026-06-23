@@ -77,6 +77,20 @@ struct FWTBRMeleeHitboxParams
         Category = "Melee | Combat",
         meta = (ClampMin = "0.1"))
     float SwingCooldown = 0.5f;
+
+    // Mantorn: รัศมีหมุน Spin Slash
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Melee | Mantorn",
+        meta = (ClampMin = "50.0"))
+    float MantornSpinRadius = 200.0f;
+
+    // Mantorn: Damage ของ Spin Slash
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Melee | Mantorn",
+        meta = (ClampMin = "0.0"))
+    float MantornSpinDamage = 80.0f;
 };
 
 USTRUCT(BlueprintType)
@@ -96,6 +110,218 @@ struct FWTBRDualWieldStats
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Dual Wield")
     bool bHasDualWieldMontage = false;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRLacernParams — Lacern (ดาบยืด)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRLacernParams
+{
+    GENERATED_BODY()
+
+    // ระยะยืดสูงสุดของใบมีด (UE units)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Lacern | Extend",
+        meta = (ClampMin = "50.0"))
+    float ExtendLength = 400.0f;
+
+    // ความเร็วยืดออก (units/sec)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Lacern | Extend",
+        meta = (ClampMin = "100.0"))
+    float ExtendSpeed = 1200.0f;
+
+    // ความเร็วดึงกลับ (units/sec)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Lacern | Extend",
+        meta = (ClampMin = "100.0"))
+    float RetractSpeed = 1800.0f;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRVoltisParams — Voltis (กระโดด + กับดักระเบิด)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRVoltisParams
+{
+    GENERATED_BODY()
+
+    // แรงดีดผู้ใช้ขึ้น/ออก (Z component)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Voltis | Launch",
+        meta = (ClampMin = "100.0"))
+    float LaunchForce = 1500.0f;
+
+    // จำนวนครั้งสูงสุดที่ดีดได้ก่อนลงพื้น (GDD: ไม่จำกัด แต่รอ Playtest)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Voltis | Launch",
+        meta = (ClampMin = "1"))
+    int32 MaxAirLaunches = 3;
+
+    // รัศมีระเบิดของ Voltis Trap
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Voltis | Trap",
+        meta = (ClampMin = "50.0"))
+    float TrapExplosionRadius = 300.0f;
+
+    // Damage ของ Voltis Trap (GDD: Launch เท่านั้น ไม่มี Damage — 0 default)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Voltis | Trap",
+        meta = (ClampMin = "0.0"))
+    float TrapDamage = 0.0f;
+
+    // ระยะเวลาที่ Trap อยู่บนพื้นก่อนหมดอายุ (วินาที)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Voltis | Trap",
+        meta = (ClampMin = "1.0"))
+    float TrapLifetime = 30.0f;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRAegornParams — Aegorn (โล่) + Aegorn Wall (กำแพง)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRAegornParams
+{
+    GENERATED_BODY()
+
+    // HP ของโล่ Aegorn (ถูกยิงซ้ำลด HP จนหมด)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Aegorn | Shield",
+        meta = (ClampMin = "1.0"))
+    float ShieldHP = 200.0f;
+
+    // ความกว้างของโล่ (องศา — 90 = กั้นได้ 1 ทิศ, 180 = Dual Wield)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Aegorn | Shield",
+        meta = (ClampMin = "45.0", ClampMax = "180.0"))
+    float ShieldCoverageAngle = 90.0f;
+
+    // HP ของ Aegorn Wall (กำแพงแยกต่างหากจากโล่)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Aegorn | Wall",
+        meta = (ClampMin = "1.0"))
+    float AegornWallHP = 300.0f;
+
+    // เวลาสร้างกำแพง (วินาที)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Aegorn | Wall",
+        meta = (ClampMin = "0.1"))
+    float WallBuildTime = 0.3f;
+
+    // ขนาดกำแพง (ความสูง × ความกว้าง)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Aegorn | Wall")
+    FVector2D WallSize = FVector2D(300.0f, 200.0f);
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRArcvenParams — Arcven (คลื่น Arc) + Arcven Dual
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRArcvenParams
+{
+    GENERATED_BODY()
+
+    // Damage ของ Arc Wave เดี่ยว (GDD Lock: 120)
+    // ⚠ PLAYTEST PENDING — GDD เขียน 120 แต่รอ Playtest
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Single",
+        meta = (ClampMin = "0.0"))
+    float ArcDamage = 120.0f;
+
+    // ระยะยิง Arc Wave
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Single",
+        meta = (ClampMin = "100.0"))
+    float ArcRange = 800.0f;
+
+    // ความเร็ว Arc Wave (units/sec)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Single",
+        meta = (ClampMin = "100.0"))
+    float ArcWaveSpeed = 1200.0f;
+
+    // Damage Arcven Dual รวม (GDD: 200 = 100/เส้น)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Dual",
+        meta = (ClampMin = "0.0"))
+    float DualArcTotalDamage = 200.0f;
+
+    // Shield Penetration ตอน Dual Cross-Slash (GDD: 50%)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Dual",
+        meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float DualCrossSlashShieldPen = 0.5f;
+
+    // มุมเบี่ยงของ Dual Wave ซ้าย/ขวา (องศา)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Dual",
+        meta = (ClampMin = "0.0", ClampMax = "45.0"))
+    float DualWaveSpreadAngle = 15.0f;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRNexilParams — Nexil (กับดักเส้น)
+// GDD: Damage = 0, CC ล้วน, ขึ้น Action Ping เมื่อสะดุด
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRNexilParams
+{
+    GENERATED_BODY()
+
+    // ความยาวเส้นกับดัก
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Nexil | Wire",
+        meta = (ClampMin = "50.0"))
+    float WireLength = 500.0f;
+
+    // ระยะเวลา Stagger เมื่อศัตรูสะดุด (GDD: 1.5 วิ)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Nexil | Effect",
+        meta = (ClampMin = "0.1"))
+    float StaggerDuration = 1.5f;
+
+    // จำนวนเส้นสูงสุดต่อคน (GDD: 8 เส้น — เส้นที่ 9 ลบเส้นแรก)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Nexil | Wire",
+        meta = (ClampMin = "1"))
+    int32 MaxWires = 8;
+
+    // ระยะเวลาที่เส้นอยู่บนพื้น (GDD: 45 วิ)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Nexil | Wire",
+        meta = (ClampMin = "1.0"))
+    float WireDuration = 45.0f;
+
+    // HP ของเส้น (GDD: 1 — ฟันหรือยิงขาดได้)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Nexil | Wire",
+        meta = (ClampMin = "1"))
+    int32 WireHP = 1;
 };
 
 UCLASS(BlueprintType)
@@ -148,6 +374,38 @@ public:
         Category = "Trigger | Melee",
         meta = (EditCondition = "Category == ETriggerCategory::Melee"))
     FWTBRMeleeHitboxParams MeleeHitbox;
+
+    // ── Lacern ────────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Lacern",
+        meta = (EditCondition = "Category == ETriggerCategory::Melee"))
+    FWTBRLacernParams LacernParams;
+
+    // ── Voltis ────────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Voltis",
+        meta = (EditCondition = "Category == ETriggerCategory::Movement"))
+    FWTBRVoltisParams VoltisParams;
+
+    // ── Aegorn ────────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Aegorn",
+        meta = (EditCondition = "Category == ETriggerCategory::Defense"))
+    FWTBRAegornParams AegornParams;
+
+    // ── Arcven ────────────────────────────────────────────────────────────
+    // Arcven เป็น Melee ที่ปล่อย Arc Wave ออกนอกร่าง
+    // bDispatchesActionPing = true สำหรับ Arcven (Vael ออกนอกร่าง)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Arcven",
+        meta = (EditCondition = "Category == ETriggerCategory::Melee"))
+    FWTBRArcvenParams ArcvenParams;
+
+    // ── Nexil ─────────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Nexil",
+        meta = (EditCondition = "Category == ETriggerCategory::Trap"))
+    FWTBRNexilParams NexilParams;
 
     // ─── Action Ping ─────────────────────────────────────────────────────────
 
