@@ -3,22 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "UObject/NoExportTypes.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
 #include "WTBRTriggerBase.generated.h"
-
-// Used by TriggerSetComponent for dual-wield Pure Type-Match (GDD §3.4)
-UENUM(BlueprintType)
-enum class ETriggerCategory : uint8
-{
-    Melee        UMETA(DisplayName="Melee"),
-    Gunner       UMETA(DisplayName="Gunner"),
-    SniperBullet UMETA(DisplayName="Sniper Bullet"),  // Cannot be Composite (GDD §2.7)
-    Shield       UMETA(DisplayName="Shield"),
-    Trap         UMETA(DisplayName="Trap"),
-    BlackTrigger UMETA(DisplayName="Black Trigger"),
-};
-
-class UWTBRTriggerDataAsset;
 
 UCLASS(Abstract, BlueprintType, Blueprintable)
 class WTBR_API UWTBRTriggerBase : public UObject

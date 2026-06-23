@@ -42,19 +42,20 @@ void UWTBRHealthComponent::DestroyLimb(EWTBRLimbType Limb)
     FWTBRLimbState& State = LimbStates[Idx];
     State.bDestroyed = true;
 
+    const UWTBRCoreStatsDataAsset* S = GetStats();
     if (Limb == EWTBRLimbType::LeftLeg || Limb == EWTBRLimbType::RightLeg)
     {
-        State.SpeedPenalty  = StatsData ? StatsData->LimbLegSpeedPenalty  : 0.40f;
+        State.SpeedPenalty  = S ? S->LimbLegSpeedPenalty  : 0.40f;
         State.DamagePenalty = 0.f;
     }
     else
     {
-        State.DamagePenalty = StatsData ? StatsData->LimbArmDamagePenalty : 0.35f;
-        State.SpeedPenalty  = StatsData ? StatsData->LimbArmSpeedPenalty  : 0.35f;
+        State.DamagePenalty = S ? S->LimbArmDamagePenalty : 0.35f;
+        State.SpeedPenalty  = S ? S->LimbArmSpeedPenalty  : 0.35f;
     }
 
-    const float RateMid = StatsData
-        ? (StatsData->LimbHPDrainRateMin + StatsData->LimbHPDrainRateMax) * 0.5f
+    const float RateMid = S
+        ? (S->LimbHPDrainRateMin + S->LimbHPDrainRateMax) * 0.5f
         : 0.0075f;
     State.HPDrainRateMultiplier = RateMid;
 
@@ -91,7 +92,8 @@ void UWTBRHealthComponent::RestoreLimb(EWTBRLimbType Limb)
 
 float UWTBRHealthComponent::GetMaxHP() const
 {
-    return StatsData ? StatsData->MaxHP : 300.f;
+    const auto* S = GetStats();
+    return S ? S->MaxHP : 300.f;
 }
 
 FWTBRLimbState UWTBRHealthComponent::GetLimbState(EWTBRLimbType Limb) const
@@ -147,9 +149,10 @@ void UWTBRHealthComponent::RefreshLimbDrainTimer()
 
 void UWTBRHealthComponent::TickLimbDrain()
 {
-    const float MaxHP   = GetMaxHP();
-    const float RateMid = StatsData
-        ? (StatsData->LimbHPDrainRateMin + StatsData->LimbHPDrainRateMax) * 0.5f
+    const float MaxHP = GetMaxHP();
+    const auto* S     = GetStats();
+    const float RateMid = S
+        ? (S->LimbHPDrainRateMin + S->LimbHPDrainRateMax) * 0.5f
         : 0.0075f;
 
     float TotalDrain = 0.f;

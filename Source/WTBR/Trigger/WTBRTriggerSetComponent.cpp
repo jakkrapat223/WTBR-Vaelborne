@@ -94,7 +94,7 @@ void UWTBRTriggerSetComponent::UpdateDualWieldState()
     const UWTBRTriggerBase* Sub  = GetActiveSubTrigger();
 
     EWTBRDualWieldState NewState  = EWTBRDualWieldState::None;
-    ETriggerCategory    ActiveCat = ETriggerCategory::Melee;
+    ETriggerCategory    ActiveCat = ETriggerCategory::None;
 
     // Pure Type-Match — no priority, no timing (GDD §3.4 Lock)
     if (Main && Sub && Main->Category == Sub->Category)
@@ -102,11 +102,11 @@ void UWTBRTriggerSetComponent::UpdateDualWieldState()
         ActiveCat = Main->Category;
         switch (ActiveCat)
         {
-            case ETriggerCategory::Melee:        NewState = EWTBRDualWieldState::DualMelee;  break;
-            case ETriggerCategory::Gunner:       NewState = EWTBRDualWieldState::DualGunner; break;
-            case ETriggerCategory::Shield:       NewState = EWTBRDualWieldState::DualShield; break;
-            case ETriggerCategory::Trap:         NewState = EWTBRDualWieldState::DualTrap;   break;
-            case ETriggerCategory::SniperBullet: NewState = EWTBRDualWieldState::DualSniper; break;
+            case ETriggerCategory::Melee:        NewState = EWTBRDualWieldState::DualMelee;    break;
+            case ETriggerCategory::Gunner:       NewState = EWTBRDualWieldState::DualGunner;   break;
+            case ETriggerCategory::Movement:     NewState = EWTBRDualWieldState::DualMovement; break;
+            case ETriggerCategory::Defense:      NewState = EWTBRDualWieldState::DualDefense;  break;
+            case ETriggerCategory::SniperBullet: NewState = EWTBRDualWieldState::DualSniper;   break;
             default: break;
         }
     }

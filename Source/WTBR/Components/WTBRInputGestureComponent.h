@@ -4,10 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "InputActionValue.h"
 #include "WTBRInputGestureComponent.generated.h"
 
 // Forward-declare to avoid circular include (WTBRTriggerSetComponent includes WTBRTriggerBase)
 class UWTBRTriggerSetComponent;
+class UInputAction;
+class UEnhancedInputComponent;
 
 UENUM(BlueprintType)
 enum class EWTBRInputGesture : uint8
@@ -36,6 +39,21 @@ public:
 
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnGestureDetected OnGestureDetected;
+
+    // ── Input Action References ───────────────────────────────────────────────
+    // Set these in BP_WTBRCharacter → InputGestureComponent defaults.
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Input | Actions")
+    TObjectPtr<UInputAction> IA_Move;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Input | Actions")
+    TObjectPtr<UInputAction> IA_Look;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Input | Actions")
+    TObjectPtr<UInputAction> IA_Jump;
+
+    // Called from WTBRCharacter::SetupPlayerInputComponent to wire all input
+    void BindInputActions(UEnhancedInputComponent* EIC);
 
     // Called from WTBRCharacter::SetupPlayerInputComponent
     UFUNCTION(BlueprintCallable, Category="Input")
@@ -66,4 +84,14 @@ private:
 
     // Checks Pure Type-Match dual-trigger condition and fires DualTrigger gesture
     void CheckDualGesture();
+
+    // ── Movement ──────────────────────────────────────────────────────────────
+    void OnMove_Triggered(const FInputActionValue& Value);
+
+    // ── Look (Mouse XY) ───────────────────────────────────────────────────────
+    void OnLook_Triggered(const FInputActionValue& Value);
+
+    // ── Jump ──────────────────────────────────────────────────────────────────
+    void OnJump_Started(const FInputActionValue& Value);
+    void OnJump_Completed(const FInputActionValue& Value);
 };

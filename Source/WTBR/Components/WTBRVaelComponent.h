@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Data/WTBRCoreStatsDataAsset.h"
 #include "WTBRVaelComponent.generated.h"
 
 // EVaelReleaseEvent — fired when Vael energy physically leaves the character capsule.
@@ -11,8 +12,6 @@
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnVaelReleased);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnVaelChanged, float, NewVael, float, MaxVael);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOverheatChanged, bool, bIsOverheated);
-
-class UWTBRCoreStatsDataAsset;
 
 UCLASS(ClassGroup=(WTBR), meta=(BlueprintSpawnableComponent))
 class WTBR_API UWTBRVaelComponent : public UActorComponent
@@ -22,8 +21,12 @@ class WTBR_API UWTBRVaelComponent : public UActorComponent
 public:
     UWTBRVaelComponent();
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats")
-    TObjectPtr<UWTBRCoreStatsDataAsset> StatsData;
+    // ── DataAsset Reference ──────────────────────────────────────────────────
+    // Single source of truth for all tunable stats.
+    // Set this reference in BP_WTBRCharacter component defaults (Details panel).
+    // All gameplay values are read from this asset at BeginPlay — never hardcoded.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Config")
+    TSoftObjectPtr<UWTBRCoreStatsDataAsset> CoreStatsAsset;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Vael")
     float MaxVael = 1000.f;
@@ -60,6 +63,12 @@ private:
 
     UPROPERTY(Replicated)
     bool bOverheated = false;
+
+    const UWTBRCoreStatsDataAsset* GetStats() const
+    {
+        ensure(CoreStatsAsset.IsValid());
+        return CoreStatsAsset.Get();
+    }
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };

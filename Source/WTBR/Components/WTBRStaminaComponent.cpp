@@ -40,7 +40,8 @@ bool UWTBRStaminaComponent::TryConsumeStamina(float Amount)
         TM.ClearTimer(RegenDelayTimer);
         TM.ClearTimer(RegenTickTimer);
 
-        const float Delay = StatsData ? StatsData->StaminaRegenDelay : 1.2f;
+        const auto* S = GetStats();
+        const float Delay = S ? S->StaminaRegenDelay : 1.2f;
         TM.SetTimer(RegenDelayTimer, this, &UWTBRStaminaComponent::StartRegenTick, Delay, false);
     }
     return true;
@@ -53,18 +54,21 @@ bool UWTBRStaminaComponent::TryConsumeDodgeStamina()
 
 float UWTBRStaminaComponent::GetMaxStamina() const
 {
-    return StatsData ? StatsData->MaxStamina : 100.f;
+    const auto* S = GetStats();
+    return S ? S->MaxStamina : 100.f;
 }
 
 float UWTBRStaminaComponent::GetDodgeCost() const
 {
-    return StatsData ? StatsData->StaminaDodgeCost : 33.f;
+    const auto* S = GetStats();
+    return S ? S->StaminaDodgeCost : 33.f;
 }
 
 float UWTBRStaminaComponent::GetSpeedPenalty() const
 {
     if (!bExhausted) return 0.f;
-    return StatsData ? StatsData->StaminaExhaustedSpeedPenalty : 0.10f;
+    const auto* S = GetStats();
+    return S ? S->StaminaExhaustedSpeedPenalty : 0.10f;
 }
 
 // ─── Timer Regen ─────────────────────────────────────────────────────────────
@@ -79,7 +83,8 @@ void UWTBRStaminaComponent::StartRegenTick()
 void UWTBRStaminaComponent::TickRegen()
 {
     const float Max        = GetMaxStamina();
-    const float RegenRate  = StatsData ? StatsData->StaminaRegenRate : 35.f;
+    const auto* S          = GetStats();
+    const float RegenRate  = S ? S->StaminaRegenRate : 35.f;
     const float RegenDelta = RegenRate * REGEN_TICK_INTERVAL;
 
     CurrentStamina = FMath::Min(Max, CurrentStamina + RegenDelta);

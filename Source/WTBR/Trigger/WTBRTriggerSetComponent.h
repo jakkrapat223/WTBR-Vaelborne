@@ -21,12 +21,12 @@ enum class ETriggerSlot : uint8
 UENUM(BlueprintType)
 enum class EWTBRDualWieldState : uint8
 {
-    None        UMETA(DisplayName="None"),
-    DualMelee   UMETA(DisplayName="Dual Melee"),
-    DualGunner  UMETA(DisplayName="Dual Gunner"),
-    DualShield  UMETA(DisplayName="Dual Shield"),
-    DualTrap    UMETA(DisplayName="Dual Trap"),
-    DualSniper  UMETA(DisplayName="Dual Sniper"),
+    None         UMETA(DisplayName="None"),
+    DualMelee    UMETA(DisplayName="Dual Melee"),
+    DualGunner   UMETA(DisplayName="Dual Gunner"),
+    DualMovement UMETA(DisplayName="Dual Movement"),
+    DualDefense  UMETA(DisplayName="Dual Defense"),
+    DualSniper   UMETA(DisplayName="Dual Sniper"),
 };
 
 // Per-slot data. TSoftObjectPtr for DataAsset = lazy load only.
@@ -44,7 +44,7 @@ struct FWTBRTriggerSlot
     TObjectPtr<UWTBRTriggerBase> RuntimeTrigger = nullptr;
 
     UPROPERTY()
-    ETriggerCategory CachedCategory = ETriggerCategory::Melee;
+    ETriggerCategory CachedCategory = ETriggerCategory::None;
 
     bool IsEmpty()  const { return DataAsset.IsNull(); }
     bool IsLoaded() const { return DataAsset.IsValid() && !DataAsset.IsNull(); }

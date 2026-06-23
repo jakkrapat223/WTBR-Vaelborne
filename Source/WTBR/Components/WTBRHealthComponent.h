@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Data/WTBRCoreStatsDataAsset.h"
 #include "WTBRHealthComponent.generated.h"
 
 // ─── Enums & Structs (used by WTBRCharacter and WTBRTriggerBase) ────────────
@@ -42,8 +43,6 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCharacterDeath);
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-class UWTBRCoreStatsDataAsset;
-
 UCLASS(ClassGroup=(WTBR), meta=(BlueprintSpawnableComponent))
 class WTBR_API UWTBRHealthComponent : public UActorComponent
 {
@@ -52,8 +51,12 @@ class WTBR_API UWTBRHealthComponent : public UActorComponent
 public:
     UWTBRHealthComponent();
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats")
-    TObjectPtr<UWTBRCoreStatsDataAsset> StatsData;
+    // ── DataAsset Reference ──────────────────────────────────────────────────
+    // Single source of truth for all tunable stats.
+    // Set this reference in BP_WTBRCharacter component defaults (Details panel).
+    // All gameplay values are read from this asset at BeginPlay — never hardcoded.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Config")
+    TSoftObjectPtr<UWTBRCoreStatsDataAsset> CoreStatsAsset;
 
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnHPChanged OnHPChanged;
@@ -101,6 +104,12 @@ private:
     float CurrentHP = 300.f;
 
     FTimerHandle LimbDrainTimerHandle;
+
+    const UWTBRCoreStatsDataAsset* GetStats() const
+    {
+        ensure(CoreStatsAsset.IsValid());
+        return CoreStatsAsset.Get();
+    }
 
     // Starts (or keeps) the drain timer running; called whenever a limb is destroyed
     void RefreshLimbDrainTimer();

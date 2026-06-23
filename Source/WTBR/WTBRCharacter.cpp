@@ -82,10 +82,12 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 {
     if (UEnhancedInputComponent* EIC = CastChecked<UEnhancedInputComponent>(PlayerInputComponent))
     {
-        EIC->BindAction(JumpAction,          ETriggerEvent::Triggered, this, &ACharacter::Jump);
-        EIC->BindAction(JumpAction,          ETriggerEvent::Completed, this, &ACharacter::StopJumping);
-        EIC->BindAction(MoveAction,          ETriggerEvent::Triggered, this, &AWTBRCharacter::Move);
-        EIC->BindAction(LookAction,          ETriggerEvent::Triggered, this, &AWTBRCharacter::Look);
+        // Move / Look / Jump are handled by WTBRInputGestureComponent (IA_Move/Look/Jump props)
+        if (InputGestureComponent)
+        {
+            InputGestureComponent->BindInputActions(EIC);
+        }
+
         EIC->BindAction(FireMainAction,      ETriggerEvent::Started,   this, &AWTBRCharacter::FireMain);
         EIC->BindAction(FireMainAction,      ETriggerEvent::Completed, this, &AWTBRCharacter::FireMainReleased);
         EIC->BindAction(FireSubAction,       ETriggerEvent::Started,   this, &AWTBRCharacter::FireSub);

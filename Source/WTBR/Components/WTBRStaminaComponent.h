@@ -4,11 +4,10 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Data/WTBRCoreStatsDataAsset.h"
 #include "WTBRStaminaComponent.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStaminaChanged, float, NewStamina, bool, bIsExhausted);
-
-class UWTBRCoreStatsDataAsset;
 
 UCLASS(ClassGroup=(WTBR), meta=(BlueprintSpawnableComponent))
 class WTBR_API UWTBRStaminaComponent : public UActorComponent
@@ -18,8 +17,12 @@ class WTBR_API UWTBRStaminaComponent : public UActorComponent
 public:
     UWTBRStaminaComponent();
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Stats")
-    TObjectPtr<UWTBRCoreStatsDataAsset> StatsData;
+    // ── DataAsset Reference ──────────────────────────────────────────────────
+    // Single source of truth for all tunable stats.
+    // Set this reference in BP_WTBRCharacter component defaults (Details panel).
+    // All gameplay values are read from this asset at BeginPlay — never hardcoded.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Config")
+    TSoftObjectPtr<UWTBRCoreStatsDataAsset> CoreStatsAsset;
 
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnStaminaChanged OnStaminaChanged;
@@ -28,7 +31,7 @@ public:
     UFUNCTION(BlueprintCallable, Category="Stamina")
     bool TryConsumeStamina(float Amount);
 
-    // Convenience: consumes the dodge cost defined in StatsData
+    // Convenience: consumes the dodge cost defined in CoreStatsAsset
     UFUNCTION(BlueprintCallable, Category="Stamina")
     bool TryConsumeDodgeStamina();
 
@@ -62,6 +65,12 @@ private:
 
     // Looping timer: fires TickRegen() every 0.05 s until stamina is full
     FTimerHandle RegenTickTimer;
+
+    const UWTBRCoreStatsDataAsset* GetStats() const
+    {
+        ensure(CoreStatsAsset.IsValid());
+        return CoreStatsAsset.Get();
+    }
 
     // Starts the looping regen tick — called by RegenDelayTimer
     void StartRegenTick();
