@@ -68,7 +68,7 @@ public:
     FOnCharacterDeath OnDeath;
 
     UFUNCTION(BlueprintCallable, Category="Health")
-    void ApplyDamage(float DamageAmount);
+    void ApplyDamage(float DamageAmount, AActor* DamageInstigator = nullptr);
 
     UFUNCTION(BlueprintCallable, Category="Health")
     void DestroyLimb(EWTBRLimbType Limb);

@@ -46,6 +46,40 @@ enum class ETriggerSlotConstraint : uint8
 };
 
 USTRUCT(BlueprintType)
+struct FWTBRMeleeHitboxParams
+{
+    GENERATED_BODY()
+
+    // ⚠ PLAYTEST PENDING — all values adjustable via DataAsset only
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Melee | Hitbox",
+        meta = (ClampMin = "1.0"))
+    float CapsuleRadius = 30.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Melee | Hitbox",
+        meta = (ClampMin = "1.0"))
+    float CapsuleHalfHeight = 50.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Melee | Hitbox",
+        meta = (ClampMin = "10.0"))
+    float ForwardOffset = 120.0f;
+
+    // TD Approved: offset L/R so dual sweeps don't overlap
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Melee | Hitbox | Dual Wield",
+        meta = (ClampMin = "0.0"))
+    float DualWieldLateralOffset = 40.0f;
+
+    // FTimerHandle driven — NOT Tick
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Melee | Combat",
+        meta = (ClampMin = "0.1"))
+    float SwingCooldown = 0.5f;
+};
+
+USTRUCT(BlueprintType)
 struct FWTBRDualWieldStats
 {
     GENERATED_BODY()
@@ -107,6 +141,13 @@ public:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Dual Wield", meta=(EditCondition="bSupportsDualWield"))
     FWTBRDualWieldStats DualWieldStats;
+
+    // ── Melee Hitbox ──────────────────────────────────────────────────────
+    // Used only when Category == ETriggerCategory::Melee
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Melee",
+        meta = (EditCondition = "Category == ETriggerCategory::Melee"))
+    FWTBRMeleeHitboxParams MeleeHitbox;
 
     // ─── Action Ping ─────────────────────────────────────────────────────────
 

@@ -25,7 +25,7 @@ void UWTBRHealthComponent::BeginPlay()
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-void UWTBRHealthComponent::ApplyDamage(float DamageAmount)
+void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstigator)
 {
     if (!IsAlive()) return;
     CurrentHP = FMath::Max(0.f, CurrentHP - DamageAmount);
