@@ -8,7 +8,11 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "InputAction.h"
+#include "InputMappingContext.h"
+#include "Engine/Engine.h"
 #include "Net/UnrealNetwork.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Components/WTBRHealthComponent.h"
 #include "Components/WTBRStaminaComponent.h"
 #include "Components/WTBRVaelComponent.h"
@@ -48,20 +52,58 @@ AWTBRCharacter::AWTBRCharacter()
     MovementExtComponent  = CreateDefaultSubobject<UWTBRMovementExtComponent>(TEXT("MovementExtComponent"));
     InputGestureComponent = CreateDefaultSubobject<UWTBRInputGestureComponent>(TEXT("InputGestureComponent"));
     TriggerSetComponent   = CreateDefaultSubobject<UWTBRTriggerSetComponent>(TEXT("TriggerSetComponent"));
+
+    static ConstructorHelpers::FObjectFinder<UInputMappingContext> DefaultMappingContextAsset(
+        TEXT("/Game/Input/IMC_WTBR_Default.IMC_WTBR_Default"));
+    if (DefaultMappingContextAsset.Succeeded())
+    {
+        DefaultMappingContext = DefaultMappingContextAsset.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> MoveActionAsset(
+        TEXT("/Game/Input/Actions/IA_Move.IA_Move"));
+    if (MoveActionAsset.Succeeded())
+    {
+        MoveAction = MoveActionAsset.Object;
+        InputGestureComponent->IA_Move = MoveActionAsset.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> LookActionAsset(
+        TEXT("/Game/Input/Actions/IA_Look.IA_Look"));
+    if (LookActionAsset.Succeeded())
+    {
+        LookAction = LookActionAsset.Object;
+        InputGestureComponent->IA_Look = LookActionAsset.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> JumpActionAsset(
+        TEXT("/Game/Input/Actions/IA_Jump.IA_Jump"));
+    if (JumpActionAsset.Succeeded())
+    {
+        JumpAction = JumpActionAsset.Object;
+        InputGestureComponent->IA_Jump = JumpActionAsset.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> SwitchMainActionAsset(
+        TEXT("/Game/Input/Actions/IA_SwitchMain.IA_SwitchMain"));
+    if (SwitchMainActionAsset.Succeeded())
+    {
+        SwitchMainAction = SwitchMainActionAsset.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> SwitchSubActionAsset(
+        TEXT("/Game/Input/Actions/IA_SwitchSub.IA_SwitchSub"));
+    if (SwitchSubActionAsset.Succeeded())
+    {
+        SwitchSubAction = SwitchSubActionAsset.Object;
+    }
 }
 
 void AWTBRCharacter::BeginPlay()
 {
     Super::BeginPlay();
 
-    if (APlayerController* PC = Cast<APlayerController>(Controller))
-    {
-        if (UEnhancedInputLocalPlayerSubsystem* Sub =
-            ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
-        {
-            Sub->AddMappingContext(DefaultMappingContext, 0);
-        }
-    }
+    AddDefaultMappingContext();
 
     if (HealthComponent)
     {
@@ -82,6 +124,9 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 {
     if (UEnhancedInputComponent* EIC = CastChecked<UEnhancedInputComponent>(PlayerInputComponent))
     {
+        AddDefaultMappingContext();
+        ApplyInputActionFallbacks();
+
         // Move / Look / Jump are handled by WTBRInputGestureComponent (IA_Move/Look/Jump props)
         if (InputGestureComponent)
         {
@@ -93,7 +138,18 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         EIC->BindAction(FireSubAction,       ETriggerEvent::Started,   this, &AWTBRCharacter::FireSub);
         EIC->BindAction(FireSubAction,       ETriggerEvent::Completed, this, &AWTBRCharacter::FireSubReleased);
         EIC->BindAction(DodgeAction,         ETriggerEvent::Triggered, this, &AWTBRCharacter::Dodge);
-        EIC->BindAction(SwitchTriggerAction, ETriggerEvent::Triggered, this, &AWTBRCharacter::SwitchTrigger);
+        if (IsValid(SwitchTriggerAction))
+        {
+            EIC->BindAction(SwitchTriggerAction, ETriggerEvent::Started, this, &AWTBRCharacter::SwitchTrigger);
+        }
+        if (IsValid(SwitchMainAction))
+        {
+            EIC->BindAction(SwitchMainAction, ETriggerEvent::Started, this, &AWTBRCharacter::SwitchMainTrigger);
+        }
+        if (IsValid(SwitchSubAction))
+        {
+            EIC->BindAction(SwitchSubAction, ETriggerEvent::Started, this, &AWTBRCharacter::SwitchSubTrigger);
+        }
     }
 }
 
@@ -148,18 +204,99 @@ void AWTBRCharacter::Dodge(const FInputActionValue& Value)
 
 void AWTBRCharacter::SwitchTrigger(const FInputActionValue& Value)
 {
-    // Slot index from axis value (extend as needed for radial/scroll wheel)
-    Server_SwitchTrigger(0, true);
+    SwitchMainTrigger(Value);
+}
+
+void AWTBRCharacter::SwitchMainTrigger(const FInputActionValue& Value)
+{
+    UE_LOG(LogTemp, Log, TEXT("WTBR SwitchMain input pressed"));
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Cyan, TEXT("Switch Main Trigger"));
+    }
+    Server_CycleTrigger(true);
+}
+
+void AWTBRCharacter::SwitchSubTrigger(const FInputActionValue& Value)
+{
+    UE_LOG(LogTemp, Log, TEXT("WTBR SwitchSub input pressed"));
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Cyan, TEXT("Switch Sub Trigger"));
+    }
+    Server_CycleTrigger(false);
 }
 
 // ─── Server RPC Implementations ──────────────────────────────────────────────
 
+void AWTBRCharacter::AddDefaultMappingContext()
+{
+    if (!IsValid(DefaultMappingContext) || !IsLocallyControlled())
+    {
+        return;
+    }
+
+    APlayerController* PC = Cast<APlayerController>(Controller);
+    if (!IsValid(PC))
+    {
+        return;
+    }
+
+    ULocalPlayer* LocalPlayer = PC->GetLocalPlayer();
+    if (!LocalPlayer)
+    {
+        return;
+    }
+
+    if (UEnhancedInputLocalPlayerSubsystem* Sub =
+        ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(LocalPlayer))
+    {
+        if (!Sub->HasMappingContext(DefaultMappingContext))
+        {
+            Sub->AddMappingContext(DefaultMappingContext, 0);
+        }
+    }
+}
+
+void AWTBRCharacter::ApplyInputActionFallbacks()
+{
+    if (!InputGestureComponent)
+    {
+        return;
+    }
+
+    if (!IsValid(InputGestureComponent->IA_Move))
+    {
+        InputGestureComponent->IA_Move = MoveAction;
+    }
+    if (!IsValid(InputGestureComponent->IA_Look))
+    {
+        InputGestureComponent->IA_Look = LookAction;
+    }
+    if (!IsValid(InputGestureComponent->IA_Jump))
+    {
+        InputGestureComponent->IA_Jump = JumpAction;
+    }
+}
+
 void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed)
 {
-    if (!TriggerSetComponent) return;
+    UE_LOG(LogTemp, Log, TEXT("Server_Fire called: bIsMain=%d bIsPressed=%d"),
+        bIsMain,
+        bIsPressed);
+
+    if (!TriggerSetComponent)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("TriggerSetComponent is NULL"));
+        return;
+    }
+
     UWTBRTriggerBase* Trigger = bIsMain
         ? TriggerSetComponent->GetActiveMainTrigger()
         : TriggerSetComponent->GetActiveSubTrigger();
+
+    UE_LOG(LogTemp, Log, TEXT("Active Trigger: %s"),
+        Trigger ? *Trigger->GetClass()->GetName() : TEXT("nullptr"));
 
     if (!Trigger) return;
     if (bIsPressed) Trigger->OnTriggerActivated(this, bIsMain);
@@ -176,6 +313,13 @@ void AWTBRCharacter::Server_SwitchTrigger_Implementation(int32 SlotIndex, bool b
     if (!TriggerSetComponent) return;
     if (bIsMain) TriggerSetComponent->SwitchMainSlot(SlotIndex);
     else         TriggerSetComponent->SwitchSubSlot(SlotIndex);
+}
+
+void AWTBRCharacter::Server_CycleTrigger_Implementation(bool bIsMain)
+{
+    if (!TriggerSetComponent) return;
+    if (bIsMain) TriggerSetComponent->CycleMainSlot();
+    else         TriggerSetComponent->CycleSubSlot();
 }
 
 // ─── Delegate Handlers ───────────────────────────────────────────────────────
@@ -212,4 +356,29 @@ void AWTBRCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(AWTBRCharacter, bActionPingActive);
+    DOREPLIFETIME(AWTBRCharacter, bIsStaggered);
+}
+
+// ─── Stagger System ───────────────────────────────────────────────────────────
+
+void AWTBRCharacter::ApplyStagger(float Duration)
+{
+    if (!HasAuthority()) return;
+    if (Duration <= 0.0f) return;
+    bIsStaggered = true;
+    GetWorld()->GetTimerManager().SetTimer(
+        StaggerTimer,
+        this, &AWTBRCharacter::OnStaggerExpired,
+        Duration,
+        false);
+}
+
+void AWTBRCharacter::OnStaggerExpired()
+{
+    bIsStaggered = false;
+}
+
+void AWTBRCharacter::OnRep_bIsStaggered()
+{
+    // Blueprint: true=disable input+stagger anim | false=re-enable input
 }

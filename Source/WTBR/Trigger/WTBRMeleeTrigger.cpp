@@ -113,6 +113,33 @@ void UWTBRMeleeTrigger::SweepCapsuleAt(
         Params);
 }
 
+void UWTBRMeleeTrigger::SweepCapsuleFromTo(
+    const FVector& Start,
+    const FVector& End,
+    const FQuat& Rotation,
+    float Radius,
+    float HalfHeight,
+    TArray<FHitResult>& OutHits)
+{
+    if (!GetWorld()) return;
+
+    FCollisionQueryParams Params;
+    Params.AddIgnoredActor(OwnerCharacter.Get());
+    Params.bTraceComplex = false;
+
+    // SweepMulti จาก Start → End: ตรวจทุกจุดตลอดเส้นทาง
+    // ป้องกัน Tunneling ที่เกิดจาก blade position jump ระหว่าง ticks
+    GetWorld()->SweepMultiByChannel(
+        OutHits,
+        Start,
+        End,
+        Rotation,
+        ECC_Pawn,
+        FCollisionShape::MakeCapsule(Radius, HalfHeight),
+        Params
+    );
+}
+
 void UWTBRMeleeTrigger::ApplyDamageToHits(
     const TArray<FHitResult>& Hits, float DamageMultiplier)
 {

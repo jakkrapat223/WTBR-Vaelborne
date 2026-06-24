@@ -41,9 +41,6 @@ struct FWTBRTriggerSlot
     TSoftObjectPtr<UWTBRTriggerDataAsset> DataAsset;
 
     UPROPERTY()
-    TObjectPtr<UWTBRTriggerBase> RuntimeTrigger = nullptr;
-
-    UPROPERTY()
     ETriggerCategory CachedCategory = ETriggerCategory::None;
 
     bool IsEmpty()  const { return DataAsset.IsNull(); }
@@ -79,6 +76,12 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="TriggerSet")
     void SwitchSubSlot(int32 SlotIndex);
+
+    UFUNCTION(BlueprintCallable, Category="TriggerSet")
+    void CycleMainSlot();
+
+    UFUNCTION(BlueprintCallable, Category="TriggerSet")
+    void CycleSubSlot();
 
     UFUNCTION(BlueprintPure, Category="TriggerSet")
     UWTBRTriggerBase* GetActiveMainTrigger() const;
@@ -118,6 +121,9 @@ private:
     UPROPERTY(ReplicatedUsing=OnRep_DualWieldState)
     EWTBRDualWieldState CurrentDualWieldState = EWTBRDualWieldState::None;
 
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UWTBRTriggerBase>> RuntimeTriggers;
+
     // Tracks in-flight async load handles per slot index.
     // Key = slot index (0-7). Value = streamable handle.
     // Stored here (not in FWTBRTriggerSlot) to avoid UStruct serialization issues
@@ -126,8 +132,16 @@ private:
     TMap<int32, TSharedPtr<FStreamableHandle>> PendingSlotLoads;
 
     bool IsValidSlotIndex(int32 Index) const { return TriggerSlots.IsValidIndex(Index); }
+    bool HasServerAuthority() const;
 
     void AsyncLoadSlot(int32 SlotIndex, TFunction<void()> OnComplete);
+
+    void InitializeLoadedSlot(int32 SlotIndex);
+
+    // Synchronous fallback — creates RuntimeTrigger when DataAsset is already in memory.
+    // Called from CycleMainSlot/CycleSubSlot so the trigger is ready immediately
+    // without waiting for the next async-load callback.
+    void InstantiateRuntimeTrigger(int32 SlotIndex);
 
     UFUNCTION()
     void OnRep_TriggerSlots();

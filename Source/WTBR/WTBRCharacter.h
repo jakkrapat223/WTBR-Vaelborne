@@ -55,6 +55,12 @@ class AWTBRCharacter : public ACharacter
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
     TObjectPtr<UInputAction> SwitchTriggerAction;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
+    TObjectPtr<UInputAction> SwitchMainAction;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
+    TObjectPtr<UInputAction> SwitchSubAction;
+
 public:
     AWTBRCharacter();
 
@@ -80,6 +86,15 @@ public:
     FORCEINLINE TObjectPtr<USpringArmComponent> GetCameraBoom()    const { return CameraBoom; }
     FORCEINLINE TObjectPtr<UCameraComponent>    GetFollowCamera()  const { return FollowCamera; }
 
+    // ── Stagger System ────────────────────────────────────────────────────────
+    // Shared between Nexil Tripwire and Voltis Indoor Hard Landing
+    UFUNCTION(BlueprintCallable, Category = "WTBR | Character | Stagger")
+    void ApplyStagger(float Duration);
+
+    UPROPERTY(ReplicatedUsing = OnRep_bIsStaggered, BlueprintReadOnly,
+        Category = "WTBR | Character | Stagger")
+    bool bIsStaggered = false;
+
 protected:
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -93,6 +108,8 @@ protected:
     void FireSubReleased(const FInputActionValue& Value);
     void Dodge(const FInputActionValue& Value);
     void SwitchTrigger(const FInputActionValue& Value);
+    void SwitchMainTrigger(const FInputActionValue& Value);
+    void SwitchSubTrigger(const FInputActionValue& Value);
 
     // ─── Server RPCs ──────────────────────────────────────────────────────────
     UFUNCTION(Server, Unreliable)
@@ -104,12 +121,18 @@ protected:
     UFUNCTION(Server, Reliable)
     void Server_SwitchTrigger(int32 SlotIndex, bool bIsMain);
 
+    UFUNCTION(Server, Reliable)
+    void Server_CycleTrigger(bool bIsMain);
+
     // ─── Replication ─────────────────────────────────────────────────────────
     UPROPERTY(ReplicatedUsing=OnRep_ActionPing)
     bool bActionPingActive = false;
 
     UFUNCTION()
     void OnRep_ActionPing();
+
+    UFUNCTION()
+    void OnRep_bIsStaggered();
 
 private:
     // Dynamic delegate callbacks — UFUNCTION required for AddDynamic binding
@@ -123,4 +146,12 @@ private:
     void OnDualWieldStateChangedHandler(EWTBRDualWieldState NewState, ETriggerCategory ActiveCategory);
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+    FTimerHandle StaggerTimer;
+
+    void AddDefaultMappingContext();
+    void ApplyInputActionFallbacks();
+
+    UFUNCTION()
+    void OnStaggerExpired();
 };

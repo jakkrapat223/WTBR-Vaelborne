@@ -227,8 +227,9 @@ struct FWTBRAegornParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Aegorn | Wall")
     FVector2D WallSize = FVector2D(300.0f, 200.0f);
+ 
 };
-
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 // FWTBRArcvenParams — Arcven (คลื่น Arc) + Arcven Dual
 // ─────────────────────────────────────────────────────────────────────────────
@@ -342,7 +343,8 @@ public:
     ETriggerSlotConstraint SlotConstraint = ETriggerSlotConstraint::Any;
 
     // ─── Resources ───────────────────────────────────────────────────────────
-
+    UPROPERTY(EditAnywhere, BlueprintReadOnly,Category = "Trigger | Identity")
+    TSubclassOf<class UWTBRTriggerBase> TriggerClass;
     // Vael cost per activation — validated server-side before any effect (⚠ Playtest)
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Resources", meta=(ClampMin="0"))
     float VaelCostPerUse = 10.0f;

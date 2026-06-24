@@ -2,6 +2,7 @@
 
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
+#include "WTBRCharacter.h"
 #include "Engine/StreamableManager.h"
 #include "Engine/AssetManager.h"
 #include "Net/UnrealNetwork.h"
@@ -11,6 +12,7 @@ UWTBRTriggerSetComponent::UWTBRTriggerSetComponent()
     PrimaryComponentTick.bCanEverTick = false;
     SetIsReplicatedByDefault(true);
     TriggerSlots.Init(FWTBRTriggerSlot(), TotalSlotCount);
+    RuntimeTriggers.Init(nullptr, TotalSlotCount);
 }
 
 void UWTBRTriggerSetComponent::BeginPlay()
@@ -19,6 +21,10 @@ void UWTBRTriggerSetComponent::BeginPlay()
     if (TriggerSlots.Num() != TotalSlotCount)
     {
         TriggerSlots.Init(FWTBRTriggerSlot(), TotalSlotCount);
+    }
+    if (RuntimeTriggers.Num() != TotalSlotCount)
+    {
+        RuntimeTriggers.Init(nullptr, TotalSlotCount);
     }
 }
 
@@ -40,10 +46,15 @@ void UWTBRTriggerSetComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void UWTBRTriggerSetComponent::InstallTrigger(ETriggerSlot Slot, UWTBRTriggerBase* Trigger)
 {
-    const int32 Idx = (int32)Slot;
-    if (TriggerSlots.IsValidIndex(Idx))
+    if (!HasServerAuthority())
     {
-        TriggerSlots[Idx].RuntimeTrigger = Trigger;
+        return;
+    }
+
+    const int32 Idx = (int32)Slot;
+    if (TriggerSlots.IsValidIndex(Idx) && RuntimeTriggers.IsValidIndex(Idx))
+    {
+        RuntimeTriggers[Idx] = Trigger;
         if (Trigger)
         {
             TriggerSlots[Idx].CachedCategory = Trigger->Category;
@@ -53,39 +64,122 @@ void UWTBRTriggerSetComponent::InstallTrigger(ETriggerSlot Slot, UWTBRTriggerBas
 
 void UWTBRTriggerSetComponent::SwitchMainSlot(int32 SlotIndex)
 {
+    if (!HasServerAuthority())
+    {
+        return;
+    }
+
     if (SlotIndex >= 0 && SlotIndex < MainSlotCount)
     {
         ActiveMainIndex = SlotIndex;
-        UpdateDualWieldState();
-        OnActiveTriggerChanged.Broadcast((ETriggerSlot)SlotIndex);
+        AsyncLoadSlot(SlotIndex, [this, SlotIndex]()
+        {
+            if (ActiveMainIndex == SlotIndex)
+            {
+                UpdateDualWieldState();
+                OnActiveTriggerChanged.Broadcast((ETriggerSlot)SlotIndex);
+                UE_LOG(LogTemp, Log, TEXT("WTBR Main trigger switched to slot %d"), SlotIndex);
+            }
+        });
+
+        if (!TriggerSlots.IsValidIndex(SlotIndex) || TriggerSlots[SlotIndex].IsEmpty())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("WTBR Main trigger slot %d is empty"), SlotIndex);
+            UpdateDualWieldState();
+            OnActiveTriggerChanged.Broadcast((ETriggerSlot)SlotIndex);
+        }
     }
 }
 
 void UWTBRTriggerSetComponent::SwitchSubSlot(int32 SlotIndex)
 {
+    if (!HasServerAuthority())
+    {
+        return;
+    }
+
     const int32 AbsIdx = SlotIndex + MainSlotCount;
     if (AbsIdx >= MainSlotCount && AbsIdx < TotalSlotCount)
     {
         ActiveSubIndex = AbsIdx;
-        UpdateDualWieldState();
-        OnActiveTriggerChanged.Broadcast((ETriggerSlot)AbsIdx);
+        AsyncLoadSlot(AbsIdx, [this, AbsIdx]()
+        {
+            if (ActiveSubIndex == AbsIdx)
+            {
+                UpdateDualWieldState();
+                OnActiveTriggerChanged.Broadcast((ETriggerSlot)AbsIdx);
+                UE_LOG(LogTemp, Log, TEXT("WTBR Sub trigger switched to slot %d"), AbsIdx);
+            }
+        });
+
+        if (!TriggerSlots.IsValidIndex(AbsIdx) || TriggerSlots[AbsIdx].IsEmpty())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("WTBR Sub trigger slot %d is empty"), AbsIdx);
+            UpdateDualWieldState();
+            OnActiveTriggerChanged.Broadcast((ETriggerSlot)AbsIdx);
+        }
     }
+}
+
+void UWTBRTriggerSetComponent::CycleMainSlot()
+{
+    if (!HasServerAuthority()) return;
+
+    const int32 NewIndex = (ActiveMainIndex + 1) % MainSlotCount;
+    ActiveMainIndex = NewIndex;
+
+    AsyncLoadSlot(NewIndex, [this, NewIndex]()
+    {
+        if (HasServerAuthority())
+        {
+            InstantiateRuntimeTrigger(NewIndex);
+            UpdateDualWieldState();
+            OnActiveTriggerChanged.Broadcast((ETriggerSlot)NewIndex);
+        }
+    });
+}
+
+void UWTBRTriggerSetComponent::CycleSubSlot()
+{
+    if (!HasServerAuthority()) return;
+
+    const int32 CurrentRelativeIndex = ActiveSubIndex - MainSlotCount;
+    const int32 NewRelativeIndex     = (CurrentRelativeIndex + 1) % SubSlotCount;
+    const int32 NewAbsIndex          = NewRelativeIndex + MainSlotCount;
+    ActiveSubIndex = NewAbsIndex;
+
+    AsyncLoadSlot(NewAbsIndex, [this, NewAbsIndex]()
+    {
+        if (HasServerAuthority())
+        {
+            InstantiateRuntimeTrigger(NewAbsIndex);
+            UpdateDualWieldState();
+            OnActiveTriggerChanged.Broadcast((ETriggerSlot)NewAbsIndex);
+        }
+    });
 }
 
 UWTBRTriggerBase* UWTBRTriggerSetComponent::GetActiveMainTrigger() const
 {
-    return TriggerSlots.IsValidIndex(ActiveMainIndex) ? TriggerSlots[ActiveMainIndex].RuntimeTrigger : nullptr;
+    if (!RuntimeTriggers.IsValidIndex(ActiveMainIndex) || !RuntimeTriggers[ActiveMainIndex])
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("WTBR GetActiveMainTrigger: slot %d RuntimeTrigger is nullptr"),
+            ActiveMainIndex);
+        return nullptr;
+    }
+    return RuntimeTriggers[ActiveMainIndex];
 }
 
 UWTBRTriggerBase* UWTBRTriggerSetComponent::GetActiveSubTrigger() const
 {
-    return TriggerSlots.IsValidIndex(ActiveSubIndex) ? TriggerSlots[ActiveSubIndex].RuntimeTrigger : nullptr;
+    return RuntimeTriggers.IsValidIndex(ActiveSubIndex) ? RuntimeTriggers[ActiveSubIndex] : nullptr;
 }
 
 UWTBRTriggerBase* UWTBRTriggerSetComponent::GetTriggerInSlot(ETriggerSlot Slot) const
 {
     const int32 Idx = (int32)Slot;
-    return TriggerSlots.IsValidIndex(Idx) ? TriggerSlots[Idx].RuntimeTrigger : nullptr;
+    return RuntimeTriggers.IsValidIndex(Idx) ? RuntimeTriggers[Idx] : nullptr;
 }
 
 void UWTBRTriggerSetComponent::UpdateDualWieldState()
@@ -120,6 +214,7 @@ void UWTBRTriggerSetComponent::UpdateDualWieldState()
 
 void UWTBRTriggerSetComponent::AsyncLoadSlot(int32 SlotIndex, TFunction<void()> OnComplete)
 {
+    if (!HasServerAuthority()) return;
     if (!IsValidSlotIndex(SlotIndex)) return;
     FWTBRTriggerSlot& Slot = TriggerSlots[SlotIndex];
     if (Slot.IsEmpty()) return;
@@ -139,7 +234,7 @@ void UWTBRTriggerSetComponent::AsyncLoadSlot(int32 SlotIndex, TFunction<void()> 
     // This is the hot path after first activation — no async needed.
     if (Slot.DataAsset.IsValid())
     {
-        Slot.CachedCategory = Slot.DataAsset->Category;
+        InitializeLoadedSlot(SlotIndex);
         if (OnComplete) OnComplete();
         return;
     }
@@ -158,7 +253,7 @@ void UWTBRTriggerSetComponent::AsyncLoadSlot(int32 SlotIndex, TFunction<void()> 
             FWTBRTriggerSlot& LoadedSlot = TriggerSlots[SlotIndex];
             if (LoadedSlot.DataAsset.IsValid())
             {
-                LoadedSlot.CachedCategory = LoadedSlot.DataAsset->Category;
+                InitializeLoadedSlot(SlotIndex);
             }
 
             // Remove handle from map — load is complete
@@ -175,12 +270,110 @@ void UWTBRTriggerSetComponent::AsyncLoadSlot(int32 SlotIndex, TFunction<void()> 
     }
 }
 
+void UWTBRTriggerSetComponent::InitializeLoadedSlot(int32 SlotIndex)
+{
+    if (!HasServerAuthority())
+    {
+        return;
+    }
+
+    if (!IsValidSlotIndex(SlotIndex))
+    {
+        return;
+    }
+    if (!RuntimeTriggers.IsValidIndex(SlotIndex))
+    {
+        return;
+    }
+
+    FWTBRTriggerSlot& Slot = TriggerSlots[SlotIndex];
+    UWTBRTriggerDataAsset* LoadedDataAsset = Slot.DataAsset.Get();
+    if (!LoadedDataAsset)
+    {
+        return;
+    }
+
+    Slot.CachedCategory = LoadedDataAsset->Category;
+    if (RuntimeTriggers[SlotIndex])
+    {
+        return;
+    }
+
+    if (!LoadedDataAsset->TriggerClass)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR trigger slot %d has DataAsset %s but no TriggerClass"),
+            SlotIndex,
+            *LoadedDataAsset->GetName());
+        return;
+    }
+
+    UWTBRTriggerBase* NewTrigger = NewObject<UWTBRTriggerBase>(this, LoadedDataAsset->TriggerClass);
+    if (!NewTrigger)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR failed to instantiate trigger for slot %d"), SlotIndex);
+        return;
+    }
+
+    NewTrigger->InitializeTrigger(Cast<AWTBRCharacter>(GetOwner()), LoadedDataAsset);
+    RuntimeTriggers[SlotIndex] = NewTrigger;
+}
+
+void UWTBRTriggerSetComponent::InstantiateRuntimeTrigger(int32 SlotIndex)
+{
+    if (!HasServerAuthority()) return;
+    if (!IsValidSlotIndex(SlotIndex)) return;
+    if (!RuntimeTriggers.IsValidIndex(SlotIndex)) return;
+    if (RuntimeTriggers[SlotIndex]) return; // Already instantiated
+
+    UWTBRTriggerDataAsset* DA = TriggerSlots[SlotIndex].DataAsset.Get();
+    if (!DA)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("WTBR InstantiateRuntimeTrigger: slot %d DataAsset not in memory — skipping"),
+            SlotIndex);
+        return;
+    }
+    if (!DA->TriggerClass)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("WTBR InstantiateRuntimeTrigger: slot %d DataAsset [%s] has no TriggerClass"),
+            SlotIndex, *DA->GetName());
+        return;
+    }
+
+    UWTBRTriggerBase* NewTrigger = NewObject<UWTBRTriggerBase>(this, DA->TriggerClass);
+    if (!NewTrigger)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("WTBR InstantiateRuntimeTrigger: NewObject failed for slot %d"),
+            SlotIndex);
+        return;
+    }
+
+    NewTrigger->InitializeTrigger(Cast<AWTBRCharacter>(GetOwner()), DA);
+    RuntimeTriggers[SlotIndex] = NewTrigger;
+    UE_LOG(LogTemp, Log,
+        TEXT("WTBR Instantiated [%s] for slot %d"),
+        *DA->TriggerClass->GetName(), SlotIndex);
+}
+
+bool UWTBRTriggerSetComponent::HasServerAuthority() const
+{
+    const AActor* Owner = GetOwner();
+    return Owner && Owner->HasAuthority();
+}
+
 void UWTBRTriggerSetComponent::Server_SetTriggerLoadout_Implementation(
     const TArray<TSoftObjectPtr<UWTBRTriggerDataAsset>>& InLoadout)
 {
     for (int32 i = 0; i < TotalSlotCount && i < InLoadout.Num(); ++i)
     {
         TriggerSlots[i].DataAsset = InLoadout[i];
+        TriggerSlots[i].CachedCategory = ETriggerCategory::None;
+        if (RuntimeTriggers.IsValidIndex(i))
+        {
+            RuntimeTriggers[i] = nullptr;
+        }
     }
 }
 

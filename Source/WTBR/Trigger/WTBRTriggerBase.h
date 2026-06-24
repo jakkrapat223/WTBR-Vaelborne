@@ -45,6 +45,16 @@ public:
     void OnVaelLeftCharacterBounds(AActor* OwnerActor);
     virtual void OnVaelLeftCharacterBounds_Implementation(AActor* OwnerActor);
 
+    // Called by TriggerSetComponent on button release (hold-style triggers like Aegorn)
+    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Trigger")
+    void OnReleased(const FInputActionValue& InputValue, bool bIsDualWield);
+    virtual void OnReleased_Implementation(const FInputActionValue& InputValue, bool bIsDualWield);
+
+    // Called when trigger is force-deactivated (death, stun, loadout swap)
+    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Trigger")
+    void Deactivate();
+    virtual void Deactivate_Implementation();
+
 protected:
     // Set by TriggerSetComponent after spawn — weak to avoid cycle.
     UPROPERTY()

@@ -46,14 +46,25 @@ protected:
         float HalfHeight,
         TArray<FHitResult>& OutHits);
 
+    // Anti-tunneling sweep: ลาก Capsule จาก Start ไป End
+    // ใช้เมื่อ blade เคลื่อนที่ระหว่าง ticks — ป้องกัน enemy
+    // ที่อยู่กลางเส้นทางรอดตัวไปเพราะ position jump ระหว่าง tick
+    void SweepCapsuleFromTo(
+        const FVector& Start,
+        const FVector& End,
+        const FQuat& Rotation,
+        float Radius,
+        float HalfHeight,
+        TArray<FHitResult>& OutHits);
+
     void FilterHits(
         TArray<FHitResult>& InOutHits,
         const AActor* InstigatorActor);
 
-private:
+    // Cooldown — moved to protected so subclasses (Lacern etc.)
+    // can call StartCooldown() directly without hacks
     bool bIsOnCooldown = false;
     FTimerHandle CooldownTimer;
-
     void StartCooldown();
 
     UFUNCTION()
