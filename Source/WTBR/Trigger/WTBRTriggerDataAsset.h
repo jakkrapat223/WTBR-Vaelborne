@@ -726,6 +726,28 @@ struct FWTBRNyxveilParams
     float NyxveilVaelCost = 60.0f;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRVexornParams — Vexorn (Signal Block — Passive Defense)
+// Passive: no button press, no Vael drain. Active while Vexorn is the Sub-Trigger.
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRVexornParams
+{
+    GENERATED_BODY()
+
+    // Passive — always 0, present for DataAsset consistency
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vexorn | Resources")
+    float VexornVaelCost = 0.0f;
+
+    // Informational: this trigger activates automatically on equip, not on button press
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vexorn | Passive")
+    bool bIsPassive = true;
+
+    // Informational: enforced in loadout UI — Vexorn may only occupy a Sub Slot
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vexorn | Passive")
+    bool bSubSlotOnly = true;
+};
+
 UCLASS(BlueprintType)
 class WTBR_API UWTBRTriggerDataAsset : public UPrimaryDataAsset
 {
@@ -887,6 +909,12 @@ public:
         Category = "Trigger | Nyxveil",
         meta = (EditCondition = "Category == ETriggerCategory::BlackTrigger"))
     FWTBRNyxveilParams NyxveilParams;
+
+    // ── Vexorn ────────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Vexorn",
+        meta = (EditCondition = "Category == ETriggerCategory::Defense"))
+    FWTBRVexornParams VexornParams;
 
     // ─── Priority ─────────────────────────────────────────────────────────────
 

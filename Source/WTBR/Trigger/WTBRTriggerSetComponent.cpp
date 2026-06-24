@@ -94,31 +94,39 @@ void UWTBRTriggerSetComponent::SwitchMainSlot(int32 SlotIndex)
 
 void UWTBRTriggerSetComponent::SwitchSubSlot(int32 SlotIndex)
 {
-    if (!HasServerAuthority())
-    {
-        return;
-    }
+    if (!HasServerAuthority()) return;
 
     const int32 AbsIdx = SlotIndex + MainSlotCount;
-    if (AbsIdx >= MainSlotCount && AbsIdx < TotalSlotCount)
-    {
-        ActiveSubIndex = AbsIdx;
-        AsyncLoadSlot(AbsIdx, [this, AbsIdx]()
-        {
-            if (ActiveSubIndex == AbsIdx)
-            {
-                UpdateDualWieldState();
-                OnActiveTriggerChanged.Broadcast((ETriggerSlot)AbsIdx);
-                UE_LOG(LogTemp, Log, TEXT("WTBR Sub trigger switched to slot %d"), AbsIdx);
-            }
-        });
+    if (AbsIdx < MainSlotCount || AbsIdx >= TotalSlotCount) return;
 
-        if (!TriggerSlots.IsValidIndex(AbsIdx) || TriggerSlots[AbsIdx].IsEmpty())
+    const int32 OldAbsIdx = ActiveSubIndex;
+    if (OldAbsIdx != AbsIdx && RuntimeTriggers.IsValidIndex(OldAbsIdx) && RuntimeTriggers[OldAbsIdx])
+    {
+        RuntimeTriggers[OldAbsIdx]->OnUnequipped();
+        OnSubTriggerUnequipped.Broadcast(RuntimeTriggers[OldAbsIdx]);
+    }
+
+    ActiveSubIndex = AbsIdx;
+    AsyncLoadSlot(AbsIdx, [this, AbsIdx]()
+    {
+        if (ActiveSubIndex == AbsIdx)
         {
-            UE_LOG(LogTemp, Warning, TEXT("WTBR Sub trigger slot %d is empty"), AbsIdx);
             UpdateDualWieldState();
+            if (RuntimeTriggers.IsValidIndex(AbsIdx) && RuntimeTriggers[AbsIdx])
+            {
+                RuntimeTriggers[AbsIdx]->OnEquipped();
+                OnSubTriggerEquipped.Broadcast(RuntimeTriggers[AbsIdx]);
+            }
             OnActiveTriggerChanged.Broadcast((ETriggerSlot)AbsIdx);
+            UE_LOG(LogTemp, Log, TEXT("WTBR Sub trigger switched to slot %d"), AbsIdx);
         }
+    });
+
+    if (!TriggerSlots.IsValidIndex(AbsIdx) || TriggerSlots[AbsIdx].IsEmpty())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR Sub trigger slot %d is empty"), AbsIdx);
+        UpdateDualWieldState();
+        OnActiveTriggerChanged.Broadcast((ETriggerSlot)AbsIdx);
     }
 }
 
@@ -144,9 +152,16 @@ void UWTBRTriggerSetComponent::CycleSubSlot()
 {
     if (!HasServerAuthority()) return;
 
-    const int32 CurrentRelativeIndex = ActiveSubIndex - MainSlotCount;
-    const int32 NewRelativeIndex     = (CurrentRelativeIndex + 1) % SubSlotCount;
-    const int32 NewAbsIndex          = NewRelativeIndex + MainSlotCount;
+    const int32 OldAbsIndex      = ActiveSubIndex;
+    const int32 NewRelativeIndex = (OldAbsIndex - MainSlotCount + 1) % SubSlotCount;
+    const int32 NewAbsIndex      = NewRelativeIndex + MainSlotCount;
+
+    if (RuntimeTriggers.IsValidIndex(OldAbsIndex) && RuntimeTriggers[OldAbsIndex])
+    {
+        RuntimeTriggers[OldAbsIndex]->OnUnequipped();
+        OnSubTriggerUnequipped.Broadcast(RuntimeTriggers[OldAbsIndex]);
+    }
+
     ActiveSubIndex = NewAbsIndex;
 
     AsyncLoadSlot(NewAbsIndex, [this, NewAbsIndex]()
@@ -155,6 +170,11 @@ void UWTBRTriggerSetComponent::CycleSubSlot()
         {
             InstantiateRuntimeTrigger(NewAbsIndex);
             UpdateDualWieldState();
+            if (ActiveSubIndex == NewAbsIndex && RuntimeTriggers.IsValidIndex(NewAbsIndex) && RuntimeTriggers[NewAbsIndex])
+            {
+                RuntimeTriggers[NewAbsIndex]->OnEquipped();
+                OnSubTriggerEquipped.Broadcast(RuntimeTriggers[NewAbsIndex]);
+            }
             OnActiveTriggerChanged.Broadcast((ETriggerSlot)NewAbsIndex);
         }
     });
@@ -375,6 +395,20 @@ void UWTBRTriggerSetComponent::Server_SetTriggerLoadout_Implementation(
         {
             RuntimeTriggers[i] = nullptr;
         }
+    }
+}
+
+void UWTBRTriggerSetComponent::NotifySubSlotChanged(int32 OldAbsIdx, int32 NewAbsIdx)
+{
+    if (RuntimeTriggers.IsValidIndex(OldAbsIdx) && RuntimeTriggers[OldAbsIdx])
+    {
+        RuntimeTriggers[OldAbsIdx]->OnUnequipped();
+        OnSubTriggerUnequipped.Broadcast(RuntimeTriggers[OldAbsIdx]);
+    }
+    if (RuntimeTriggers.IsValidIndex(NewAbsIdx) && RuntimeTriggers[NewAbsIdx])
+    {
+        RuntimeTriggers[NewAbsIdx]->OnEquipped();
+        OnSubTriggerEquipped.Broadcast(RuntimeTriggers[NewAbsIdx]);
     }
 }
 

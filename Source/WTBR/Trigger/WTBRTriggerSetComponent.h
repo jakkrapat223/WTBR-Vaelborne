@@ -49,6 +49,8 @@ struct FWTBRTriggerSlot
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDualWieldStateChanged, EWTBRDualWieldState, NewState, ETriggerCategory, ActiveCategory);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnActiveTriggerChanged, ETriggerSlot, NewSlot);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSubTriggerEquipped, UWTBRTriggerBase*, Trigger);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSubTriggerUnequipped, UWTBRTriggerBase*, Trigger);
 
 UCLASS(ClassGroup=(WTBR), meta=(BlueprintSpawnableComponent))
 class WTBR_API UWTBRTriggerSetComponent : public UActorComponent
@@ -67,6 +69,14 @@ public:
 
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnActiveTriggerChanged OnActiveTriggerChanged;
+
+    // Fired when a Sub-Trigger becomes active (e.g. Vexorn equip → RegisterSignalBlock)
+    UPROPERTY(BlueprintAssignable, Category="Events")
+    FOnSubTriggerEquipped OnSubTriggerEquipped;
+
+    // Fired when the active Sub-Trigger is replaced (e.g. Vexorn unequip → UnregisterSignalBlock)
+    UPROPERTY(BlueprintAssignable, Category="Events")
+    FOnSubTriggerUnequipped OnSubTriggerUnequipped;
 
     UFUNCTION(BlueprintCallable, Category="TriggerSet")
     void InstallTrigger(ETriggerSlot Slot, UWTBRTriggerBase* Trigger);
@@ -137,6 +147,9 @@ private:
 
     bool IsValidSlotIndex(int32 Index) const { return TriggerSlots.IsValidIndex(Index); }
     bool HasServerAuthority() const;
+
+    // Fires OnUnequipped on OldIdx trigger then OnEquipped on NewIdx trigger (both delegates + virtual call)
+    void NotifySubSlotChanged(int32 OldAbsIdx, int32 NewAbsIdx);
 
     void AsyncLoadSlot(int32 SlotIndex, TFunction<void()> OnComplete);
 

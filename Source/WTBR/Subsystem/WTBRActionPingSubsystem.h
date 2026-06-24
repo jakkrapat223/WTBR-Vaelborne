@@ -23,6 +23,15 @@ public:
     UFUNCTION(BlueprintCallable, Category="ActionPing")
     void RegisterActionPing(AActor* Source);
 
+    // Vexorn (Signal Block) — server only
+    void RegisterSignalBlock(AActor* Actor);
+    void UnregisterSignalBlock(AActor* Actor);
+    bool IsSignalBlocked(AActor* Actor) const;
+
 protected:
     virtual bool ShouldCreateSubsystem(UObject* Outer) const override { return true; }
+
+private:
+    // No UPROPERTY — TWeakObjectPtr prevents GC cycles without UObject bookkeeping
+    TSet<TWeakObjectPtr<AActor>> BlockedActors;
 };

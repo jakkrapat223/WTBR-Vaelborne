@@ -55,6 +55,12 @@ public:
     void Deactivate();
     virtual void Deactivate_Implementation();
 
+    // Called by TriggerSetComponent when this trigger becomes the active Sub-Trigger
+    virtual void OnEquipped() {}
+
+    // Called by TriggerSetComponent when this trigger is replaced as the active Sub-Trigger
+    virtual void OnUnequipped() {}
+
 protected:
     // Set by TriggerSetComponent after spawn — weak to avoid cycle.
     UPROPERTY()
