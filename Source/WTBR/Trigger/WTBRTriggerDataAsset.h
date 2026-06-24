@@ -8,6 +8,8 @@
 class USkeletalMesh;
 class UAnimMontage;
 class AWTBRProjectileBase;
+class AWTBRSolvarnField;
+class AWTBRKaldrixZone;
 
 #include "WTBRTriggerDataAsset.generated.h"
 
@@ -44,6 +46,17 @@ enum class ETriggerSlotConstraint : uint8
     MainOnly UMETA(DisplayName="Main Slot Only"),
     SubOnly  UMETA(DisplayName="Sub Slot Only"),
     Any      UMETA(DisplayName="Any Slot"),
+};
+
+// Preset curved-flight shape for Serpveil (Viper — GDD Phase 4)
+UENUM(BlueprintType)
+enum class EWTBRSerpveilShape : uint8
+{
+    Curve     UMETA(DisplayName = "Curve"),
+    SCurve    UMETA(DisplayName = "S-Curve"),
+    Hook      UMETA(DisplayName = "Hook"),
+    Spiral    UMETA(DisplayName = "Spiral"),
+    Boomerang UMETA(DisplayName = "Boomerang"),
 };
 
 USTRUCT(BlueprintType)
@@ -337,6 +350,76 @@ struct FWTBRNexilParams
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// FWTBRTelornParams — Telorn (Egret — Long Range Sniper)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRTelornParams
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Telorn | Combat", meta = (ClampMin = "0.0"))
+    float TelornDamage = 60.0f;
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Telorn | Projectile", meta = (ClampMin = "100.0"))
+    float TelornSpeed = 6000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Telorn | Projectile", meta = (ClampMin = "100.0"))
+    float TelornRange = 10000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Telorn | Projectile")
+    TSubclassOf<AWTBRProjectileBase> TelornProjectileClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRPiercexParams — Piercex (Ibis — Penetrating Sniper, highest damage)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRPiercexParams
+{
+    GENERATED_BODY()
+
+    // Highest damage among snipers (GDD)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | Combat", meta = (ClampMin = "0.0"))
+    float PiercexDamage = 100.0f;
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | Projectile", meta = (ClampMin = "100.0"))
+    float PiercexSpeed = 5000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | Projectile", meta = (ClampMin = "100.0"))
+    float PiercexRange = 12000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | Projectile")
+    TSubclassOf<AWTBRProjectileBase> PiercexProjectileClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRFulgrisParams — Fulgris (Lightning — Fastest Sniper, lower damage)
+// Note: distinct from FWTBRFulgrixParams (Fulgrix = explosive Gunner)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRFulgrisParams
+{
+    GENERATED_BODY()
+
+    // Lowest damage among snipers — compensated by highest speed (GDD)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgris | Combat", meta = (ClampMin = "0.0"))
+    float FulgrisDamage = 40.0f;
+
+    // Fastest projectile in game (GDD)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgris | Projectile", meta = (ClampMin = "100.0"))
+    float FulgrisSpeed = 12000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgris | Projectile", meta = (ClampMin = "100.0"))
+    float FulgrisRange = 8000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgris | Projectile")
+    TSubclassOf<AWTBRProjectileBase> FulgrisProjectileClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // FWTBRSoluxParams — Solux (Asteroid — Normal Bullet)
 // ─────────────────────────────────────────────────────────────────────────────
 USTRUCT(BlueprintType)
@@ -408,8 +491,7 @@ struct FWTBRVenyxParams
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FWTBRSerpveilParams — Serpveil (Viper — Curved Path)
-// TODO Phase 4: Custom Path System
+// FWTBRSerpveilParams — Serpveil (Viper — Curved Path, Phase 4)
 // ─────────────────────────────────────────────────────────────────────────────
 USTRUCT(BlueprintType)
 struct FWTBRSerpveilParams
@@ -422,8 +504,29 @@ struct FWTBRSerpveilParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile", meta = (ClampMin = "100.0"))
     float SerpveilSpeed = 2800.0f;
 
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile", meta = (ClampMin = "100.0"))
-    float SerpveilRange = 5500.0f;
+    // Preset flight-path shape baked into control points at fire time
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path")
+    EWTBRSerpveilShape PresetShape = EWTBRSerpveilShape::Curve;
+
+    // Minimum flight range regardless of charge (must hold button at least this long)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "100.0"))
+    float SerpveilMinRange = 400.0f;
+
+    // Maximum flight range at full Vael charge
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "100.0"))
+    float SerpveilMaxRange = 1500.0f;
+
+    // Vael drained per second while charging (determines affordable range)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Resources", meta = (ClampMin = "0.1"))
+    float SerpveilVaelPerSecond = 10.0f;
+
+    // Intended max charge time (informational — server uses Vael formula, not this directly)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "0.1"))
+    float SerpveilChargeTime = 1.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile")
     TSubclassOf<AWTBRProjectileBase> SerpveilProjectileClass;
@@ -457,6 +560,170 @@ struct FWTBRAcervynParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Projectile")
     TSubclassOf<AWTBRProjectileBase> AcervynProjectileClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRVentryxParams — Ventryx (Fujin — Wind, forward knockback blast)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRVentryxParams
+{
+    GENERATED_BODY()
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ventryx | Combat", meta = (ClampMin = "0.0"))
+    float VentryxDamage = 120.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ventryx | Projectile", meta = (ClampMin = "100.0"))
+    float VentryxRange = 5000.0f;
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ventryx | Projectile", meta = (ClampMin = "100.0"))
+    float VentryxSpeed = 5000.0f;
+
+    // Launch force applied to hit characters (UE units/s)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ventryx | Combat", meta = (ClampMin = "0.0"))
+    float VentryxKnockback = 1000.0f;
+
+    // Black Trigger: high Vael cost (GDD §5.1)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ventryx | Resources", meta = (ClampMin = "0.0"))
+    float VentryxVaelCost = 80.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ventryx | Projectile")
+    TSubclassOf<AWTBRProjectileBase> VentryxProjectileClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRFulgornParams — Fulgorn (Artemis — Multi Homing)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRFulgornParams
+{
+    GENERATED_BODY()
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgorn | Combat", meta = (ClampMin = "0.0"))
+    float FulgornDamage = 60.0f;
+
+    // Effective flight distance before projectile expires
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgorn | Projectile", meta = (ClampMin = "100.0"))
+    float FulgornRange = 5000.0f;
+
+    // Radius of initial sphere overlap to lock onto targets
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgorn | Lock-On", meta = (ClampMin = "50.0"))
+    float FulgornLockRadius = 1500.0f;
+
+    // Maximum simultaneous targets (GDD: 5)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgorn | Lock-On", meta = (ClampMin = "1", ClampMax = "20"))
+    int32 FulgornMaxTargets = 5;
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgorn | Projectile", meta = (ClampMin = "100.0"))
+    float FulgornProjectileSpeed = 4000.0f;
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgorn | Homing", meta = (ClampMin = "100.0"))
+    float FulgornHomingAcceleration = 8000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgorn | Projectile")
+    TSubclassOf<AWTBRProjectileBase> FulgornProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgorn | Resources", meta = (ClampMin = "0.0"))
+    float FulgornVaelCost = 100.0f;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRSolvarnParams — Solvarn (Suiren — Defense Field)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRSolvarnParams
+{
+    GENERATED_BODY()
+
+    // Sphere radius of the blocking field (UE units)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solvarn | Field", meta = (ClampMin = "50.0"))
+    float SolvarnRadius = 400.0f;
+
+    // Maximum lifetime of the field (seconds) — may end sooner if Vael runs out
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solvarn | Field", meta = (ClampMin = "0.5"))
+    float SolvarnDuration = 5.0f;
+
+    // Vael drained per second while field is active (ongoing cost)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solvarn | Resources", meta = (ClampMin = "0.0"))
+    float SolvarnVaelDrainPerSec = 20.0f;
+
+    // One-time Vael cost to activate (GDD §5.1 Black Trigger surcharge)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solvarn | Resources", meta = (ClampMin = "0.0"))
+    float SolvarnVaelCost = 50.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solvarn | Field")
+    TSubclassOf<AWTBRSolvarnField> SolvarnFieldClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRKaldrixParams — Kaldrix (Kazan — Explosion Zone)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRKaldrixParams
+{
+    GENERATED_BODY()
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Kaldrix | Combat", meta = (ClampMin = "0.0"))
+    float KaldrixDamage = 150.0f;
+
+    // Explosion sphere radius
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Kaldrix | Explosion", meta = (ClampMin = "50.0"))
+    float KaldrixRadius = 500.0f;
+
+    // Delay from placement to detonation (seconds)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Kaldrix | Explosion", meta = (ClampMin = "0.1"))
+    float KaldrixArmTime = 3.0f;
+
+    // Duration of stagger applied to characters caught in the blast
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Kaldrix | Combat", meta = (ClampMin = "0.1"))
+    float KaldrixStaggerDuration = 1.5f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Kaldrix | Resources", meta = (ClampMin = "0.0"))
+    float KaldrixVaelCost = 120.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Kaldrix | Zone")
+    TSubclassOf<AWTBRKaldrixZone> KaldrixZoneClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRNyxveilParams — Nyxveil (Yomi — Scan)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRNyxveilParams
+{
+    GENERATED_BODY()
+
+    // Radius of the initial pawn detection sphere
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Nyxveil | Scan", meta = (ClampMin = "100.0"))
+    float NyxveilScanRadius = 2000.0f;
+
+    // Total duration of the repeating scan (seconds)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Nyxveil | Scan", meta = (ClampMin = "1.0"))
+    float NyxveilDuration = 10.0f;
+
+    // How often (seconds) the scan refreshes and re-pings the radar
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Nyxveil | Scan", meta = (ClampMin = "0.1"))
+    float NyxveilPingInterval = 2.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Nyxveil | Resources", meta = (ClampMin = "0.0"))
+    float NyxveilVaelCost = 60.0f;
 };
 
 UCLASS(BlueprintType)
@@ -572,6 +839,54 @@ public:
         Category = "Trigger | Acervyn",
         meta = (EditCondition = "Category == ETriggerCategory::Gunner"))
     FWTBRAcervynParams AcervynParams;
+
+    // ── Telorn ────────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Telorn",
+        meta = (EditCondition = "Category == ETriggerCategory::SniperBullet"))
+    FWTBRTelornParams TelornParams;
+
+    // ── Piercex ───────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Piercex",
+        meta = (EditCondition = "Category == ETriggerCategory::SniperBullet"))
+    FWTBRPiercexParams PiercexParams;
+
+    // ── Fulgris ───────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Fulgris",
+        meta = (EditCondition = "Category == ETriggerCategory::SniperBullet"))
+    FWTBRFulgrisParams FulgrisParams;
+
+    // ── Ventryx ───────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Ventryx",
+        meta = (EditCondition = "Category == ETriggerCategory::BlackTrigger"))
+    FWTBRVentryxParams VentryxParams;
+
+    // ── Fulgorn ───────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Fulgorn",
+        meta = (EditCondition = "Category == ETriggerCategory::BlackTrigger"))
+    FWTBRFulgornParams FulgornParams;
+
+    // ── Solvarn ───────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Solvarn",
+        meta = (EditCondition = "Category == ETriggerCategory::BlackTrigger"))
+    FWTBRSolvarnParams SolvarnParams;
+
+    // ── Kaldrix ───────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Kaldrix",
+        meta = (EditCondition = "Category == ETriggerCategory::BlackTrigger"))
+    FWTBRKaldrixParams KaldrixParams;
+
+    // ── Nyxveil ───────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Nyxveil",
+        meta = (EditCondition = "Category == ETriggerCategory::BlackTrigger"))
+    FWTBRNyxveilParams NyxveilParams;
 
     // ─── Priority ─────────────────────────────────────────────────────────────
 

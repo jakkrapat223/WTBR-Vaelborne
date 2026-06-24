@@ -8,6 +8,7 @@
 
 class UBoxComponent;
 class UProjectileMovementComponent;
+class UInterpToMovementComponent;
 class USceneComponent;
 
 UENUM(BlueprintType)
@@ -35,6 +36,10 @@ public:
         Category = "WTBR | Projectile | Components")
     TObjectPtr<UProjectileMovementComponent> ProjectileMovement;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly,
+        Category = "WTBR | Projectile | Components")
+    TObjectPtr<UInterpToMovementComponent> InterpMovement;
+
     // ── Config (set via InitializeProjectile) ──────────────────────────────────
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     float BaseDamage = 0.0f;
@@ -60,8 +65,20 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     float ExplosionRadius = 0.0f;
 
+    // When true the bullet passes through characters but stops at geometry (Sniper only)
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    bool bCanPenetrate = false;
+
+    // Ventryx (Black Trigger) — non-zero launches hit character away from impact point
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    float KnockbackForce = 0.0f;
+
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     TObjectPtr<AActor> OwnerInstigator;
+
+    // Actors already damaged this flight — prevents re-hit on re-entry (penetration)
+    UPROPERTY()
+    TArray<TObjectPtr<AActor>> DamagedActors;
 
     // ── State (Replicated) ─────────────────────────────────────────────────────
     UPROPERTY(ReplicatedUsing = OnRep_ProjectileState, BlueprintReadOnly,
@@ -83,6 +100,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
     void EnableHoming(USceneComponent* Target, float Accel);
 
+    // Serpveil curved path — deactivates ProjectileMovement, sets InterpToMovement control points
+    UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
+    void InitializePathMovement(const TArray<FVector>& Points, float Speed, AActor* InInstigator);
+
     // ── VFX Hooks ──────────────────────────────────────────────────────────────
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Projectile | VFX")
     void OnProjectileLaunched();
@@ -103,6 +124,9 @@ protected:
 
     UFUNCTION()
     void OnRep_ProjectileState();
+
+    UFUNCTION()
+    void OnInterpMovementEnd(const FHitResult& ImpactResult, float Time);
 
     UFUNCTION()
     void OnOverlapBegin(UPrimitiveComponent* OverlappedComp,

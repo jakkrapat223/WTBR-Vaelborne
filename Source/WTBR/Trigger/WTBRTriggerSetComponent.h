@@ -99,6 +99,10 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_SetTriggerLoadout(const TArray<TSoftObjectPtr<UWTBRTriggerDataAsset>>& InLoadout);
 
+    // Serpveil: client sends charged params, server validates Vael and fires
+    UFUNCTION(Server, Reliable)
+    void Server_FireSerpveil(EWTBRSerpveilShape Shape, FRotator Direction, float ChargedRange, bool bIsMain);
+
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

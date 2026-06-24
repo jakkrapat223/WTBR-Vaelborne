@@ -2,6 +2,7 @@
 #include "Actors/WTBRProjectileBase.h"
 #include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/InterpToMovementComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "DrawDebugHelpers.h"
@@ -22,6 +23,7 @@ AWTBRProjectileBase::AWTBRProjectileBase()
     BoxCollision->SetCollisionResponseToAllChannels(ECR_Ignore);
     BoxCollision->SetCollisionResponseToChannel(ECC_Pawn,         ECR_Overlap);
     BoxCollision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
+    BoxCollision->SetCollisionResponseToChannel(ECC_WorldStatic,  ECR_Overlap);
     BoxCollision->SetGenerateOverlapEvents(true);
 
     ProjectileMovement = CreateDefaultSubobject<UProjectileMovementComponent>(
@@ -31,6 +33,13 @@ AWTBRProjectileBase::AWTBRProjectileBase()
     ProjectileMovement->MaxSpeed                = 0.0f;
     ProjectileMovement->bRotationFollowsVelocity = true;
     ProjectileMovement->ProjectileGravityScale   = 0.0f;
+
+    InterpMovement = CreateDefaultSubobject<UInterpToMovementComponent>(
+        TEXT("InterpMovement"));
+    InterpMovement->bAutoActivate  = false;
+    InterpMovement->BehaviourType  = EInterpToBehaviourType::OneShot;
+
+    SetReplicatingMovement(true);
 }
 
 void AWTBRProjectileBase::BeginPlay()
@@ -105,6 +114,7 @@ void AWTBRProjectileBase::OnOverlapBegin(
     if (!HasAuthority()) return;
     if (!IsValid(OtherActor)) return;
     if (OtherActor == OwnerInstigator) return;
+    if (DamagedActors.Contains(OtherActor)) return; // skip already-hit actors (penetration guard)
 
     // Bullet vs Bullet
     if (AWTBRProjectileBase* OtherBullet = Cast<AWTBRProjectileBase>(OtherActor))
@@ -113,7 +123,7 @@ void AWTBRProjectileBase::OnOverlapBegin(
         return;
     }
 
-    // Explosive: detonate on any hit (character or geometry)
+    // Explosive: detonate on any hit (character or environment)
     if (bExplodeOnImpact)
     {
         TriggerExplosion();
@@ -121,20 +131,36 @@ void AWTBRProjectileBase::OnOverlapBegin(
     }
 
     // Direct hit on character
-    AWTBRCharacter* HitChar = Cast<AWTBRCharacter>(OtherActor);
-    if (IsValid(HitChar))
+    if (AWTBRCharacter* HitChar = Cast<AWTBRCharacter>(OtherActor))
     {
         const FVector ImpactPoint = SweepResult.bBlockingHit
             ? SweepResult.ImpactPoint : GetActorLocation();
 
         OnProjectileHitVFX(ImpactPoint);
+        DamagedActors.Add(OtherActor); // track before applying so re-entry is blocked
 
         if (IsValid(HitChar->HealthComponent))
             HitChar->HealthComponent->ApplyDamage(BaseDamage, OwnerInstigator.Get());
 
+        if (KnockbackForce > 0.0f)
+        {
+            const FVector KnockDir =
+                (HitChar->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+            HitChar->LaunchCharacter(KnockDir * KnockbackForce, true, true);
+        }
+
+        if (bCanPenetrate)
+            return; // penetrating bullet continues flying through character
+
         ProjectileState = EProjectileState::Destroyed;
         Destroy();
+        return;
     }
+
+    // Environment hit (not character, not projectile):
+    // All bullets stop at geometry — even penetrating snipers cannot pass through walls
+    ProjectileState = EProjectileState::Destroyed;
+    Destroy();
 }
 
 // ─── Explosion ───────────────────────────────────────────────────────────────
@@ -180,6 +206,8 @@ void AWTBRProjectileBase::OnBulletClash(AWTBRProjectileBase* OtherBullet)
     if (!IsValid(OtherBullet)) return;
     // Burst bullets from the same instigator never clash with each other
     if (IsValid(OwnerInstigator) && OtherBullet->OwnerInstigator == OwnerInstigator) return;
+    // GDD Rule: Sniper vs Sniper — no clash, both continue unaffected
+    if (bIsSniper && OtherBullet->bIsSniper) return;
     // First bullet to reach here wins; prevents double-processing when both overlaps fire
     if (bHandledClash || OtherBullet->bHandledClash) return;
     bHandledClash            = true;
@@ -211,30 +239,21 @@ void AWTBRProjectileBase::OnBulletClash(AWTBRProjectileBase* OtherBullet)
         return;
     }
 
-    // Case 2: Sniper pierces — destroy non-sniper, sniper continues
-    const bool bThisSniper  = bIsSniper;
-    const bool bOtherSniper = OtherBullet->bIsSniper;
-    if (bThisSniper || bOtherSniper)
+    // Case 2: Sniper vs non-Sniper — sniper pierces, non-sniper destroyed
+    // Note: Sniper vs Sniper is caught above (no clash, both continue)
+    if (bIsSniper || OtherBullet->bIsSniper)
     {
-        if (bThisSniper && !bOtherSniper)
+        if (bIsSniper)
         {
             OtherBullet->ProjectileState = EProjectileState::Destroyed;
             OtherBullet->Destroy();
-            // This sniper continues flying — do not Destroy()
+            // This sniper continues flying
         }
-        else if (!bThisSniper && bOtherSniper)
+        else
         {
             ProjectileState = EProjectileState::Destroyed;
             Destroy();
             // OtherBullet (sniper) continues flying
-        }
-        else
-        {
-            // Sniper vs Sniper: symmetric destruction
-            OtherBullet->ProjectileState = EProjectileState::Destroyed;
-            OtherBullet->Destroy();
-            ProjectileState = EProjectileState::Destroyed;
-            Destroy();
         }
         return;
     }
@@ -296,6 +315,46 @@ void AWTBRProjectileBase::SpawnCubeSplits()
     }
 
     OnCubeSplitVFX();
+}
+
+// ─── Serpveil Path Movement ──────────────────────────────────────────────────
+
+void AWTBRProjectileBase::InitializePathMovement(
+    const TArray<FVector>& Points, float Speed, AActor* InInstigator)
+{
+    if (!HasAuthority()) return;
+    if (Points.Num() < 2) return;
+
+    OwnerInstigator = InInstigator;
+
+    // Straight-shot component must not compete with InterpToMovement
+    ProjectileMovement->Deactivate();
+
+    InterpMovement->ResetControlPoints();
+    for (const FVector& Pt : Points)
+        InterpMovement->AddControlPointPosition(Pt, /*bRelative=*/false);
+    InterpMovement->FinaliseControlPoints();
+
+    // Compute total path length to derive travel duration from speed
+    float TotalDist = 0.0f;
+    for (int32 i = 1; i < Points.Num(); ++i)
+        TotalDist += FVector::Dist(Points[i - 1], Points[i]);
+
+    InterpMovement->Duration = (Speed > 0.0f) ? (TotalDist / Speed) : 1.0f;
+
+    InterpMovement->OnInterpToStop.AddDynamic(
+        this, &AWTBRProjectileBase::OnInterpMovementEnd);
+
+    InterpMovement->Activate();
+
+    OnProjectileLaunched();
+}
+
+void AWTBRProjectileBase::OnInterpMovementEnd(const FHitResult& /*ImpactResult*/, float /*Time*/)
+{
+    if (!HasAuthority()) return;
+    ProjectileState = EProjectileState::Destroyed;
+    Destroy();
 }
 
 // ─── Replication ─────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
+#include "Trigger/WTBRSerpveilTrigger.h"
 #include "WTBRCharacter.h"
 #include "Engine/StreamableManager.h"
 #include "Engine/AssetManager.h"
@@ -375,6 +376,20 @@ void UWTBRTriggerSetComponent::Server_SetTriggerLoadout_Implementation(
             RuntimeTriggers[i] = nullptr;
         }
     }
+}
+
+void UWTBRTriggerSetComponent::Server_FireSerpveil_Implementation(
+    EWTBRSerpveilShape Shape, FRotator Direction, float ChargedRange, bool bIsMain)
+{
+    if (!HasServerAuthority()) return;
+
+    UWTBRTriggerBase* Trigger = bIsMain ? GetActiveMainTrigger() : GetActiveSubTrigger();
+    if (!IsValid(Trigger)) return;
+
+    UWTBRSerpveilTrigger* SerpveilTrigger = Cast<UWTBRSerpveilTrigger>(Trigger);
+    if (!IsValid(SerpveilTrigger)) return;
+
+    SerpveilTrigger->ExecuteServerFire(Shape, Direction, ChargedRange);
 }
 
 void UWTBRTriggerSetComponent::OnRep_TriggerSlots()
