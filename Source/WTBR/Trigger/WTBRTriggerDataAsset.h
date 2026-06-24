@@ -7,6 +7,7 @@
 
 class USkeletalMesh;
 class UAnimMontage;
+class AWTBRProjectileBase;
 
 #include "WTBRTriggerDataAsset.generated.h"
 
@@ -279,6 +280,16 @@ struct FWTBRArcvenParams
         Category = "Arcven | Dual",
         meta = (ClampMin = "0.0", ClampMax = "45.0"))
     float DualWaveSpreadAngle = 15.0f;
+
+    // Projectile class to spawn on fire (set to BP_WTBRArcvenProjectile in DA_Arcven)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Projectile")
+    TSubclassOf<AWTBRProjectileBase> ArcProjectileClass;
+
+    // True → dispatch radar ping via UWTBRActionPingSubsystem on every fire
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Action Ping")
+    bool bPingOnFire = true;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -323,6 +334,129 @@ struct FWTBRNexilParams
         Category = "Nexil | Wire",
         meta = (ClampMin = "1"))
     int32 WireHP = 1;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRSoluxParams — Solux (Asteroid — Normal Bullet)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRSoluxParams
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Combat", meta = (ClampMin = "0.0"))
+    float SoluxDamage = 30.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Projectile", meta = (ClampMin = "100.0"))
+    float SoluxSpeed = 3000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Projectile", meta = (ClampMin = "100.0"))
+    float SoluxRange = 5000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Projectile")
+    TSubclassOf<AWTBRProjectileBase> SoluxProjectileClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRFulgrixParams — Fulgrix (Meteor — Explosive Bullet)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRFulgrixParams
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Combat", meta = (ClampMin = "0.0"))
+    float FulgrixDamage = 80.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile", meta = (ClampMin = "100.0"))
+    float FulgrixSpeed = 2500.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile", meta = (ClampMin = "100.0"))
+    float FulgrixRange = 4000.0f;
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Explosion", meta = (ClampMin = "50.0"))
+    float FulgrixExplosionRadius = 300.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile")
+    TSubclassOf<AWTBRProjectileBase> FulgrixProjectileClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRVenyxParams — Venyx (Hound — Homing Bullet)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRVenyxParams
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Combat", meta = (ClampMin = "0.0"))
+    float VenyxDamage = 25.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Projectile", meta = (ClampMin = "100.0"))
+    float VenyxSpeed = 3500.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Projectile", meta = (ClampMin = "100.0"))
+    float VenyxRange = 6000.0f;
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Homing", meta = (ClampMin = "100.0"))
+    float VenyxHomingAcceleration = 5000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Projectile")
+    TSubclassOf<AWTBRProjectileBase> VenyxProjectileClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRSerpveilParams — Serpveil (Viper — Curved Path)
+// TODO Phase 4: Custom Path System
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRSerpveilParams
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Combat", meta = (ClampMin = "0.0"))
+    float SerpveilDamage = 35.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile", meta = (ClampMin = "100.0"))
+    float SerpveilSpeed = 2800.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile", meta = (ClampMin = "100.0"))
+    float SerpveilRange = 5500.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile")
+    TSubclassOf<AWTBRProjectileBase> SerpveilProjectileClass;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBRAcervynParams — Acervyn (Hornet — Burst Homing)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRAcervynParams
+{
+    GENERATED_BODY()
+
+    // Damage per bullet (total = AcervynDamage * AcervynBurstCount)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Combat", meta = (ClampMin = "0.0"))
+    float AcervynDamage = 20.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Projectile", meta = (ClampMin = "100.0"))
+    float AcervynSpeed = 4000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Projectile", meta = (ClampMin = "100.0"))
+    float AcervynRange = 5000.0f;
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Burst", meta = (ClampMin = "1", ClampMax = "10"))
+    int32 AcervynBurstCount = 5;
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Homing", meta = (ClampMin = "100.0"))
+    float AcervynHomingAcceleration = 6000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Projectile")
+    TSubclassOf<AWTBRProjectileBase> AcervynProjectileClass;
 };
 
 UCLASS(BlueprintType)
@@ -408,6 +542,43 @@ public:
         Category = "Trigger | Nexil",
         meta = (EditCondition = "Category == ETriggerCategory::Trap"))
     FWTBRNexilParams NexilParams;
+
+    // ── Solux ─────────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Solux",
+        meta = (EditCondition = "Category == ETriggerCategory::Gunner"))
+    FWTBRSoluxParams SoluxParams;
+
+    // ── Fulgrix ───────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Fulgrix",
+        meta = (EditCondition = "Category == ETriggerCategory::Gunner"))
+    FWTBRFulgrixParams FulgrixParams;
+
+    // ── Venyx ─────────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Venyx",
+        meta = (EditCondition = "Category == ETriggerCategory::Gunner"))
+    FWTBRVenyxParams VenyxParams;
+
+    // ── Serpveil ──────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Serpveil",
+        meta = (EditCondition = "Category == ETriggerCategory::Gunner"))
+    FWTBRSerpveilParams SerpveilParams;
+
+    // ── Acervyn ───────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Acervyn",
+        meta = (EditCondition = "Category == ETriggerCategory::Gunner"))
+    FWTBRAcervynParams AcervynParams;
+
+    // ─── Priority ─────────────────────────────────────────────────────────────
+
+    // true → Mantorn overrides Dual Wield unconditionally (GDD §3.4 Lock)
+    // Set in DA_Mantorn only. Never compare by DisplayName.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Trigger | Priority")
+    bool bIsMantornPriority = false;
 
     // ─── Action Ping ─────────────────────────────────────────────────────────
 

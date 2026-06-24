@@ -96,6 +96,7 @@ public:
     bool bIsStaggered = false;
 
 protected:
+    virtual void PostInitializeComponents() override;
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 

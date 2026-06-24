@@ -4,6 +4,7 @@
 #include "Components/WTBRInputGestureComponent.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
 #include "EnhancedInputComponent.h"
@@ -155,15 +156,50 @@ void UWTBRInputGestureComponent::OnJump_Completed(const FInputActionValue& Value
     }
 }
 
+UWTBRInputGestureComponent::EMantornPriorityResult
+UWTBRInputGestureComponent::ResolveDualGesture(
+    const UWTBRTriggerBase* Main,
+    const UWTBRTriggerBase* Sub) const
+{
+    // ตรวจ Mantorn Priority ก่อน Category match เสมอ (GDD §3.4 Lock)
+    // ห้ามใช้ DisplayName string เปรียบเทียบ — ใช้ bIsMantornPriority เท่านั้น
+    const UWTBRTriggerDataAsset* MainDA = IsValid(Main) ? Main->DataAsset.Get() : nullptr;
+    const UWTBRTriggerDataAsset* SubDA  = IsValid(Sub)  ? Sub->DataAsset.Get()  : nullptr;
+
+    if (MainDA && MainDA->bIsMantornPriority)
+        return EMantornPriorityResult::ActivateMain;
+    if (SubDA && SubDA->bIsMantornPriority)
+        return EMantornPriorityResult::ActivateSub;
+    return EMantornPriorityResult::None;
+}
+
 void UWTBRInputGestureComponent::CheckDualGesture()
 {
     if (!bMainDown || !bSubDown || !TriggerSetComp) return;
 
     const UWTBRTriggerBase* Main = TriggerSetComp->GetActiveMainTrigger();
     const UWTBRTriggerBase* Sub  = TriggerSetComp->GetActiveSubTrigger();
+    if (!Main || !Sub) return;
 
-    // GDD §3.4 Lock — Pure Type-Match only, no priority or timing check
-    if (Main && Sub && Main->Category == Sub->Category)
+    // Mantorn Priority overrides Dual Wield unconditionally (GDD §3.4 Lock)
+    const EMantornPriorityResult Priority = ResolveDualGesture(Main, Sub);
+    if (Priority == EMantornPriorityResult::ActivateMain)
+    {
+        bMainFired = true;
+        bSubFired  = true;
+        OnGestureDetected.Broadcast(EWTBRInputGesture::MainTap);
+        return;
+    }
+    if (Priority == EMantornPriorityResult::ActivateSub)
+    {
+        bMainFired = true;
+        bSubFired  = true;
+        OnGestureDetected.Broadcast(EWTBRInputGesture::SubTap);
+        return;
+    }
+
+    // GDD §3.4 Lock — Pure Type-Match only, no timing check
+    if (Main->Category == Sub->Category)
     {
         bMainFired = true;
         bSubFired  = true;

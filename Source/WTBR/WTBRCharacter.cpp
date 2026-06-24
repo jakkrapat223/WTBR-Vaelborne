@@ -99,6 +99,19 @@ AWTBRCharacter::AWTBRCharacter()
     }
 }
 
+void AWTBRCharacter::PostInitializeComponents()
+{
+    Super::PostInitializeComponents();
+
+    if (InputGestureComponent)
+    {
+        InputGestureComponent->IA_Move = MoveAction;
+        InputGestureComponent->IA_Look = LookAction;
+        InputGestureComponent->IA_Jump = JumpAction;
+        // SwitchMain/Sub bind โดยตรงที่ Character ไม่ต้องส่งไป Component
+    }
+}
+
 void AWTBRCharacter::BeginPlay()
 {
     Super::BeginPlay();

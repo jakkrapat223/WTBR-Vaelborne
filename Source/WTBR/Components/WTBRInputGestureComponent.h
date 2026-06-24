@@ -9,6 +9,7 @@
 
 // Forward-declare to avoid circular include (WTBRTriggerSetComponent includes WTBRTriggerBase)
 class UWTBRTriggerSetComponent;
+class UWTBRTriggerBase;
 class UInputAction;
 class UEnhancedInputComponent;
 
@@ -81,6 +82,19 @@ private:
 
     UPROPERTY()
     TObjectPtr<UWTBRTriggerSetComponent> TriggerSetComp;
+
+    // Internal enum — not exposed to reflection, not a UENUM
+    enum class EMantornPriorityResult : uint8
+    {
+        None,
+        ActivateMain,
+        ActivateSub,
+    };
+
+    // Checks Mantorn Priority before Pure Type-Match (GDD §3.4 Lock)
+    EMantornPriorityResult ResolveDualGesture(
+        const UWTBRTriggerBase* Main,
+        const UWTBRTriggerBase* Sub) const;
 
     // Checks Pure Type-Match dual-trigger condition and fires DualTrigger gesture
     void CheckDualGesture();
