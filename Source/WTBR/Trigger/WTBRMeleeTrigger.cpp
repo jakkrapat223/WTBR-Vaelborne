@@ -5,11 +5,16 @@
 #include "DrawDebugHelpers.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
+#include "Engine/Engine.h"
+#include "GameFramework/Controller.h"
 
 bool UWTBRMeleeTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
+    if (GEngine)
+        GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Cyan, TEXT("[Feryx] Activate called"));
+
     if (!OwnerCharacter.IsValid()) return false;
     if (!OwnerCharacter->HasAuthority()) return false;
     if (bIsOnCooldown) return false;
@@ -38,16 +43,36 @@ void UWTBRMeleeTrigger::PerformSingleSweep(TArray<FHitResult>& OutHits)
 {
     if (!OwnerCharacter.IsValid()) return;
     const FWTBRMeleeHitboxParams& P = GetHitboxParams();
-    const FVector Forward = OwnerCharacter->GetActorForwardVector();
-    const FVector Origin  = OwnerCharacter->GetActorLocation();
-    const FVector Start   = Origin + Forward * (P.ForwardOffset * 0.33f);
-    const FVector End     = Origin + Forward * P.ForwardOffset;
+
+    // Use camera/controller forward so melee goes where the player is looking.
+    // bOrientRotationToMovement makes actor body face movement dir, not camera —
+    // using actor forward would cause misses when character body faces wrong way.
+    FVector Forward = OwnerCharacter->GetActorForwardVector();
+    FQuat   SweepRot = OwnerCharacter->GetActorQuat();
+    if (AController* C = OwnerCharacter->GetController())
+    {
+        const FRotator CtrlRot = C->GetControlRotation();
+        Forward  = FRotationMatrix(CtrlRot).GetUnitAxis(EAxis::X);
+        SweepRot = FQuat(FRotator(0.f, CtrlRot.Yaw, 0.f));
+    }
+
+    const FVector Origin = OwnerCharacter->GetActorLocation();
+    const FVector Start  = Origin + Forward * (P.ForwardOffset * 0.33f);
+    const FVector End    = Origin + Forward * P.ForwardOffset;
 
     SweepCapsuleAt(
         (Start + End) * 0.5f,
-        OwnerCharacter->GetActorQuat(),
+        SweepRot,
         P.CapsuleRadius, P.CapsuleHalfHeight,
         OutHits);
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR Feryx SingleSweep: %d raw hit(s) at ForwardOffset %.0f"),
+        OutHits.Num(), P.ForwardOffset);
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Yellow,
+            FString::Printf(TEXT("[Feryx] Sweep: %d hit(s)"), OutHits.Num()));
+    }
 
 #if ENABLE_DRAW_DEBUG
     DrawDebugCapsule(GetWorld(), (Start + End) * 0.5f,

@@ -113,6 +113,34 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_FireSerpveil(EWTBRSerpveilShape Shape, FRotator Direction, float ChargedRange, bool bIsMain);
 
+    // ── Composite Bullet Merge ────────────────────────────────────────────────
+
+    // Replicated merge state — clients read this for VFX/UI; server drives it
+    UPROPERTY(ReplicatedUsing = OnRep_MergeState, BlueprintReadOnly,
+        Category = "WTBR | Composite")
+    EWTBRCompositeBulletType CurrentMergeState = EWTBRCompositeBulletType::None;
+
+    // Client → Server: request merge. Server deducts Vael immediately and starts timer.
+    UFUNCTION(Server, Reliable)
+    void Server_StartCompositeMerge(EWTBRCompositeBulletType Type);
+
+    // Authority-only cancel — called on damage or stagger; Vael is NOT refunded.
+    UFUNCTION(BlueprintCallable, Category = "WTBR | Composite")
+    void CancelMerge();
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Composite")
+    EWTBRCompositeBulletType GetCurrentMergeState() const { return CurrentMergeState; }
+
+    // ── VFX Hooks (implement in Blueprint) ───────────────────────────────────
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Composite | VFX")
+    void OnMergeStart(EWTBRCompositeBulletType Type);
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Composite | VFX")
+    void OnMergeComplete(EWTBRCompositeBulletType Type);
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Composite | VFX")
+    void OnMergeCancelled();
+
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -159,6 +187,22 @@ private:
     // Called from CycleMainSlot/CycleSubSlot so the trigger is ready immediately
     // without waiting for the next async-load callback.
     void InstantiateRuntimeTrigger(int32 SlotIndex);
+
+    // ── Composite merge internals (server-only) ───────────────────────────────
+    FTimerHandle MergeTimer;
+
+    // Replicated alongside CurrentMergeState so OnRep_MergeState can distinguish
+    // a successful fire (true) from a forced cancel (false) without an extra RPC.
+    UPROPERTY(Replicated)
+    bool bMergeWasFired = false;
+
+    UFUNCTION()
+    void OnRep_MergeState(EWTBRCompositeBulletType OldState);
+
+    UFUNCTION()
+    void OnMergeCompleteCallback();
+
+    void FireComposite(EWTBRCompositeBulletType Type);
 
     UFUNCTION()
     void OnRep_TriggerSlots();

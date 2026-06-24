@@ -47,11 +47,14 @@ public:
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Serpveil | VFX")
     void OnSerpveilHit(FVector ImpactPoint);
 
-private:
-    // Builds world-space waypoints for the given shape, start, direction, and range
+    // Builds world-space waypoints — public so FireComposite (Labyrn) can reuse it.
+    // bMirrorY flips the Y axis of every local waypoint before world-space transform,
+    // producing the mirror-image path needed for Labyrn's Core B.
     static TArray<FVector> BuildPathPoints(
-        EWTBRSerpveilShape Shape, FVector StartLocation, FRotator Direction, float Range);
+        EWTBRSerpveilShape Shape, FVector StartLocation, FRotator Direction, float Range,
+        bool bMirrorY = false);
 
+private:
     float ChargeStartTime = 0.0f;
     bool  bCachedIsMain   = false;
     FTimerHandle ChargeUpdateTimer;

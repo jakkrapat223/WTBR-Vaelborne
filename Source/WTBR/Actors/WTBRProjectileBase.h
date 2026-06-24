@@ -117,6 +117,10 @@ public:
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Projectile | VFX")
     void OnCubeSplitVFX();
 
+    // Spawn sub-bullets for a cube-split burst; called immediately by Labyrn FireComposite.
+    UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
+    void SpawnCubeSplits();
+
 protected:
     virtual void BeginPlay() override;
     virtual void GetLifetimeReplicatedProps(
@@ -140,5 +144,4 @@ private:
 
     void TriggerExplosion();
     void OnBulletClash(AWTBRProjectileBase* OtherBullet);
-    void SpawnCubeSplits();
 };

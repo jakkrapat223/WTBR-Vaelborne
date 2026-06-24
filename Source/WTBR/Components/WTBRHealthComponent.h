@@ -100,7 +100,7 @@ private:
     UPROPERTY(Replicated)
     TArray<FWTBRLimbState> LimbStates;
 
-    UPROPERTY(Replicated)
+    UPROPERTY(ReplicatedUsing=OnRep_CurrentHP)
     float CurrentHP = 300.f;
 
     FTimerHandle LimbDrainTimerHandle;
@@ -116,6 +116,9 @@ private:
 
     // Timer callback — fires every LIMB_DRAIN_TICK_INTERVAL seconds on Authority
     void TickLimbDrain();
+
+    UFUNCTION()
+    void OnRep_CurrentHP();
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };

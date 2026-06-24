@@ -48,9 +48,23 @@ bool UWTBRAegornTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    if (!OwnerCharacter.IsValid()) return false;
-    if (!OwnerCharacter->HasAuthority()) return false;
-    if (bShieldActive) return true;
+    UE_LOG(LogTemp, Warning, TEXT("[Aegorn] Activate_Implementation called"));
+    if (!OwnerCharacter.IsValid())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Aegorn] FAIL: OwnerCharacter is null"));
+        return false;
+    }
+    if (!OwnerCharacter->HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Aegorn] FAIL: No Authority"));
+        return false;
+    }
+    if (bShieldActive)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Aegorn] Shield already active"));
+        return true;
+    }
+    UE_LOG(LogTemp, Warning, TEXT("[Aegorn] Calling RaiseShield"));
     RaiseShield(bIsDualWield);
     return true;
 }
@@ -72,6 +86,7 @@ void UWTBRAegornTrigger::Deactivate_Implementation()
 
 void UWTBRAegornTrigger::RaiseShield(bool bDualWield)
 {
+    UE_LOG(LogTemp, Warning, TEXT("[Aegorn] RaiseShield called — VaelDrainPerTick: %.1f"), VaelDrainPerTick);
     bShieldActive = true;
     bIsDualShield = bDualWield;
     UpdateShieldCollisionSize(bDualWield);
@@ -124,8 +139,12 @@ void UWTBRAegornTrigger::TickVaelDrain()
     if (!OwnerCharacter.IsValid()) return;
     UWTBRVaelComponent* Vael = OwnerCharacter->VaelComponent;
     if (!IsValid(Vael)) return;
+    UE_LOG(LogTemp, Log, TEXT("[Aegorn] TickVaelDrain — draining %.1f Vael"), VaelDrainPerTick);
     if (!Vael->TryConsumeVael(VaelDrainPerTick))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Aegorn] Vael exhausted — LowerShield"));
         LowerShield();
+    }
 }
 
 void UWTBRAegornTrigger::PlaceWall()

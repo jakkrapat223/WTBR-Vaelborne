@@ -3,6 +3,9 @@
 #include "Components/WTBRHealthComponent.h"
 #include "Data/WTBRCoreStatsDataAsset.h"
 #include "Net/UnrealNetwork.h"
+#include "WTBRCharacter.h"
+#include "Trigger/WTBRTriggerSetComponent.h"
+#include "Engine/Engine.h"
 
 // Drain fires every 0.5 s on Authority; HP removed = drainRate * MaxHP * interval per limb
 static const float LIMB_DRAIN_TICK_INTERVAL = 0.5f;
@@ -27,7 +30,29 @@ void UWTBRHealthComponent::BeginPlay()
 
 void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstigator)
 {
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
     if (!IsAlive()) return;
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR ApplyDamage: %.0f → HP %.0f→%.0f on %s"),
+        DamageAmount, CurrentHP, FMath::Max(0.f, CurrentHP - DamageAmount),
+        *GetOwner()->GetName());
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 4.f, FColor::Red,
+            FString::Printf(TEXT("[HP] %.0f → %.0f  (-%0.f)"),
+                CurrentHP, FMath::Max(0.f, CurrentHP - DamageAmount), DamageAmount));
+    }
+
+    if (GetOwner() && GetOwner()->HasAuthority())
+    {
+        AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner());
+        if (OwnerChar && OwnerChar->TriggerSetComponent &&
+            OwnerChar->TriggerSetComponent->GetCurrentMergeState() != EWTBRCompositeBulletType::None)
+        {
+            OwnerChar->TriggerSetComponent->CancelMerge();
+        }
+    }
+
     CurrentHP = FMath::Max(0.f, CurrentHP - DamageAmount);
     OnHPChanged.Broadcast(CurrentHP, GetMaxHP());
     if (CurrentHP <= 0.f) OnDeath.Broadcast();
@@ -170,6 +195,15 @@ void UWTBRHealthComponent::TickLimbDrain()
 }
 
 // ─── Replication ─────────────────────────────────────────────────────────────
+
+void UWTBRHealthComponent::OnRep_CurrentHP()
+{
+    OnHPChanged.Broadcast(CurrentHP, GetMaxHP());
+    if (CurrentHP <= 0.f)
+    {
+        OnDeath.Broadcast();
+    }
+}
 
 void UWTBRHealthComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {

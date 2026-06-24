@@ -138,7 +138,8 @@ TArray<FVector> UWTBRSerpveilTrigger::GetPreviewPathPoints(
 // ─── BuildPathPoints ──────────────────────────────────────────────────────────
 
 TArray<FVector> UWTBRSerpveilTrigger::BuildPathPoints(
-    EWTBRSerpveilShape Shape, FVector StartLocation, FRotator Direction, float Range)
+    EWTBRSerpveilShape Shape, FVector StartLocation, FRotator Direction, float Range,
+    bool bMirrorY)
 {
     const float R = Range;
     TArray<FVector> LocalPts;
@@ -196,6 +197,13 @@ TArray<FVector> UWTBRSerpveilTrigger::BuildPathPoints(
     default:
         LocalPts = { FVector(0.0f, 0.0f, 0.0f), FVector(R, 0.0f, 0.0f) };
         break;
+    }
+
+    // Mirror Core B: flip Y of every local point before world-space transform
+    if (bMirrorY)
+    {
+        for (FVector& Pt : LocalPts)
+            Pt.Y = -Pt.Y;
     }
 
     // Transform local waypoints to world space via the fire direction

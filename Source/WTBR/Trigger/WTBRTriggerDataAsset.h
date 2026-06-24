@@ -48,6 +48,23 @@ enum class ETriggerSlotConstraint : uint8
     Any      UMETA(DisplayName="Any Slot"),
 };
 
+// Composite Bullet types — each value maps to one Gunner × Gunner DualGesture combo
+UENUM(BlueprintType)
+enum class EWTBRCompositeBulletType : uint8
+{
+    None     UMETA(DisplayName = "None"),
+    Solgrix  UMETA(DisplayName = "Solgrix  (Solux + Fulgrix)"),
+    Dualux   UMETA(DisplayName = "Dualux   (Solux + Solux)"),
+    Solveil  UMETA(DisplayName = "Solveil  (Solux + Serpveil)"),
+    Solhunt  UMETA(DisplayName = "Solhunt  (Solux + Venyx)"),
+    Acervyn  UMETA(DisplayName = "Acervyn  (Venyx + Venyx)"),
+    Fulgvyn  UMETA(DisplayName = "Fulgvyn  (Fulgrix + Venyx)"),
+    Coilvyn  UMETA(DisplayName = "Coilvyn  (Serpveil + Venyx)"),
+    Catarix  UMETA(DisplayName = "Catarix  (Fulgrix + Fulgrix)"),
+    Labyrn   UMETA(DisplayName = "Labyrn   (Serpveil + Serpveil)"),
+    Ignivex  UMETA(DisplayName = "Ignivex  (Solux + Fulgrix*)"),
+};
+
 // Preset curved-flight shape for Serpveil (Viper — GDD Phase 4)
 UENUM(BlueprintType)
 enum class EWTBRSerpveilShape : uint8
@@ -929,6 +946,26 @@ public:
     // False for melee, shield gank, etc.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Action Ping")
     bool bDispatchesActionPing = false;
+
+    // ─── Composite Bullet (DualGesture Gunner × Gunner merge) ────────────────
+    // All four maps keyed by EWTBRCompositeBulletType — every entry is data-driven.
+    // Leave maps empty on non-Gunner DataAssets.
+
+    // Projectile class to spawn when the merge timer completes
+    UPROPERTY(EditDefaultsOnly, Category = "Trigger | Composite")
+    TMap<EWTBRCompositeBulletType, TSubclassOf<AWTBRProjectileBase>> CompositeProjectileClasses;
+
+    // Vael cost deducted immediately on merge start (non-refundable on interrupt)
+    UPROPERTY(EditDefaultsOnly, Category = "Trigger | Composite")
+    TMap<EWTBRCompositeBulletType, float> CompositeVaelCosts;
+
+    // Charge duration (seconds) before the composite fires — replaces any hardcoded value
+    UPROPERTY(EditDefaultsOnly, Category = "Trigger | Composite")
+    TMap<EWTBRCompositeBulletType, float> CompositeMergeTimes;
+
+    // Base damage passed to InitializeProjectile on the spawned composite projectile
+    UPROPERTY(EditDefaultsOnly, Category = "Trigger | Composite")
+    TMap<EWTBRCompositeBulletType, float> CompositeDamages;
 
     // ─── Visuals ─────────────────────────────────────────────────────────────
 

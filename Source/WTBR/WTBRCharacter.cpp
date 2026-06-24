@@ -97,6 +97,27 @@ AWTBRCharacter::AWTBRCharacter()
     {
         SwitchSubAction = SwitchSubActionAsset.Object;
     }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> FireMainActionAsset(
+        TEXT("/Game/Input/Actions/IA_MainTrigger.IA_MainTrigger"));
+    if (FireMainActionAsset.Succeeded())
+    {
+        FireMainAction = FireMainActionAsset.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> FireSubActionAsset(
+        TEXT("/Game/Input/Actions/IA_SubTrigger.IA_SubTrigger"));
+    if (FireSubActionAsset.Succeeded())
+    {
+        FireSubAction = FireSubActionAsset.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> DodgeActionAsset(
+        TEXT("/Game/Input/Actions/IA_Dodge.IA_Dodge"));
+    if (DodgeActionAsset.Succeeded())
+    {
+        DodgeAction = DodgeActionAsset.Object;
+    }
 }
 
 void AWTBRCharacter::PostInitializeComponents()
@@ -311,9 +332,31 @@ void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed)
     UE_LOG(LogTemp, Log, TEXT("Active Trigger: %s"),
         Trigger ? *Trigger->GetClass()->GetName() : TEXT("nullptr"));
 
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f,
+            Trigger ? FColor::Green : FColor::Red,
+            FString::Printf(TEXT("[Fire] %s"),
+                Trigger ? *Trigger->GetClass()->GetName() : TEXT("NO TRIGGER - slot empty?")));
+    }
+
     if (!Trigger) return;
-    if (bIsPressed) Trigger->OnTriggerActivated(this, bIsMain);
-    else            Trigger->OnTriggerDeactivated(this, bIsMain);
+
+    const bool bIsDualWield =
+        TriggerSetComponent->GetDualWieldState() != EWTBRDualWieldState::None;
+    const FInputActionValue EmptyInputValue;
+
+    if (bIsPressed)
+    {
+        Trigger->OnTriggerActivated(this, bIsMain);
+        const bool bActivated = Trigger->Activate(EmptyInputValue, bIsDualWield);
+        UE_LOG(LogTemp, Log, TEXT("Trigger Activate result: %d"), bActivated);
+    }
+    else
+    {
+        Trigger->OnTriggerDeactivated(this, bIsMain);
+        Trigger->OnReleased(EmptyInputValue, bIsDualWield);
+    }
 }
 
 void AWTBRCharacter::Server_Dodge_Implementation()
@@ -378,6 +421,7 @@ void AWTBRCharacter::ApplyStagger(float Duration)
 {
     if (!HasAuthority()) return;
     if (Duration <= 0.0f) return;
+    if (TriggerSetComponent) TriggerSetComponent->CancelMerge();
     bIsStaggered = true;
     GetWorld()->GetTimerManager().SetTimer(
         StaggerTimer,

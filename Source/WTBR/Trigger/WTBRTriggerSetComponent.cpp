@@ -4,6 +4,8 @@
 #include "Trigger/WTBRTriggerDataAsset.h"
 #include "Trigger/WTBRSerpveilTrigger.h"
 #include "WTBRCharacter.h"
+#include "Actors/WTBRProjectileBase.h"
+#include "Components/WTBRVaelComponent.h"
 #include "Engine/StreamableManager.h"
 #include "Engine/AssetManager.h"
 #include "Net/UnrealNetwork.h"
@@ -26,6 +28,31 @@ void UWTBRTriggerSetComponent::BeginPlay()
     if (RuntimeTriggers.Num() != TotalSlotCount)
     {
         RuntimeTriggers.Init(nullptr, TotalSlotCount);
+    }
+
+    // Eagerly instantiate every slot whose DataAsset is already in memory.
+    // EditDefaultsOnly assets are loaded before BeginPlay, so this is the
+    // common case for all pre-configured loadouts.
+    // RuntimeTriggers is Transient — both server and client run this loop.
+    for (int32 i = 0; i < TotalSlotCount; ++i)
+    {
+        if (!TriggerSlots[i].IsEmpty() && TriggerSlots[i].DataAsset.IsValid())
+        {
+            InitializeLoadedSlot(i);
+        }
+    }
+
+    if (HasServerAuthority())
+    {
+        if (TriggerSlots.IsValidIndex(ActiveMainIndex) && !TriggerSlots[ActiveMainIndex].IsEmpty())
+        {
+            SwitchMainSlot(ActiveMainIndex);
+        }
+
+        if (TriggerSlots.IsValidIndex(ActiveSubIndex) && !TriggerSlots[ActiveSubIndex].IsEmpty())
+        {
+            SwitchSubSlot(ActiveSubIndex - MainSlotCount);
+        }
     }
 }
 
@@ -293,10 +320,8 @@ void UWTBRTriggerSetComponent::AsyncLoadSlot(int32 SlotIndex, TFunction<void()> 
 
 void UWTBRTriggerSetComponent::InitializeLoadedSlot(int32 SlotIndex)
 {
-    if (!HasServerAuthority())
-    {
-        return;
-    }
+    // RuntimeTriggers is Transient (not replicated) — both server and client
+    // must instantiate their own local copy. Authority guard removed intentionally.
 
     if (!IsValidSlotIndex(SlotIndex))
     {
@@ -436,6 +461,164 @@ void UWTBRTriggerSetComponent::OnRep_DualWieldState()
     // Client-side: react for animation/UI
 }
 
+// ── Composite Bullet Merge ────────────────────────────────────────────────────
+
+void UWTBRTriggerSetComponent::Server_StartCompositeMerge_Implementation(
+    EWTBRCompositeBulletType Type)
+{
+    if (!HasServerAuthority()) return;
+    if (Type == EWTBRCompositeBulletType::None) return;
+    if (CurrentMergeState != EWTBRCompositeBulletType::None) return; // already merging
+
+    if (!IsValidSlotIndex(ActiveMainIndex)) return;
+    UWTBRTriggerDataAsset* DA = TriggerSlots[ActiveMainIndex].DataAsset.Get();
+    if (!DA) return;
+
+    const float* VaelCostPtr  = DA->CompositeVaelCosts.Find(Type);
+    const float* MergeTimePtr = DA->CompositeMergeTimes.Find(Type);
+    if (!VaelCostPtr || !MergeTimePtr) return;
+
+    AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner());
+    if (!OwnerChar || !OwnerChar->VaelComponent) return;
+    if (!OwnerChar->VaelComponent->TryConsumeVael(*VaelCostPtr)) return;
+
+    CurrentMergeState = Type;
+    GetWorld()->GetTimerManager().SetTimer(
+        MergeTimer,
+        this, &UWTBRTriggerSetComponent::OnMergeCompleteCallback,
+        *MergeTimePtr,
+        false);
+}
+
+void UWTBRTriggerSetComponent::CancelMerge()
+{
+    if (!HasServerAuthority()) return;
+    if (CurrentMergeState == EWTBRCompositeBulletType::None) return;
+
+    GetWorld()->GetTimerManager().ClearTimer(MergeTimer);
+    bMergeWasFired    = false;
+    CurrentMergeState = EWTBRCompositeBulletType::None;
+}
+
+void UWTBRTriggerSetComponent::OnMergeCompleteCallback()
+{
+    if (!HasServerAuthority()) return;
+
+    const EWTBRCompositeBulletType TypeToFire = CurrentMergeState;
+    bMergeWasFired    = true;
+    CurrentMergeState = EWTBRCompositeBulletType::None;
+    FireComposite(TypeToFire);
+}
+
+void UWTBRTriggerSetComponent::FireComposite(EWTBRCompositeBulletType Type)
+{
+    if (!HasServerAuthority()) return;
+
+    if (!IsValidSlotIndex(ActiveMainIndex)) return;
+    UWTBRTriggerDataAsset* DA = TriggerSlots[ActiveMainIndex].DataAsset.Get();
+    if (!DA) return;
+
+    AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner());
+    if (!OwnerChar || !GetWorld()) return;
+
+    // ── Labyrn: Serpveil + Serpveil — dual mirrored path ─────────────────────
+    if (Type == EWTBRCompositeBulletType::Labyrn)
+    {
+        const TSubclassOf<AWTBRProjectileBase>* ClassPtr  = DA->CompositeProjectileClasses.Find(Type);
+        const float*                            DamagePtr = DA->CompositeDamages.Find(Type);
+        if (!ClassPtr || !(*ClassPtr) || !DamagePtr) return;
+
+        FVector  EyeLoc;
+        FRotator EyeRot;
+        OwnerChar->GetActorEyesViewPoint(EyeLoc, EyeRot);
+        const FVector    SpawnLoc = EyeLoc + EyeRot.Vector() * 100.f;
+        const FTransform SpawnTF(EyeRot, SpawnLoc);
+
+        const FWTBRSerpveilParams& SParams = DA->SerpveilParams;
+        const float Speed = SParams.SerpveilSpeed;
+
+        TArray<FVector> PathA = UWTBRSerpveilTrigger::BuildPathPoints(
+            SParams.PresetShape, SpawnLoc, EyeRot, SParams.SerpveilMaxRange, false);
+        TArray<FVector> PathB = UWTBRSerpveilTrigger::BuildPathPoints(
+            SParams.PresetShape, SpawnLoc, EyeRot, SParams.SerpveilMaxRange, true);
+
+        if (PathA.Num() < 2 || PathB.Num() < 2) return;
+
+        // Core A — normal path
+        AWTBRProjectileBase* ProjA = GetWorld()->SpawnActorDeferred<AWTBRProjectileBase>(
+            *ClassPtr, SpawnTF, OwnerChar, OwnerChar,
+            ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+        if (ProjA)
+        {
+            ProjA->InitializeProjectile(*DamagePtr, Speed, ETriggerCategory::Gunner,
+                /*bSniper=*/false, /*bExplode=*/false, /*ExplodeRadius=*/0.f);
+            ProjA->FinishSpawning(SpawnTF);
+            ProjA->InitializePathMovement(PathA, Speed, OwnerChar);
+            ProjA->SpawnCubeSplits();
+        }
+
+        // Core B — mirrored path; same OwnerInstigator prevents self-clash
+        AWTBRProjectileBase* ProjB = GetWorld()->SpawnActorDeferred<AWTBRProjectileBase>(
+            *ClassPtr, SpawnTF, OwnerChar, OwnerChar,
+            ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+        if (ProjB)
+        {
+            ProjB->InitializeProjectile(*DamagePtr, Speed, ETriggerCategory::Gunner,
+                /*bSniper=*/false, /*bExplode=*/false, /*ExplodeRadius=*/0.f);
+            ProjB->FinishSpawning(SpawnTF);
+            ProjB->InitializePathMovement(PathB, Speed, OwnerChar);
+            ProjB->SpawnCubeSplits();
+        }
+
+        return;
+    }
+
+    // ── Generic composite fire ────────────────────────────────────────────────
+    const TSubclassOf<AWTBRProjectileBase>* ClassPtr  = DA->CompositeProjectileClasses.Find(Type);
+    const float*                            DamagePtr = DA->CompositeDamages.Find(Type);
+    if (!ClassPtr || !(*ClassPtr) || !DamagePtr) return;
+
+    const FVector  SpawnLocation = OwnerChar->GetActorLocation()
+                                    + OwnerChar->GetActorForwardVector() * 100.f;
+    const FRotator SpawnRotation = OwnerChar->GetActorRotation();
+
+    AWTBRProjectileBase* Projectile = GetWorld()->SpawnActorDeferred<AWTBRProjectileBase>(
+        *ClassPtr,
+        FTransform(SpawnRotation, SpawnLocation),
+        OwnerChar,
+        OwnerChar,
+        ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+
+    if (!Projectile) return;
+
+    Projectile->InitializeProjectile(
+        *DamagePtr,
+        /*InSpeed=*/3000.f,
+        ETriggerCategory::Gunner,
+        /*bSniper=*/false,
+        /*bExplode=*/false,
+        /*ExplodeRadius=*/0.f);
+
+    Projectile->FinishSpawning(FTransform(SpawnRotation, SpawnLocation));
+    Projectile->Launch(OwnerChar->GetActorForwardVector(), OwnerChar);
+}
+
+void UWTBRTriggerSetComponent::OnRep_MergeState(EWTBRCompositeBulletType OldState)
+{
+    if (CurrentMergeState != EWTBRCompositeBulletType::None)
+    {
+        OnMergeStart(CurrentMergeState);
+    }
+    else if (OldState != EWTBRCompositeBulletType::None && bMergeWasFired)
+    {
+        OnMergeComplete(OldState);
+    }
+    else
+    {
+        OnMergeCancelled();
+    }
+}
+
 void UWTBRTriggerSetComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -443,4 +626,6 @@ void UWTBRTriggerSetComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProper
     DOREPLIFETIME(UWTBRTriggerSetComponent, ActiveMainIndex);
     DOREPLIFETIME(UWTBRTriggerSetComponent, ActiveSubIndex);
     DOREPLIFETIME(UWTBRTriggerSetComponent, CurrentDualWieldState);
+    DOREPLIFETIME(UWTBRTriggerSetComponent, CurrentMergeState);
+    DOREPLIFETIME(UWTBRTriggerSetComponent, bMergeWasFired);
 }

@@ -113,7 +113,7 @@ protected:
     void SwitchSubTrigger(const FInputActionValue& Value);
 
     // ─── Server RPCs ──────────────────────────────────────────────────────────
-    UFUNCTION(Server, Unreliable)
+    UFUNCTION(Server, Reliable)
     void Server_Fire(bool bIsMain, bool bIsPressed);
 
     UFUNCTION(Server, Unreliable)
