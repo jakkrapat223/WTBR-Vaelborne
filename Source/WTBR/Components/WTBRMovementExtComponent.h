@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Data/WTBRCoreStatsDataAsset.h"
 #include "WTBRMovementExtComponent.generated.h"
 
 // All speed penalties stack MULTIPLICATIVELY: FinalSpeed = Base × (1-Limb) × (1-Stamina) × (1-Debuff)
@@ -34,6 +35,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement")
     float BaseWalkSpeed = 600.f; // override per DataAsset in BeginPlay
 
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Sprint")
+    TObjectPtr<UWTBRCoreStatsDataAsset> CoreStatsAsset;
+
     UFUNCTION(BlueprintCallable, Category="Movement")
     void SetLimbPenalty(float Penalty);
 
@@ -49,6 +53,12 @@ public:
     UFUNCTION(BlueprintPure, Category="Movement")
     FWTBRSpeedModifiers GetSpeedModifiers() const { return SpeedModifiers; }
 
+    UFUNCTION(BlueprintCallable, Category="WTBR | Movement")
+    void StartVaelSprint();
+
+    UFUNCTION(BlueprintCallable, Category="WTBR | Movement")
+    void StopVaelSprint();
+
 protected:
     virtual void BeginPlay() override;
 
@@ -60,6 +70,17 @@ private:
     void OnRep_SpeedModifiers();
 
     void PushSpeedToMovement();
+
+    void DrainVaelForSprint();
+
+    UPROPERTY()
+    FTimerHandle SprintDrainTimer;
+
+    UPROPERTY(ReplicatedUsing=OnRep_bIsSprinting)
+    bool bIsSprinting = false;
+
+    UFUNCTION()
+    void OnRep_bIsSprinting();
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };

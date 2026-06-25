@@ -2,12 +2,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRGunnerTrigger.h"
 #include "WTBRVenyxTrigger.generated.h"
 
-// Venyx — Hound (Homing Bullet Gunner)
 UCLASS(BlueprintType, Blueprintable)
-class WTBR_API UWTBRVenyxTrigger : public UWTBRTriggerBase
+class WTBR_API UWTBRVenyxTrigger : public UWTBRGunnerTrigger
 {
     GENERATED_BODY()
 
@@ -16,10 +15,5 @@ public:
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Venyx | VFX")
-    void OnVenyxFired();
-
-    // Fired when a homing target is acquired
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Venyx | VFX")
-    void OnVenyxHoming();
+    virtual float GetCooldownDuration() const override;
 };

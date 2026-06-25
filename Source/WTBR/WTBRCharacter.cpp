@@ -439,3 +439,81 @@ void AWTBRCharacter::OnRep_bIsStaggered()
 {
     // Blueprint: true=disable input+stagger anim | false=re-enable input
 }
+
+// ─── Trigger Activation RPCs ─────────────────────────────────────────────────
+
+void AWTBRCharacter::Server_ActivateMainTrigger_Implementation(bool bIsDualWield)
+{
+    if (!HasAuthority()) return;
+    if (!IsValid(TriggerSetComponent)) return;
+    UWTBRTriggerBase* Trigger = TriggerSetComponent->GetActiveMainTrigger();
+    if (!IsValid(Trigger)) return;
+    FInputActionValue EmptyValue;
+    Trigger->Activate(EmptyValue, bIsDualWield);
+}
+
+void AWTBRCharacter::Server_ReleaseMainTrigger_Implementation(bool bIsDualWield)
+{
+    if (!HasAuthority()) return;
+    if (!IsValid(TriggerSetComponent)) return;
+    UWTBRTriggerBase* Trigger = TriggerSetComponent->GetActiveMainTrigger();
+    if (!IsValid(Trigger)) return;
+    FInputActionValue EmptyValue;
+    Trigger->OnReleased(EmptyValue, bIsDualWield);
+}
+
+void AWTBRCharacter::Server_ActivateSubTrigger_Implementation(bool bIsDualWield)
+{
+    if (!HasAuthority()) return;
+    if (!IsValid(TriggerSetComponent)) return;
+    UWTBRTriggerBase* Trigger = TriggerSetComponent->GetActiveSubTrigger();
+    if (!IsValid(Trigger)) return;
+    FInputActionValue EmptyValue;
+    Trigger->Activate(EmptyValue, bIsDualWield);
+}
+
+void AWTBRCharacter::Server_ReleaseSubTrigger_Implementation(bool bIsDualWield)
+{
+    if (!HasAuthority()) return;
+    if (!IsValid(TriggerSetComponent)) return;
+    UWTBRTriggerBase* Trigger = TriggerSetComponent->GetActiveSubTrigger();
+    if (!IsValid(Trigger)) return;
+    FInputActionValue EmptyValue;
+    Trigger->OnReleased(EmptyValue, bIsDualWield);
+}
+
+void AWTBRCharacter::Server_CycleMainSlot_Implementation()
+{
+    if (!HasAuthority()) return;
+    if (IsValid(TriggerSetComponent))
+    {
+        TriggerSetComponent->CycleMainSlot();
+    }
+}
+
+void AWTBRCharacter::Server_CycleSubSlot_Implementation()
+{
+    if (!HasAuthority()) return;
+    if (IsValid(TriggerSetComponent))
+    {
+        TriggerSetComponent->CycleSubSlot();
+    }
+}
+
+void AWTBRCharacter::Server_StartVaelSprint_Implementation()
+{
+    if (!HasAuthority()) return;
+    if (IsValid(MovementExtComponent))
+    {
+        MovementExtComponent->StartVaelSprint();
+    }
+}
+
+void AWTBRCharacter::Server_StopVaelSprint_Implementation()
+{
+    if (!HasAuthority()) return;
+    if (IsValid(MovementExtComponent))
+    {
+        MovementExtComponent->StopVaelSprint();
+    }
+}

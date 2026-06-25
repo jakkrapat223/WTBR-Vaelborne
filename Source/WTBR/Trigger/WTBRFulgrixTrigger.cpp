@@ -1,8 +1,8 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRFulgrixTrigger.h"
-#include "Actors/WTBRProjectileBase.h"
 #include "Subsystem/WTBRActionPingSubsystem.h"
 #include "WTBRCharacter.h"
+#include "Components/WTBRVaelComponent.h"
 #include "Engine/World.h"
 
 bool UWTBRFulgrixTrigger::Activate_Implementation(
@@ -11,30 +11,21 @@ bool UWTBRFulgrixTrigger::Activate_Implementation(
 {
     if (!OwnerCharacter.IsValid()) return false;
     if (!OwnerCharacter->HasAuthority()) return false;
-    if (!IsValid(DataAsset)) return false;
+    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
+    if (IsValid(OwnerCharacter->VaelComponent))
+    {
+        if (!OwnerCharacter->VaelComponent->TryConsumeVael(DataAsset->VaelCostPerUse))
+            return false;
+    }
 
-    const FWTBRFulgrixParams& Params = DataAsset->FulgrixParams;
-    if (!Params.FulgrixProjectileClass) return false;
-
-    const FVector Forward = OwnerCharacter->GetActorForwardVector();
-    const FVector Origin  = OwnerCharacter->GetActorLocation() + Forward * 100.0f;
-    const FTransform SpawnTF(Forward.Rotation(), Origin);
+    const TSubclassOf<AWTBRProjectileBase> ProjClass = DataAsset->FulgrixParams.FulgrixProjectileClass;
+    const float Damage = DataAsset->FulgrixParams.FulgrixDamage;
+    const float Speed = DataAsset->FulgrixParams.FulgrixSpeed;
+    const float ExplodeRadius = DataAsset->FulgrixParams.FulgrixExplosionRadius;
 
     UWorld* World = OwnerCharacter->GetWorld();
 
-    AWTBRProjectileBase* Proj = World->SpawnActorDeferred<AWTBRProjectileBase>(
-        Params.FulgrixProjectileClass, SpawnTF, nullptr, nullptr,
-        ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-    if (!IsValid(Proj)) return false;
-
-    Proj->MaxRange = Params.FulgrixRange;
-    Proj->InitializeProjectile(Params.FulgrixDamage, Params.FulgrixSpeed,
-        ETriggerCategory::Gunner,
-        false,                        // bIsSniper
-        true,                         // bExplodeOnImpact
-        Params.FulgrixExplosionRadius);
-    Proj->FinishSpawning(SpawnTF);
-    Proj->Launch(Forward, OwnerCharacter.Get());
+    FireProjectile(ProjClass, Damage, Speed, 0.0f, true, ExplodeRadius);
 
     if (UWTBRActionPingSubsystem* PingSys =
         World->GetSubsystem<UWTBRActionPingSubsystem>())
@@ -43,5 +34,12 @@ bool UWTBRFulgrixTrigger::Activate_Implementation(
     }
 
     OnFulgrixFired();
+    StartCooldown();
     return true;
+}
+
+float UWTBRFulgrixTrigger::GetCooldownDuration() const
+{
+    if (!IsValid(DataAsset)) return 0.5f;
+    return DataAsset->FulgrixParams.FulgrixFireCooldown;
 }

@@ -2,12 +2,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRGunnerTrigger.h"
 #include "WTBRSoluxTrigger.generated.h"
 
-// Solux — Asteroid (Normal Bullet Gunner)
 UCLASS(BlueprintType, Blueprintable)
-class WTBR_API UWTBRSoluxTrigger : public UWTBRTriggerBase
+class WTBR_API UWTBRSoluxTrigger : public UWTBRGunnerTrigger
 {
     GENERATED_BODY()
 
@@ -16,6 +15,6 @@ public:
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Solux | VFX")
-    void OnSoluxFired();
+protected:
+    virtual float GetCooldownDuration() const override;
 };

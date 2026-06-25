@@ -1,75 +1,87 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRArcvenTrigger.h"
 #include "Actors/WTBRProjectileBase.h"
-#include "Subsystem/WTBRActionPingSubsystem.h"
 #include "WTBRCharacter.h"
+#include "Components/WTBRVaelComponent.h"
 #include "Engine/World.h"
+#include "Math/RotationMatrix.h"
 
 bool UWTBRArcvenTrigger::Activate_Implementation(
-    const FInputActionValue& InputValue,
-    bool bIsDualWield)
+    const FInputActionValue& InputValue, bool bIsDualWield)
 {
     if (!OwnerCharacter.IsValid()) return false;
     if (!OwnerCharacter->HasAuthority()) return false;
+    if (IsOnCooldown()) return false;
     if (!IsValid(DataAsset)) return false;
 
-    const FWTBRArcvenParams& Params = DataAsset->ArcvenParams;
-    if (!Params.ArcProjectileClass) return false;
+    if (IsValid(OwnerCharacter->VaelComponent))
+    {
+        if (!OwnerCharacter->VaelComponent->TryConsumeVael(DataAsset->VaelCostPerUse))
+            return false;
+    }
 
-    const FVector Forward    = OwnerCharacter->GetActorForwardVector();
-    const FVector Right      = OwnerCharacter->GetActorRightVector();
-    // Spawn 100u in front of character centre to avoid self-overlap
-    const FVector BaseOrigin = OwnerCharacter->GetActorLocation() + Forward * 100.0f;
+    FVector EyeLoc;
+    FRotator EyeRot;
+    OwnerCharacter->GetActorEyesViewPoint(EyeLoc, EyeRot);
+    const FVector Forward = EyeRot.Vector();
 
     if (bIsDualWield)
     {
-        // Option A: two parallel waves offset left and right along the Right vector
-        constexpr float LateralOffset = 60.0f;
-        const float SingleDamage = Params.DualArcTotalDamage * 0.5f;
+        const float WaveDamage = DataAsset->ArcvenParams.DualArcTotalDamage * 0.5f;
+        const float SpreadRad  = FMath::DegreesToRadians(DataAsset->ArcvenParams.DualWaveSpreadAngle);
+        const FVector Right    = FRotationMatrix(EyeRot).GetUnitAxis(EAxis::Y);
 
-        FireArcWave(BaseOrigin - Right * LateralOffset, Forward, SingleDamage);
-        FireArcWave(BaseOrigin + Right * LateralOffset, Forward, SingleDamage);
+        FireArcWave((Forward - Right * FMath::Tan(SpreadRad)).GetSafeNormal(), WaveDamage);
+        FireArcWave((Forward + Right * FMath::Tan(SpreadRad)).GetSafeNormal(), WaveDamage);
+        OnArcvenFire(true, Forward);
     }
     else
     {
-        FireArcWave(BaseOrigin, Forward, Params.ArcDamage);
+        FireArcWave(Forward, DataAsset->ArcvenParams.ArcDamage);
+        OnArcvenFire(false, Forward);
     }
 
-    // Dispatch radar ping — Arcven Vael exits character capsule on every fire
-    if (DataAsset->bDispatchesActionPing || Params.bPingOnFire)
-    {
-        if (UWTBRActionPingSubsystem* PingSys =
-            OwnerCharacter->GetWorld()->GetSubsystem<UWTBRActionPingSubsystem>())
-        {
-            PingSys->RegisterActionPing(OwnerCharacter.Get());
-        }
-    }
-
-    OnArcvenFired(bIsDualWield);
+    OnMeleeSwing.Broadcast(bIsDualWield);
+    StartCooldown();
     return true;
 }
 
-void UWTBRArcvenTrigger::FireArcWave(FVector Origin, FVector Direction, float Damage)
+void UWTBRArcvenTrigger::FireArcWave(const FVector& Direction, float Damage)
 {
-    UWorld* World = OwnerCharacter->GetWorld();
-    if (!IsValid(World)) return;
+    if (!OwnerCharacter.IsValid() || !GetWorld()) return;
+    if (!IsValid(DataAsset)) return;
 
-    const FWTBRArcvenParams& Params = DataAsset->ArcvenParams;
-    const FTransform SpawnTF(Direction.Rotation(), Origin);
+    const TSubclassOf<AWTBRProjectileBase> ProjClass = DataAsset->ArcvenParams.ArcProjectileClass;
+    if (!IsValid(ProjClass))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("WTBRArcvenTrigger: ArcProjectileClass not set in DataAsset — skipping fire"));
+        return;
+    }
 
-    AWTBRProjectileBase* Proj = World->SpawnActorDeferred<AWTBRProjectileBase>(
-        Params.ArcProjectileClass, SpawnTF, nullptr, nullptr,
+    const FVector  SpawnLoc = OwnerCharacter->GetActorLocation() + Direction * 60.0f;
+    const FRotator SpawnRot = Direction.Rotation();
+
+    AWTBRProjectileBase* Proj = GetWorld()->SpawnActorDeferred<AWTBRProjectileBase>(
+        ProjClass,
+        FTransform(SpawnRot, SpawnLoc),
+        OwnerCharacter.Get(),
+        OwnerCharacter.Get(),
         ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+
     if (!IsValid(Proj)) return;
 
+    Proj->MaxRange = DataAsset->ArcvenParams.ArcRange;
     Proj->InitializeProjectile(
         Damage,
-        Params.ArcWaveSpeed,
+        DataAsset->ArcvenParams.ArcWaveSpeed,
         ETriggerCategory::Melee,
-        false,  // bIsSniper
-        false,  // bExplodeOnImpact
-        0.0f);  // ExplosionRadius
+        false, false, 0.0f);
 
-    Proj->FinishSpawning(SpawnTF);
+    Proj->FinishSpawning(FTransform(SpawnRot, SpawnLoc));
     Proj->Launch(Direction, OwnerCharacter.Get());
+
+    UE_LOG(LogTemp, Log,
+        TEXT("WTBRArcvenTrigger: Arc wave fired — damage %.0f speed %.0f"),
+        Damage, DataAsset->ArcvenParams.ArcWaveSpeed);
 }

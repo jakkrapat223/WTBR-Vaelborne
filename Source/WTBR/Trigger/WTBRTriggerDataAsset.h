@@ -455,6 +455,9 @@ struct FWTBRSoluxParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Projectile")
     TSubclassOf<AWTBRProjectileBase> SoluxProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Combat", meta = (ClampMin = "0.05"))
+    float SoluxFireCooldown = 0.5f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -480,6 +483,11 @@ struct FWTBRFulgrixParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile")
     TSubclassOf<AWTBRProjectileBase> FulgrixProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Fulgrix | Combat",
+        meta = (ClampMin = "0.1"))
+    float FulgrixFireCooldown = 0.8f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -505,6 +513,11 @@ struct FWTBRVenyxParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Projectile")
     TSubclassOf<AWTBRProjectileBase> VenyxProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Venyx | Combat",
+        meta = (ClampMin = "0.1"))
+    float VenyxFireCooldown = 0.6f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

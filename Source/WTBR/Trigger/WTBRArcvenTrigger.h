@@ -1,33 +1,29 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #pragma once
-
 #include "CoreMinimal.h"
-#include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRMeleeTrigger.h"
 #include "WTBRArcvenTrigger.generated.h"
 
-class AWTBRProjectileBase;
-
 UCLASS(BlueprintType, Blueprintable)
-class WTBR_API UWTBRArcvenTrigger : public UWTBRTriggerBase
+class WTBR_API UWTBRArcvenTrigger : public UWTBRMeleeTrigger
 {
     GENERATED_BODY()
 
 public:
-    // bIsDualWield=true → parallel dual waves (Option A)
-    // bIsDualWield=false → single forward wave
     virtual bool Activate_Implementation(
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
-    // Blueprint plays spawn VFX/sound on owner
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Arcven | VFX")
-    void OnArcvenFired(bool bIsDual);
+    // Server-only VFX hook (projectile replication handles client visuals).
+    // For client muzzle flash: bind OnMeleeSwing in Blueprint.
+    UFUNCTION(BlueprintImplementableEvent, Category="WTBR | Arcven | VFX")
+    void OnArcvenFire(bool bIsDual, const FVector& FireDirection);
 
-    // Called by the Projectile Blueprint when it hits a target
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Arcven | VFX")
-    void OnArcvenHit(FVector ImpactPoint);
+protected:
+    // Arcven fires projectiles — no capsule sweep needed
+    virtual void PerformSingleSweep(TArray<FHitResult>& OutHits) override {}
+    virtual void PerformDualSweep(TArray<FHitResult>& OutHits) override {}
 
 private:
-    // Spawn, initialize, and launch one Arc Wave projectile
-    void FireArcWave(FVector Origin, FVector Direction, float Damage);
+    void FireArcWave(const FVector& Direction, float Damage);
 };

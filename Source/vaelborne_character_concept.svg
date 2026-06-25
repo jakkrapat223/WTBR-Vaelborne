@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#0b1020"/>
+  <rect x="40" y="40" width="1520" height="820" rx="24" fill="#11182d" stroke="#2d3b63" stroke-width="2"/>
+
+  <text x="80" y="110" fill="#f2f5ff" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700">Vaelborne: Dominion - Default Playable Character Concept</text>
+  <text x="80" y="150" fill="#8ea2d6" font-family="Arial, Helvetica, sans-serif" font-size="18">Stylized anime battle suit | modular 4-layer customization | clean shape language for 3D generation</text>
+
+  <g transform="translate(110,210)">
+    <rect x="0" y="0" width="370" height="560" rx="20" fill="#151f39" stroke="#31406d" stroke-width="2"/>
+    <text x="24" y="38" fill="#cdd7ff" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">Front View</text>
+
+    <g transform="translate(105,85)">
+      <ellipse cx="80" cy="58" rx="40" ry="48" fill="#e5ecff"/>
+      <path d="M55 92 C42 130, 34 170, 30 226 L28 302 C54 340, 108 340, 134 302 L132 226 C128 170, 120 130, 105 92 Z" fill="#1d2440"/>
+      <path d="M42 110 L22 165 L36 214 L64 196 L70 144 Z" fill="#29365e"/>
+      <path d="M118 110 L138 165 L124 214 L96 196 L90 144 Z" fill="#29365e"/>
+      <path d="M60 96 L100 96 L115 134 L80 158 L45 134 Z" fill="#f2f5ff"/>
+      <rect x="72" y="90" width="16" height="46" rx="8" fill="#27d8ff"/>
+      <path d="M64 162 L96 162 L108 286 L52 286 Z" fill="#202945"/>
+      <path d="M54 286 L102 286 L94 360 L62 360 Z" fill="#141a30"/>
+      <path d="M52 340 L34 448 L66 448 L84 358 Z" fill="#1b2240"/>
+      <path d="M108 340 L126 448 L94 448 L76 358 Z" fill="#1b2240"/>
+      <path d="M38 176 L12 242 L28 252 L54 198 Z" fill="#3a4775"/>
+      <path d="M122 176 L148 242 L132 252 L106 198 Z" fill="#3a4775"/>
+      <rect x="30" y="288" width="100" height="16" rx="8" fill="#27d8ff"/>
+      <rect x="44" y="438" width="36" height="26" rx="8" fill="#0d1224"/>
+      <rect x="86" y="438" width="36" height="26" rx="8" fill="#0d1224"/>
+      <path d="M26 0 L0 -40 L24 -42 L44 -12 Z" fill="#2b365b"/>
+      <path d="M136 0 L162 -40 L138 -42 L118 -12 Z" fill="#2b365b"/>
+      <circle cx="88" cy="132" r="10" fill="#0f172e"/>
+      <circle cx="56" cy="132" r="6" fill="#0f172e"/>
+      <circle cx="120" cy="132" r="6" fill="#0f172e"/>
+    </g>
+
+    <text x="24" y="520" fill="#8ea2d6" font-family="Arial, Helvetica, sans-serif" font-size="16">Slim athletic build, high collar, chest Vael core, asymmetrical jacket panels, compact gauntlets</text>
+  </g>
+
+  <g transform="translate(615,210)">
+    <rect x="0" y="0" width="370" height="560" rx="20" fill="#151f39" stroke="#31406d" stroke-width="2"/>
+    <text x="24" y="38" fill="#cdd7ff" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">Side View</text>
+
+    <g transform="translate(90,85)">
+      <ellipse cx="70" cy="58" rx="38" ry="46" fill="#e5ecff"/>
+      <path d="M44 92 C32 130, 24 176, 20 230 L22 306 C46 346, 94 346, 118 306 L120 230 C116 176, 108 130, 96 92 Z" fill="#1d2440"/>
+      <path d="M68 92 L108 102 L122 138 L98 156 L62 136 Z" fill="#f2f5ff"/>
+      <rect x="84" y="90" width="14" height="42" rx="7" fill="#27d8ff"/>
+      <path d="M74 162 L110 174 L116 284 L66 284 Z" fill="#202945"/>
+      <path d="M52 110 L22 168 L34 212 L60 196 L64 148 Z" fill="#29365e"/>
+      <path d="M96 176 L130 230 L118 236 L92 198 Z" fill="#3a4775"/>
+      <path d="M62 284 L98 284 L102 360 L72 360 Z" fill="#141a30"/>
+      <path d="M46 338 L30 446 L60 446 L76 360 Z" fill="#1b2240"/>
+      <path d="M100 338 L116 446 L86 446 L70 360 Z" fill="#1b2240"/>
+      <path d="M116 194 L146 252 L130 264 L104 214 Z" fill="#4d5c8f"/>
+      <rect x="54" y="302" width="78" height="14" rx="7" fill="#27d8ff"/>
+      <rect x="33" y="438" width="34" height="26" rx="8" fill="#0d1224"/>
+      <rect x="80" y="438" width="34" height="26" rx="8" fill="#0d1224"/>
+      <path d="M120 18 L154 0 L170 34 L142 44 Z" fill="#2b365b"/>
+      <circle cx="56" cy="132" r="7" fill="#0f172e"/>
+    </g>
+
+    <text x="24" y="520" fill="#8ea2d6" font-family="Arial, Helvetica, sans-serif" font-size="16">Rear hip capelet, one shoulder guard, readable silhouette, not too many tiny parts</text>
+  </g>
+
+  <g transform="translate(1120,210)">
+    <rect x="0" y="0" width="370" height="560" rx="20" fill="#151f39" stroke="#31406d" stroke-width="2"/>
+    <text x="24" y="38" fill="#cdd7ff" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="700">Back View</text>
+
+    <g transform="translate(90,85)">
+      <ellipse cx="70" cy="58" rx="40" ry="48" fill="#e5ecff"/>
+      <path d="M42 92 C28 130, 22 176, 18 228 L20 304 C46 346, 94 346, 120 304 L122 228 C118 176, 112 130, 98 92 Z" fill="#1d2440"/>
+      <path d="M26 112 L8 166 L22 216 L54 198 L62 142 Z" fill="#29365e"/>
+      <path d="M116 112 L134 166 L120 216 L88 198 L80 142 Z" fill="#29365e"/>
+      <path d="M54 98 L92 98 L106 132 L74 156 L42 132 Z" fill="#d9e1ff"/>
+      <rect x="64" y="90" width="12" height="50" rx="6" fill="#27d8ff"/>
+      <path d="M70 162 L114 176 L118 290 L54 290 Z" fill="#202945"/>
+      <path d="M46 286 L102 286 L96 358 L54 358 Z" fill="#141a30"/>
+      <path d="M38 338 L26 446 L58 446 L72 358 Z" fill="#1b2240"/>
+      <path d="M102 338 L114 446 L82 446 L68 358 Z" fill="#1b2240"/>
+      <path d="M18 182 L2 250 L18 258 L42 204 Z" fill="#3a4775"/>
+      <path d="M122 182 L138 250 L122 258 L98 204 Z" fill="#3a4775"/>
+      <path d="M44 160 L96 160 L94 262 L46 262 Z" fill="none" stroke="#27d8ff" stroke-width="6" stroke-linecap="round"/>
+      <path d="M30 288 L112 288" stroke="#27d8ff" stroke-width="10" stroke-linecap="round"/>
+      <rect x="32" y="438" width="34" height="26" rx="8" fill="#0d1224"/>
+      <rect x="78" y="438" width="34" height="26" rx="8" fill="#0d1224"/>
+      <path d="M24 0 L0 -36 L22 -42 L42 -14 Z" fill="#2b365b"/>
+      <path d="M118 0 L144 -36 L122 -42 L102 -14 Z" fill="#2b365b"/>
+    </g>
+
+    <text x="24" y="520" fill="#8ea2d6" font-family="Arial, Helvetica, sans-serif" font-size="16">Rear Vael conduit line, compact boots, helmet-less anime face, built for 3D rigging</text>
+  </g>
+
+  <g transform="translate(80,820)">
+    <rect x="0" y="0" width="1440" height="8" rx="4" fill="#27d8ff"/>
+    <text x="0" y="-16" fill="#8ea2d6" font-family="Arial, Helvetica, sans-serif" font-size="15">
+      Palette: matte black, steel blue, off-white, Vael cyan. 4-layer customization: Base Body / Suit / Accessory / Vael Color
+    </text>
+  </g>
+</svg>

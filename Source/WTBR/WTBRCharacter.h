@@ -91,6 +91,33 @@ public:
     UFUNCTION(BlueprintCallable, Category = "WTBR | Character | Stagger")
     void ApplyStagger(float Duration);
 
+    // ── Trigger Activation RPCs (Blueprint callable) ──────────────────────────
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
+    void Server_ActivateMainTrigger(bool bIsDualWield);
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
+    void Server_ReleaseMainTrigger(bool bIsDualWield);
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
+    void Server_ActivateSubTrigger(bool bIsDualWield);
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
+    void Server_ReleaseSubTrigger(bool bIsDualWield);
+
+    // Blueprint calls this on Q Pressed to cycle main weapons
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
+    void Server_CycleMainSlot();
+
+    // Blueprint calls this on E Pressed to cycle sub weapons
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
+    void Server_CycleSubSlot();
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
+    void Server_StartVaelSprint();
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
+    void Server_StopVaelSprint();
+
     UPROPERTY(ReplicatedUsing = OnRep_bIsStaggered, BlueprintReadOnly,
         Category = "WTBR | Character | Stagger")
     bool bIsStaggered = false;

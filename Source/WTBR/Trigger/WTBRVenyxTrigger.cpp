@@ -1,67 +1,78 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRVenyxTrigger.h"
-#include "Actors/WTBRProjectileBase.h"
-#include "Subsystem/WTBRActionPingSubsystem.h"
 #include "WTBRCharacter.h"
+#include "Components/WTBRVaelComponent.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
+#include "Actors/WTBRProjectileBase.h"
+#include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 
 bool UWTBRVenyxTrigger::Activate_Implementation(
-    const FInputActionValue& InputValue,
-    bool bIsDualWield)
+    const FInputActionValue& InputValue, bool bIsDualWield)
 {
-    if (!OwnerCharacter.IsValid()) return false;
-    if (!OwnerCharacter->HasAuthority()) return false;
-    if (!IsValid(DataAsset)) return false;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
+    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
 
-    const FWTBRVenyxParams& Params = DataAsset->VenyxParams;
-    if (!Params.VenyxProjectileClass) return false;
-
-    UWorld* World = OwnerCharacter->GetWorld();
-
-    // Server-side trace from camera to find a homing target
-    FVector CamLoc;
-    FRotator CamRot;
-    OwnerCharacter->GetActorEyesViewPoint(CamLoc, CamRot);
-    const FVector TraceDir = CamRot.Vector();
-    const FVector TraceEnd = CamLoc + TraceDir * Params.VenyxRange;
-
-    FHitResult Hit;
-    FCollisionQueryParams TraceParams;
-    TraceParams.AddIgnoredActor(OwnerCharacter.Get());
-    const bool bHit = World->LineTraceSingleByChannel(
-        Hit, CamLoc, TraceEnd, ECC_Pawn, TraceParams);
-
-    // Always spawn and fire — homing is optional based on trace result
-    const FVector Origin = OwnerCharacter->GetActorLocation() + TraceDir * 100.0f;
-    const FTransform SpawnTF(TraceDir.Rotation(), Origin);
-
-    AWTBRProjectileBase* Proj = World->SpawnActorDeferred<AWTBRProjectileBase>(
-        Params.VenyxProjectileClass, SpawnTF, nullptr, nullptr,
-        ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-    if (!IsValid(Proj)) return false;
-
-    Proj->MaxRange = Params.VenyxRange;
-    Proj->InitializeProjectile(Params.VenyxDamage, Params.VenyxSpeed,
-        ETriggerCategory::Gunner, false, false, 0.0f);
-    Proj->FinishSpawning(SpawnTF);
-    Proj->Launch(TraceDir, OwnerCharacter.Get());
-
-    // Enable homing only if trace found a valid character target
-    if (bHit && IsValid(Hit.GetActor()))
+    if (IsValid(OwnerCharacter->VaelComponent))
     {
-        if (USceneComponent* TargetRoot = Hit.GetActor()->GetRootComponent())
+        if (!OwnerCharacter->VaelComponent->TryConsumeVael(DataAsset->VaelCostPerUse))
+            return false;
+    }
+
+    const TSubclassOf<AWTBRProjectileBase> ProjClass = DataAsset->VenyxParams.VenyxProjectileClass;
+    const float Damage        = DataAsset->VenyxParams.VenyxDamage;
+    const float Speed         = DataAsset->VenyxParams.VenyxSpeed;
+    const float HomingAccel   = DataAsset->VenyxParams.VenyxHomingAcceleration;
+    const float SearchRadius  = DataAsset->VenyxParams.VenyxRange;
+
+    AWTBRProjectileBase* SpawnedProj =
+        FireProjectile(ProjClass, Damage, Speed, 0.0f, false, 0.0f);
+
+    StartCooldown();
+
+    if (!IsValid(SpawnedProj)) return true;
+
+    // Sphere overlap to find the nearest valid target on the server
+    TArray<FOverlapResult> Overlaps;
+    FCollisionQueryParams Params;
+    Params.AddIgnoredActor(OwnerCharacter.Get());
+
+    GetWorld()->OverlapMultiByChannel(
+        Overlaps,
+        OwnerCharacter->GetActorLocation(),
+        FQuat::Identity,
+        ECC_Pawn,
+        FCollisionShape::MakeSphere(SearchRadius),
+        Params);
+
+    AWTBRCharacter* TargetCharacter = nullptr;
+    float NearestDistSq = FLT_MAX;
+    const FVector OwnerLoc = OwnerCharacter->GetActorLocation();
+
+    for (const FOverlapResult& Overlap : Overlaps)
+    {
+        AWTBRCharacter* Candidate = Cast<AWTBRCharacter>(Overlap.GetActor());
+        if (!IsValid(Candidate) || Candidate == OwnerCharacter.Get()) continue;
+        // Note: team filter to be added Phase 5
+
+        const float DistSq = FVector::DistSquared(OwnerLoc, Candidate->GetActorLocation());
+        if (DistSq < NearestDistSq)
         {
-            Proj->EnableHoming(TargetRoot, Params.VenyxHomingAcceleration);
-            OnVenyxHoming();
+            NearestDistSq = DistSq;
+            TargetCharacter = Candidate;
         }
     }
 
-    if (UWTBRActionPingSubsystem* PingSys =
-        World->GetSubsystem<UWTBRActionPingSubsystem>())
+    if (IsValid(TargetCharacter))
     {
-        PingSys->RegisterActionPing(OwnerCharacter.Get());
+        SpawnedProj->EnableHoming(TargetCharacter->GetRootComponent(), HomingAccel);
     }
 
-    OnVenyxFired();
     return true;
+}
+
+float UWTBRVenyxTrigger::GetCooldownDuration() const
+{
+    if (!IsValid(DataAsset)) return 0.5f;
+    return DataAsset->VenyxParams.VenyxFireCooldown;
 }

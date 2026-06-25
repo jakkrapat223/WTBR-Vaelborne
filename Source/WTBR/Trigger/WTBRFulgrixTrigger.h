@@ -2,12 +2,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRGunnerTrigger.h"
 #include "WTBRFulgrixTrigger.generated.h"
 
 // Fulgrix — Meteor (Explosive Bullet Gunner)
 UCLASS(BlueprintType, Blueprintable)
-class WTBR_API UWTBRFulgrixTrigger : public UWTBRTriggerBase
+class WTBR_API UWTBRFulgrixTrigger : public UWTBRGunnerTrigger
 {
     GENERATED_BODY()
 
@@ -15,6 +15,7 @@ public:
     virtual bool Activate_Implementation(
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
+    virtual float GetCooldownDuration() const override;
 
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Fulgrix | VFX")
     void OnFulgrixFired();

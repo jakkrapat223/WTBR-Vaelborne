@@ -59,4 +59,11 @@ public:
     // ─── Movement ───────────────────────────────────────────────────────────
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Movement")
     float BaseWalkSpeed         = 600.f;   // cm/s (UE5 unit = 1 cm)
+
+    // ─── Sprint ─────────────────────────────────────────────────────────────
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="WTBR | Sprint")
+    float VaelSprintDrainRate = 5.0f;      // Vael drained per second
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="WTBR | Sprint")
+    float VaelSprintSpeedMultiplier = 1.4f; // +40% speed
 };

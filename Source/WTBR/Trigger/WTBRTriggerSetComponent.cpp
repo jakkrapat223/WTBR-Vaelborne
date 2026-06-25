@@ -453,7 +453,26 @@ void UWTBRTriggerSetComponent::Server_FireSerpveil_Implementation(
 
 void UWTBRTriggerSetComponent::OnRep_TriggerSlots()
 {
-    // Client-side: slot array received from server — no cosmetic action needed yet.
+    // Guard: ensure RuntimeTriggers array is sized before use.
+    // OnRep_ may fire before BeginPlay on client — without this,
+    // IsValidIndex() returns false and every slot is skipped.
+    if (RuntimeTriggers.Num() < TotalSlotCount)
+    {
+        RuntimeTriggers.SetNum(TotalSlotCount);
+    }
+
+    // Instantiate any slot whose DataAsset just arrived from server
+    // and has not been instantiated yet (RuntimeTrigger still null).
+    for (int32 i = 0; i < TotalSlotCount; ++i)
+    {
+        if (!TriggerSlots[i].IsEmpty()
+            && TriggerSlots[i].DataAsset.IsValid()
+            && RuntimeTriggers.IsValidIndex(i)
+            && !RuntimeTriggers[i])
+        {
+            InitializeLoadedSlot(i);
+        }
+    }
 }
 
 void UWTBRTriggerSetComponent::OnRep_DualWieldState()
