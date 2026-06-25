@@ -2,12 +2,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRSniperTrigger.h"
 #include "WTBRPiercexTrigger.generated.h"
 
 // Piercex — Ibis (Penetrating Sniper, highest damage, bCanPenetrate=true)
 UCLASS(BlueprintType, Blueprintable)
-class WTBR_API UWTBRPiercexTrigger : public UWTBRTriggerBase
+class WTBR_API UWTBRPiercexTrigger : public UWTBRSniperTrigger
 {
     GENERATED_BODY()
 
@@ -16,10 +16,5 @@ public:
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Piercex | VFX")
-    void OnPiercexFired();
-
-    // Fired each time the bullet passes through a character while bCanPenetrate is active
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Piercex | VFX")
-    void OnPiercexPenetrate(AActor* PenetratedActor);
+    virtual float GetCooldownDuration() const override;
 };

@@ -1,45 +1,36 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRFulgrisTrigger.h"
-#include "Actors/WTBRProjectileBase.h"
-#include "Subsystem/WTBRActionPingSubsystem.h"
 #include "WTBRCharacter.h"
-#include "Engine/World.h"
+#include "Components/WTBRVaelComponent.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
+#include "Actors/WTBRProjectileBase.h"
 
 bool UWTBRFulgrisTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    if (!OwnerCharacter.IsValid()) return false;
-    if (!OwnerCharacter->HasAuthority()) return false;
-    if (!IsValid(DataAsset)) return false;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
+    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
 
-    const FWTBRFulgrisParams& Params = DataAsset->FulgrisParams;
-    if (!Params.FulgrisProjectileClass) return false;
-
-    const FVector Forward = OwnerCharacter->GetActorForwardVector();
-    const FVector Origin  = OwnerCharacter->GetActorLocation() + Forward * 100.0f;
-    const FTransform SpawnTF(Forward.Rotation(), Origin);
-
-    UWorld* World = OwnerCharacter->GetWorld();
-
-    AWTBRProjectileBase* Proj = World->SpawnActorDeferred<AWTBRProjectileBase>(
-        Params.FulgrisProjectileClass, SpawnTF, nullptr, nullptr,
-        ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-    if (!IsValid(Proj)) return false;
-
-    Proj->MaxRange = Params.FulgrisRange;
-    // Fulgris: fastest sniper (12000 u/s default), no penetration
-    Proj->InitializeProjectile(Params.FulgrisDamage, Params.FulgrisSpeed,
-        ETriggerCategory::SniperBullet, /*bSniper=*/true, false, 0.0f);
-    Proj->FinishSpawning(SpawnTF);
-    Proj->Launch(Forward, OwnerCharacter.Get());
-
-    if (UWTBRActionPingSubsystem* PingSys =
-        World->GetSubsystem<UWTBRActionPingSubsystem>())
+    if (!OwnerCharacter->VaelComponent ||
+        !OwnerCharacter->VaelComponent->TryConsumeVael(DataAsset->VaelCostPerUse))
     {
-        PingSys->RegisterActionPing(OwnerCharacter.Get());
+        return false;
     }
 
-    OnFulgrisFired();
+    const TSubclassOf<AWTBRProjectileBase> ProjClass = DataAsset->FulgrisParams.FulgrisProjectileClass;
+    const float Damage    = DataAsset->FulgrisParams.FulgrisDamage;
+    const float Speed     = DataAsset->FulgrisParams.FulgrisSpeed;
+    const float Range     = DataAsset->FulgrisParams.FulgrisRange;
+    const int32 CubeSplit = DataAsset->FulgrisParams.FulgrisCubeSplitCount;
+
+    FireSniper(ProjClass, Damage, Speed, Range, false, CubeSplit);
+    StartCooldown();
     return true;
+}
+
+float UWTBRFulgrisTrigger::GetCooldownDuration() const
+{
+    if (!IsValid(DataAsset)) return 1.0f;
+    return DataAsset->FulgrisParams.FulgrisFireCooldown;
 }

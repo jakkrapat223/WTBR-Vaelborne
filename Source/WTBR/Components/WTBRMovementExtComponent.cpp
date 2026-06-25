@@ -3,6 +3,7 @@
 #include "Components/WTBRMovementExtComponent.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
+#include "Components/WTBRStaminaComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
@@ -16,6 +17,7 @@ UWTBRMovementExtComponent::UWTBRMovementExtComponent()
 void UWTBRMovementExtComponent::BeginPlay()
 {
     Super::BeginPlay();
+    StaminaComponent = GetOwner()->FindComponentByClass<UWTBRStaminaComponent>();
     PushSpeedToMovement();
 }
 
@@ -63,6 +65,7 @@ void UWTBRMovementExtComponent::StartVaelSprint()
 {
     AWTBRCharacter* Owner = Cast<AWTBRCharacter>(GetOwner());
     if (!Owner || !Owner->HasAuthority()) return;
+    if (!StaminaComponent || StaminaComponent->GetCurrentStamina() <= 0.f) return;
 
     bIsSprinting = true;
     OnRep_bIsSprinting();
@@ -70,9 +73,9 @@ void UWTBRMovementExtComponent::StartVaelSprint()
     UWorld* World = GetWorld();
     if (!IsValid(World)) return;
     World->GetTimerManager().SetTimer(
-        SprintDrainTimer,
-        this, &UWTBRMovementExtComponent::DrainVaelForSprint,
-        1.0f, true);
+        TimerHandle_SprintStaminaDrain,
+        this, &UWTBRMovementExtComponent::DrainSprintStamina,
+        0.1f, true);
 }
 
 void UWTBRMovementExtComponent::StopVaelSprint()
@@ -85,17 +88,17 @@ void UWTBRMovementExtComponent::StopVaelSprint()
 
     UWorld* World = GetWorld();
     if (IsValid(World))
-        World->GetTimerManager().ClearTimer(SprintDrainTimer);
+        World->GetTimerManager().ClearTimer(TimerHandle_SprintStaminaDrain);
 }
 
-void UWTBRMovementExtComponent::DrainVaelForSprint()
+void UWTBRMovementExtComponent::DrainSprintStamina()
 {
-    AWTBRCharacter* Owner = Cast<AWTBRCharacter>(GetOwner());
-    if (!Owner || !Owner->HasAuthority()) return;
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
+    if (!StaminaComponent) return;
     if (!IsValid(CoreStatsAsset)) return;
-    if (!IsValid(Owner->VaelComponent)) return;
 
-    if (!Owner->VaelComponent->TryConsumeVael(CoreStatsAsset->VaelSprintDrainRate))
+    const float CostThisTick = CoreStatsAsset->SprintStaminaCostPerSecond * 0.1f;
+    if (!StaminaComponent->TryConsumeStamina(CostThisTick))
     {
         StopVaelSprint();
     }

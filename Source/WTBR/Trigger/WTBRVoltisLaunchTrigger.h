@@ -55,8 +55,8 @@ protected:
     void OnRep_bIsStaggered();
 
 private:
-    bool HasCeilingNearby() const;
-    void PerformLaunch(bool bIsDualWield);
+    bool HasCeilingNearby(const FVector& LaunchDir) const;
+    void PerformLaunch(bool bIsDualWield, const FVector& LaunchDir);
     void StartStagger();
 
     UFUNCTION()

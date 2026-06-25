@@ -2,12 +2,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRBlackTrigger.h"
 #include "WTBRKaldrixTrigger.generated.h"
 
-// Kaldrix — Kazan (Explosion Zone): line-traces to floor and places a timed blast zone
+// Kaldrix — Kazan (Explosion Zone): places a timed blast zone at character location
 UCLASS(BlueprintType, Blueprintable)
-class WTBR_API UWTBRKaldrixTrigger : public UWTBRTriggerBase
+class WTBR_API UWTBRKaldrixTrigger : public UWTBRBlackTrigger
 {
     GENERATED_BODY()
 
@@ -16,6 +16,5 @@ public:
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Kaldrix | VFX")
-    void OnKaldrixActivated();
+    virtual float GetCooldownDuration() const override;
 };

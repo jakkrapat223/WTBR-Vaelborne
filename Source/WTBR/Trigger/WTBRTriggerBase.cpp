@@ -13,6 +13,16 @@ void UWTBRTriggerBase::InitializeTrigger(AWTBRCharacter* InOwnerCharacter, UWTBR
     }
 }
 
+FText UWTBRTriggerBase::GetFunctionalName() const
+{
+    return IsValid(DataAsset) ? DataAsset->FunctionalName : FText::FromString("Unknown Trigger");
+}
+
+FText UWTBRTriggerBase::GetFunctionalDescription() const
+{
+    return IsValid(DataAsset) ? DataAsset->FunctionalDescription : FText::FromString("Missing Description");
+}
+
 bool UWTBRTriggerBase::Activate_Implementation(const FInputActionValue& InputValue, bool bIsDualWield) { return true; }
 void UWTBRTriggerBase::OnTriggerActivated_Implementation(AActor* OwnerActor, bool bIsMain) {}
 void UWTBRTriggerBase::OnTriggerDeactivated_Implementation(AActor* OwnerActor, bool bIsMain) {}

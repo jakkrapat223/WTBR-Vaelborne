@@ -2,13 +2,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRSniperTrigger.h"
 #include "WTBRFulgrisTrigger.generated.h"
 
-// Fulgris — Lightning (Fastest Sniper, lower damage)
+// Fulgris — Lightning (Fastest Sniper, lower damage, bCanPenetrate=false)
 // NOTE: Fulgris (Sniper) is distinct from Fulgrix (explosive Gunner)
 UCLASS(BlueprintType, Blueprintable)
-class WTBR_API UWTBRFulgrisTrigger : public UWTBRTriggerBase
+class WTBR_API UWTBRFulgrisTrigger : public UWTBRSniperTrigger
 {
     GENERATED_BODY()
 
@@ -17,6 +17,5 @@ public:
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Fulgris | VFX")
-    void OnFulgrisFired();
+    virtual float GetCooldownDuration() const override;
 };

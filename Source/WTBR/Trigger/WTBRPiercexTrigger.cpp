@@ -1,45 +1,36 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRPiercexTrigger.h"
-#include "Actors/WTBRProjectileBase.h"
-#include "Subsystem/WTBRActionPingSubsystem.h"
 #include "WTBRCharacter.h"
-#include "Engine/World.h"
+#include "Components/WTBRVaelComponent.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
+#include "Actors/WTBRProjectileBase.h"
 
 bool UWTBRPiercexTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    if (!OwnerCharacter.IsValid()) return false;
-    if (!OwnerCharacter->HasAuthority()) return false;
-    if (!IsValid(DataAsset)) return false;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
+    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
 
-    const FWTBRPiercexParams& Params = DataAsset->PiercexParams;
-    if (!Params.PiercexProjectileClass) return false;
-
-    const FVector Forward = OwnerCharacter->GetActorForwardVector();
-    const FVector Origin  = OwnerCharacter->GetActorLocation() + Forward * 100.0f;
-    const FTransform SpawnTF(Forward.Rotation(), Origin);
-
-    UWorld* World = OwnerCharacter->GetWorld();
-
-    AWTBRProjectileBase* Proj = World->SpawnActorDeferred<AWTBRProjectileBase>(
-        Params.PiercexProjectileClass, SpawnTF, nullptr, nullptr,
-        ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-    if (!IsValid(Proj)) return false;
-
-    Proj->MaxRange      = Params.PiercexRange;
-    Proj->bCanPenetrate = true; // Ibis: bullet passes through characters
-    Proj->InitializeProjectile(Params.PiercexDamage, Params.PiercexSpeed,
-        ETriggerCategory::SniperBullet, /*bSniper=*/true, false, 0.0f);
-    Proj->FinishSpawning(SpawnTF);
-    Proj->Launch(Forward, OwnerCharacter.Get());
-
-    if (UWTBRActionPingSubsystem* PingSys =
-        World->GetSubsystem<UWTBRActionPingSubsystem>())
+    if (!OwnerCharacter->VaelComponent ||
+        !OwnerCharacter->VaelComponent->TryConsumeVael(DataAsset->VaelCostPerUse))
     {
-        PingSys->RegisterActionPing(OwnerCharacter.Get());
+        return false;
     }
 
-    OnPiercexFired();
+    const TSubclassOf<AWTBRProjectileBase> ProjClass = DataAsset->PiercexParams.PiercexProjectileClass;
+    const float Damage    = DataAsset->PiercexParams.PiercexDamage;
+    const float Speed     = DataAsset->PiercexParams.PiercexSpeed;
+    const float Range     = DataAsset->PiercexParams.PiercexRange;
+    const int32 CubeSplit = DataAsset->PiercexParams.PiercexCubeSplitCount;
+
+    FireSniper(ProjClass, Damage, Speed, Range, true, CubeSplit);
+    StartCooldown();
     return true;
+}
+
+float UWTBRPiercexTrigger::GetCooldownDuration() const
+{
+    if (!IsValid(DataAsset)) return 1.0f;
+    return DataAsset->PiercexParams.PiercexFireCooldown;
 }

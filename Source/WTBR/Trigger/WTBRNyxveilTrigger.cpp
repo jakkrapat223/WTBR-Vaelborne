@@ -1,99 +1,105 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRNyxveilTrigger.h"
-#include "Subsystem/WTBRActionPingSubsystem.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
+#include "Subsystem/WTBRActionPingSubsystem.h"
 #include "Engine/World.h"
 
 bool UWTBRNyxveilTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    if (!OwnerCharacter.IsValid()) return false;
-    if (!OwnerCharacter->HasAuthority()) return false;
-    if (!IsValid(DataAsset)) return false;
-
-    const FWTBRNyxveilParams& Params = DataAsset->NyxveilParams;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
+    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
 
     UWTBRVaelComponent* VaelComp = OwnerCharacter->VaelComponent;
-    if (!IsValid(VaelComp) || !VaelComp->TryConsumeVael(Params.NyxveilVaelCost)) return false;
+    if (!IsValid(VaelComp)) return false;
+    if (!VaelComp->TryConsumeVael(DataAsset->NyxveilParams.NyxveilVaelCost)) return false;
 
-    CachedScanRadius = Params.NyxveilScanRadius;
+    const float ScanRadius   = DataAsset->NyxveilParams.NyxveilScanRadius;
+    const float Duration     = DataAsset->NyxveilParams.NyxveilDuration;
+    const float PingInterval = DataAsset->NyxveilParams.NyxveilPingInterval;
 
-    UWorld* World = OwnerCharacter->GetWorld();
+    // Fire first scan immediately — no delay feel
+    PerformScan();
 
-    // Immediate first scan
-    DoScan();
+    // Repeating scan every PingInterval — NOT Tick
+    GetWorld()->GetTimerManager().SetTimer(
+        ScanTimer,
+        this,
+        &UWTBRNyxveilTrigger::PerformScan,
+        PingInterval,
+        true);
 
-    // Repeating scan every NyxveilPingInterval
-    World->GetTimerManager().SetTimer(
-        PingTimerHandle, this, &UWTBRNyxveilTrigger::DoScan,
-        Params.NyxveilPingInterval, /*bLoop=*/true);
+    // Stop the repeating scan after Duration (one-shot)
+    GetWorld()->GetTimerManager().SetTimer(
+        ScanDurationTimer,
+        this,
+        &UWTBRNyxveilTrigger::OnScanExpired,
+        Duration,
+        false);
 
-    // Stop the repeating scan after NyxveilDuration
-    World->GetTimerManager().SetTimer(
-        StopTimerHandle, this, &UWTBRNyxveilTrigger::StopScan,
-        Params.NyxveilDuration, /*bLoop=*/false);
+    // Nyxveil doesn't call FireBlackProjectile — manually fire the VFX event
+    OnBlackTriggerFired(OwnerCharacter->GetActorForwardVector());
 
-    OnNyxveilActivated();
+    StartCooldown();
     return true;
+}
+
+void UWTBRNyxveilTrigger::PerformScan()
+{
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return;
+    if (!IsValid(DataAsset)) return;
+
+    const float ScanRadius = DataAsset->NyxveilParams.NyxveilScanRadius;
+
+    TArray<FOverlapResult> Overlaps;
+    FCollisionQueryParams QueryParams;
+    QueryParams.AddIgnoredActor(OwnerCharacter.Get());
+
+    GetWorld()->OverlapMultiByChannel(
+        Overlaps,
+        OwnerCharacter->GetActorLocation(),
+        FQuat::Identity,
+        ECC_Pawn,
+        FCollisionShape::MakeSphere(ScanRadius),
+        QueryParams);
+
+    TArray<AWTBRCharacter*> DetectedChars;
+    for (const FOverlapResult& Overlap : Overlaps)
+    {
+        AWTBRCharacter* Candidate = Cast<AWTBRCharacter>(Overlap.GetActor());
+        if (!IsValid(Candidate) || Candidate == OwnerCharacter.Get()) continue;
+
+        if (!DetectedChars.Contains(Candidate))
+            DetectedChars.Add(Candidate);
+    }
+
+    UWTBRActionPingSubsystem* PingSystem =
+        GetWorld()->GetSubsystem<UWTBRActionPingSubsystem>();
+    if (!IsValid(PingSystem)) return;
+
+    for (AWTBRCharacter* DetectedChar : DetectedChars)
+    {
+        PingSystem->RegisterActionPing(DetectedChar);
+    }
+}
+
+void UWTBRNyxveilTrigger::OnScanExpired()
+{
+    GetWorld()->GetTimerManager().ClearTimer(ScanTimer);
 }
 
 void UWTBRNyxveilTrigger::Deactivate_Implementation()
 {
-    StopScan();
+    OnScanExpired();
+    GetWorld()->GetTimerManager().ClearTimer(ScanDurationTimer);
     Super::Deactivate_Implementation();
 }
 
-void UWTBRNyxveilTrigger::DoScan()
+float UWTBRNyxveilTrigger::GetCooldownDuration() const
 {
-    if (!OwnerCharacter.IsValid()) { StopScan(); return; }
-    if (!OwnerCharacter->HasAuthority()) return;
-
-    UWorld* World = OwnerCharacter->GetWorld();
-    if (!IsValid(World)) { StopScan(); return; }
-
-    const FVector Origin = OwnerCharacter->GetActorLocation();
-
-    TArray<FHitResult> Hits;
-    FCollisionObjectQueryParams ObjParams(ECC_Pawn);
-    FCollisionQueryParams QueryParams;
-    QueryParams.AddIgnoredActor(OwnerCharacter.Get());
-
-    World->SweepMultiByObjectType(
-        Hits, Origin, Origin, FQuat::Identity,
-        ObjParams, FCollisionShape::MakeSphere(CachedScanRadius), QueryParams);
-
-    TSet<AActor*> Detected;
-    for (const FHitResult& Hit : Hits)
-    {
-        if (IsValid(Hit.GetActor()))
-            Detected.Add(Hit.GetActor());
-    }
-
-    UWTBRActionPingSubsystem* PingSys = World->GetSubsystem<UWTBRActionPingSubsystem>();
-    if (PingSys)
-    {
-        for (AActor* Target : Detected)
-            PingSys->RegisterActionPing(Target);
-    }
-    else
-    {
-        // TODO: UWTBRActionPingSubsystem not found — scan results will not be reported on radar
-        UE_LOG(LogTemp, Warning,
-            TEXT("WTBRNyxveilTrigger: UWTBRActionPingSubsystem not available. "
-                 "Detected %d actor(s) but radar ping was not dispatched."),
-            Detected.Num());
-    }
-
-    OnNyxveilDetected(Detected.Num());
-}
-
-void UWTBRNyxveilTrigger::StopScan()
-{
-    if (!OwnerCharacter.IsValid()) return;
-    UWorld* World = OwnerCharacter->GetWorld();
-    if (!IsValid(World)) return;
-    World->GetTimerManager().ClearTimer(PingTimerHandle);
-    World->GetTimerManager().ClearTimer(StopTimerHandle);
+    if (!IsValid(DataAsset)) return 2.0f;
+    return DataAsset->NyxveilParams.NyxveilDuration + 5.0f; // ⚠ Playtest
 }

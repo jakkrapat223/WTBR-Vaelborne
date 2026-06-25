@@ -188,6 +188,14 @@ struct FWTBRVoltisParams
         meta = (ClampMin = "100.0"))
     float LaunchForce = 1500.0f;
 
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Voltis")
+    float VerticalLaunchForce = 1200.0f;
+
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Voltis")
+    float HorizontalLaunchForce = 1200.0f;
+
     // จำนวนครั้งสูงสุดที่ดีดได้ก่อนลงพื้น (GDD: ไม่จำกัด แต่รอ Playtest)
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
@@ -386,6 +394,16 @@ struct FWTBRTelornParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Telorn | Projectile")
     TSubclassOf<AWTBRProjectileBase> TelornProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Telorn | Combat",
+        meta = (ClampMin = "0.1"))
+    float TelornFireCooldown = 1.5f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Telorn | VFX",
+        meta = (ClampMin = "1"))
+    int32 TelornCubeSplitCount = 1;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -409,6 +427,12 @@ struct FWTBRPiercexParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | Projectile")
     TSubclassOf<AWTBRProjectileBase> PiercexProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | Combat", meta = (ClampMin = "0.1"))
+    float PiercexFireCooldown = 2.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | VFX", meta = (ClampMin = "1"))
+    int32 PiercexCubeSplitCount = 1;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -434,6 +458,12 @@ struct FWTBRFulgrisParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgris | Projectile")
     TSubclassOf<AWTBRProjectileBase> FulgrisProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgris | Combat", meta = (ClampMin = "0.1"))
+    float FulgrisFireCooldown = 0.8f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgris | VFX", meta = (ClampMin = "1"))
+    int32 FulgrisCubeSplitCount = 2;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -560,6 +590,16 @@ struct FWTBRSerpveilParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile")
     TSubclassOf<AWTBRProjectileBase> SerpveilProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Serpveil | Combat",
+        meta = (ClampMin = "0.1"))
+    float SerpveilFireCooldown = 1.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Serpveil | Path",
+        meta = (ClampMin = "1"))
+    int32 SerpveilCubeSplitCount = 3;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -590,6 +630,12 @@ struct FWTBRAcervynParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Projectile")
     TSubclassOf<AWTBRProjectileBase> AcervynProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Combat", meta = (ClampMin = "0.1"))
+    float AcervynFireCooldown = 1.5f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Burst", meta = (ClampMin = "0.05"))
+    float AcervynBurstInterval = 0.1f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -765,6 +811,11 @@ struct FWTBRVexornParams
 {
     GENERATED_BODY()
 
+    // Radius within which enemy pawns receive Signal Block (suppresses radar ping)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vexorn | Combat")
+    float VexornSuppressionRadius = 1500.0f;
+
     // Passive — always 0, present for DataAsset consistency
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vexorn | Resources")
     float VexornVaelCost = 0.0f;
@@ -788,6 +839,14 @@ public:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Identity")
     FText DisplayName;
+
+    // Short in-world weapon name shown in HUD (e.g. "Kogetsu", "Ibis"). Localization-ready.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Identity")
+    FText FunctionalName;
+
+    // One-line description shown in loadout/tooltip UI. Localization-ready.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Identity")
+    FText FunctionalDescription;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Identity")
     ETriggerCategory Category = ETriggerCategory::None;

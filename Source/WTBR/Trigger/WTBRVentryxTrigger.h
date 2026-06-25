@@ -2,12 +2,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRBlackTrigger.h"
 #include "WTBRVentryxTrigger.generated.h"
 
-// Ventryx — Fujin (Wind): fires a forward projectile with knockback
+// Ventryx — Fujin (Wind): forward knockback blast, Black Trigger
 UCLASS(BlueprintType, Blueprintable)
-class WTBR_API UWTBRVentryxTrigger : public UWTBRTriggerBase
+class WTBR_API UWTBRVentryxTrigger : public UWTBRBlackTrigger
 {
     GENERATED_BODY()
 
@@ -16,6 +16,5 @@ public:
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Ventryx | VFX")
-    void OnVentryxActivated();
+    virtual float GetCooldownDuration() const override;
 };

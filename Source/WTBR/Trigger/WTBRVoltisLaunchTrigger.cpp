@@ -1,6 +1,7 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
 #include "WTBRCharacter.h"
+#include "Components/WTBRVaelComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
@@ -41,13 +42,30 @@ bool UWTBRVoltisLaunchTrigger::Activate_Implementation(
 {
     if (!OwnerCharacter.IsValid()) return false;
     if (!OwnerCharacter->HasAuthority()) return false;
+    if (!IsValid(DataAsset)) return false;
     if (bIsStaggered) return false;
     if (RemainingLaunches <= 0) return false;
 
     if (!Super::Activate_Implementation(InputValue, bIsDualWield))
         return false;
 
-    if (HasCeilingNearby())
+    // Build launch direction from movement input vector
+    FVector InputVec = OwnerCharacter->GetCharacterMovement()->GetLastInputVector();
+    const float V = DataAsset->VoltisParams.VerticalLaunchForce;
+
+    FVector LaunchDir;
+    if (InputVec.SizeSquared2D() > 0.01f)
+    {
+        const FVector HorizDir = InputVec.GetSafeNormal2D();
+        const float H = DataAsset->VoltisParams.HorizontalLaunchForce;
+        LaunchDir = (HorizDir * H) + FVector(0.0f, 0.0f, V);
+    }
+    else
+    {
+        LaunchDir = FVector(0.0f, 0.0f, V);
+    }
+
+    if (HasCeilingNearby(LaunchDir))
     {
         bLastLandingWasCeilingBounce = true;
         ACharacter* Char = Cast<ACharacter>(OwnerCharacter.Get());
@@ -60,19 +78,19 @@ bool UWTBRVoltisLaunchTrigger::Activate_Implementation(
         return false;
     }
 
-    PerformLaunch(bIsDualWield);
+    PerformLaunch(bIsDualWield, LaunchDir);
     RemainingLaunches--;
     OnVoltisLaunch.Broadcast(bIsDualWield);
     OnVoltisLaunched(bIsDualWield);
     return true;
 }
 
-bool UWTBRVoltisLaunchTrigger::HasCeilingNearby() const
+bool UWTBRVoltisLaunchTrigger::HasCeilingNearby(const FVector& LaunchDir) const
 {
     if (!OwnerCharacter.IsValid() || !GetWorld()) return false;
 
     const FVector Start = OwnerCharacter->GetActorLocation();
-    const FVector End   = Start + FVector(0.0f, 0.0f, MIN_CEILING_CLEARANCE);
+    const FVector End   = Start + (LaunchDir.GetSafeNormal() * MIN_CEILING_CLEARANCE);
 
     FHitResult Hit;
     FCollisionQueryParams Params;
@@ -89,29 +107,13 @@ bool UWTBRVoltisLaunchTrigger::HasCeilingNearby() const
     return bHit;
 }
 
-void UWTBRVoltisLaunchTrigger::PerformLaunch(bool bIsDualWield)
+void UWTBRVoltisLaunchTrigger::PerformLaunch(bool bIsDualWield, const FVector& LaunchDir)
 {
     if (!OwnerCharacter.IsValid() || !IsValid(DataAsset)) return;
     ACharacter* Char = Cast<ACharacter>(OwnerCharacter.Get());
     if (!IsValid(Char)) return;
 
-    const float Force = DataAsset->VoltisParams.LaunchForce;
-
-    FVector LaunchVelocity;
-    if (bIsDualWield)
-    {
-        const FVector Forward = OwnerCharacter->GetActorForwardVector();
-        LaunchVelocity = FVector(
-            Forward.X * Force * 0.5f,
-            Forward.Y * Force * 0.5f,
-            Force);
-    }
-    else
-    {
-        LaunchVelocity = FVector(0.0f, 0.0f, Force);
-    }
-
-    Char->LaunchCharacter(LaunchVelocity, false, true);
+    Char->LaunchCharacter(LaunchDir, true, true);
 }
 
 void UWTBRVoltisLaunchTrigger::OnCharacterLanded(const FHitResult& Hit)

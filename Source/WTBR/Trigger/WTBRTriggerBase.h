@@ -24,6 +24,12 @@ public:
     // Called by TriggerSetComponent after spawn to bind owner and data.
     virtual void InitializeTrigger(AWTBRCharacter* InOwnerCharacter, UWTBRTriggerDataAsset* InDataAsset);
 
+    UFUNCTION(BlueprintPure, Category="Trigger | UI")
+    FText GetFunctionalName() const;
+
+    UFUNCTION(BlueprintPure, Category="Trigger | UI")
+    FText GetFunctionalDescription() const;
+
     // Main activation entry point — called by TriggerSetComponent on button press.
     UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Trigger")
     bool Activate(const FInputActionValue& InputValue, bool bIsDualWield);

@@ -61,8 +61,9 @@ public:
     float BaseWalkSpeed         = 600.f;   // cm/s (UE5 unit = 1 cm)
 
     // ─── Sprint ─────────────────────────────────────────────────────────────
+    // ⚠ PLAYTEST PENDING
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="WTBR | Sprint")
-    float VaelSprintDrainRate = 5.0f;      // Vael drained per second
+    float SprintStaminaCostPerSecond = 20.0f; // drained per second (2.0 per 0.1s tick)
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="WTBR | Sprint")
     float VaelSprintSpeedMultiplier = 1.4f; // +40% speed

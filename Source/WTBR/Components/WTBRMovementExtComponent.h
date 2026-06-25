@@ -7,6 +7,8 @@
 #include "Data/WTBRCoreStatsDataAsset.h"
 #include "WTBRMovementExtComponent.generated.h"
 
+class UWTBRStaminaComponent;
+
 // All speed penalties stack MULTIPLICATIVELY: FinalSpeed = Base × (1-Limb) × (1-Stamina) × (1-Debuff)
 // Never additive — prevents negative speed under combined debuffs (GDD §2.4, Lock)
 USTRUCT(BlueprintType)
@@ -71,10 +73,13 @@ private:
 
     void PushSpeedToMovement();
 
-    void DrainVaelForSprint();
+    void DrainSprintStamina();
 
     UPROPERTY()
-    FTimerHandle SprintDrainTimer;
+    FTimerHandle TimerHandle_SprintStaminaDrain;
+
+    UPROPERTY()
+    TObjectPtr<UWTBRStaminaComponent> StaminaComponent;
 
     UPROPERTY(ReplicatedUsing=OnRep_bIsSprinting)
     bool bIsSprinting = false;

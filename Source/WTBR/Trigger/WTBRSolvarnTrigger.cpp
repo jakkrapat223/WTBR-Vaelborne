@@ -1,35 +1,51 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRSolvarnTrigger.h"
-#include "Actors/WTBRSolvarnField.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
-#include "Engine/World.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
+#include "Actors/WTBRSolvarnField.h"
+#include "Kismet/GameplayStatics.h"
 
 bool UWTBRSolvarnTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    if (!OwnerCharacter.IsValid()) return false;
-    if (!OwnerCharacter->HasAuthority()) return false;
-    if (!IsValid(DataAsset)) return false;
-
-    const FWTBRSolvarnParams& Params = DataAsset->SolvarnParams;
-    if (!Params.SolvarnFieldClass) return false;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
+    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
 
     UWTBRVaelComponent* VaelComp = OwnerCharacter->VaelComponent;
-    if (!IsValid(VaelComp) || !VaelComp->TryConsumeVael(Params.SolvarnVaelCost)) return false;
+    if (!IsValid(VaelComp)) return false;
+    if (!VaelComp->TryConsumeVael(DataAsset->SolvarnParams.SolvarnVaelCost)) return false;
 
-    UWorld* World = OwnerCharacter->GetWorld();
-    const FTransform SpawnTF(FQuat::Identity, OwnerCharacter->GetActorLocation());
+    const TSubclassOf<AWTBRSolvarnField> FieldClass = DataAsset->SolvarnParams.SolvarnFieldClass;
+    const float Radius          = DataAsset->SolvarnParams.SolvarnRadius;
+    const float Duration        = DataAsset->SolvarnParams.SolvarnDuration;
+    const float VaelDrainPerSec = DataAsset->SolvarnParams.SolvarnVaelDrainPerSec;
 
-    AWTBRSolvarnField* Field = World->SpawnActorDeferred<AWTBRSolvarnField>(
-        Params.SolvarnFieldClass, SpawnTF, nullptr, nullptr,
+    if (!IsValid(FieldClass)) return false;
+
+    const FVector SpawnLoc = OwnerCharacter->GetActorLocation();
+    const FTransform SpawnTransform(FRotator::ZeroRotator, SpawnLoc);
+
+    AWTBRSolvarnField* Field = GetWorld()->SpawnActorDeferred<AWTBRSolvarnField>(
+        FieldClass, SpawnTransform, OwnerCharacter.Get(), OwnerCharacter.Get(),
         ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
     if (!IsValid(Field)) return false;
 
-    Field->InitializeField(OwnerCharacter.Get(),
-        Params.SolvarnRadius, Params.SolvarnDuration, Params.SolvarnVaelDrainPerSec);
-    Field->FinishSpawning(SpawnTF);
+    // Actual signature: (InOwner, InRadius, InDuration, InVaelDrainPerSec)
+    Field->InitializeField(OwnerCharacter.Get(), Radius, Duration, VaelDrainPerSec);
 
+    UGameplayStatics::FinishSpawningActor(Field, SpawnTransform);
+
+    // Solvarn doesn't call FireBlackProjectile — manually fire the VFX event
+    OnBlackTriggerFired(OwnerCharacter->GetActorForwardVector());
+
+    StartCooldown();
     return true;
+}
+
+float UWTBRSolvarnTrigger::GetCooldownDuration() const
+{
+    if (!IsValid(DataAsset)) return 2.0f;
+    return 5.0f; // ⚠ Playtest placeholder
 }

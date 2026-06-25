@@ -2,12 +2,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRSniperTrigger.h"
 #include "WTBRTelornTrigger.generated.h"
 
 // Telorn — Egret (Long Range Sniper)
 UCLASS(BlueprintType, Blueprintable)
-class WTBR_API UWTBRTelornTrigger : public UWTBRTriggerBase
+class WTBR_API UWTBRTelornTrigger : public UWTBRSniperTrigger
 {
     GENERATED_BODY()
 
@@ -16,6 +16,5 @@ public:
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Telorn | VFX")
-    void OnTelornFired();
+    virtual float GetCooldownDuration() const override;
 };

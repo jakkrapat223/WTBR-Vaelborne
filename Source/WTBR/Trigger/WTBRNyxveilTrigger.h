@@ -2,12 +2,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRBlackTrigger.h"
 #include "WTBRNyxveilTrigger.generated.h"
 
 // Nyxveil — Yomi (Scan): repeating sphere scan that pings all detected pawns on the radar
 UCLASS(BlueprintType, Blueprintable)
-class WTBR_API UWTBRNyxveilTrigger : public UWTBRTriggerBase
+class WTBR_API UWTBRNyxveilTrigger : public UWTBRBlackTrigger
 {
     GENERATED_BODY()
 
@@ -16,20 +16,15 @@ public:
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
+    virtual float GetCooldownDuration() const override;
+
+    // Stop timers if trigger is force-deactivated (death, stun, loadout swap)
     virtual void Deactivate_Implementation() override;
 
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Nyxveil | VFX")
-    void OnNyxveilActivated();
-
-    // Fired after each scan with the number of actors detected
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Nyxveil | VFX")
-    void OnNyxveilDetected(int32 EnemyCount);
-
 private:
-    FTimerHandle PingTimerHandle;
-    FTimerHandle StopTimerHandle;
-    float CachedScanRadius = 0.0f;
+    FTimerHandle ScanTimer;
+    FTimerHandle ScanDurationTimer;
 
-    void DoScan();
-    void StopScan();
+    void PerformScan();
+    void OnScanExpired();
 };

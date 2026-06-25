@@ -1,46 +1,37 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRVentryxTrigger.h"
-#include "Actors/WTBRProjectileBase.h"
-#include "Subsystem/WTBRActionPingSubsystem.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
-#include "Engine/World.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
+#include "Actors/WTBRProjectileBase.h"
 
 bool UWTBRVentryxTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    if (!OwnerCharacter.IsValid()) return false;
-    if (!OwnerCharacter->HasAuthority()) return false;
-    if (!IsValid(DataAsset)) return false;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
+    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
 
-    const FWTBRVentryxParams& Params = DataAsset->VentryxParams;
-    if (!Params.VentryxProjectileClass) return false;
+    // Black Trigger: consume own VaelCost from VentryxParams, not VaelCostPerUse
+    if (!OwnerCharacter->VaelComponent ||
+        !OwnerCharacter->VaelComponent->TryConsumeVael(
+            DataAsset->VentryxParams.VentryxVaelCost))
+    {
+        return false;
+    }
 
-    UWTBRVaelComponent* VaelComp = OwnerCharacter->VaelComponent;
-    if (!IsValid(VaelComp) || !VaelComp->TryConsumeVael(Params.VentryxVaelCost)) return false;
+    const TSubclassOf<AWTBRProjectileBase> ProjClass = DataAsset->VentryxParams.VentryxProjectileClass;
+    const float Damage    = DataAsset->VentryxParams.VentryxDamage;
+    const float Speed     = DataAsset->VentryxParams.VentryxSpeed;
+    const float Knockback = DataAsset->VentryxParams.VentryxKnockback;
 
-    const FVector Forward = OwnerCharacter->GetActorForwardVector();
-    const FVector Origin  = OwnerCharacter->GetActorLocation() + Forward * 100.0f;
-    const FTransform SpawnTF(Forward.Rotation(), Origin);
-
-    UWorld* World = OwnerCharacter->GetWorld();
-
-    AWTBRProjectileBase* Proj = World->SpawnActorDeferred<AWTBRProjectileBase>(
-        Params.VentryxProjectileClass, SpawnTF, nullptr, nullptr,
-        ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-    if (!IsValid(Proj)) return false;
-
-    Proj->MaxRange       = Params.VentryxRange;
-    Proj->KnockbackForce = Params.VentryxKnockback;
-    Proj->InitializeProjectile(Params.VentryxDamage, Params.VentryxSpeed,
-        ETriggerCategory::BlackTrigger, false, false, 0.0f);
-    Proj->FinishSpawning(SpawnTF);
-    Proj->Launch(Forward, OwnerCharacter.Get());
-
-    if (UWTBRActionPingSubsystem* PingSys = World->GetSubsystem<UWTBRActionPingSubsystem>())
-        PingSys->RegisterActionPing(OwnerCharacter.Get());
-
-    OnVentryxActivated();
+    FireBlackProjectile(ProjClass, Damage, Speed, Knockback, 1);
+    StartCooldown();
     return true;
+}
+
+float UWTBRVentryxTrigger::GetCooldownDuration() const
+{
+    if (!IsValid(DataAsset)) return 2.0f;
+    return 3.0f; // ⚠ Playtest — no DataAsset field yet for Ventryx cooldown
 }

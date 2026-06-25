@@ -1,81 +1,104 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRAcervynTrigger.h"
-#include "Actors/WTBRProjectileBase.h"
-#include "Subsystem/WTBRActionPingSubsystem.h"
 #include "WTBRCharacter.h"
+#include "Components/WTBRVaelComponent.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
+#include "Actors/WTBRProjectileBase.h"
+#include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 
 bool UWTBRAcervynTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    if (!OwnerCharacter.IsValid()) return false;
-    if (!OwnerCharacter->HasAuthority()) return false;
-    if (!IsValid(DataAsset)) return false;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
+    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
 
-    const FWTBRAcervynParams& Params = DataAsset->AcervynParams;
-    if (!Params.AcervynProjectileClass) return false;
-    if (Params.AcervynBurstCount <= 0) return false;
-
-    UWorld* World = OwnerCharacter->GetWorld();
-
-    // Server-side trace from camera to find a homing target (same pattern as Venyx)
-    FVector CamLoc;
-    FRotator CamRot;
-    OwnerCharacter->GetActorEyesViewPoint(CamLoc, CamRot);
-    const FVector TraceDir = CamRot.Vector();
-    const FVector TraceEnd = CamLoc + TraceDir * Params.AcervynRange;
-
-    FHitResult Hit;
-    FCollisionQueryParams TraceParams;
-    TraceParams.AddIgnoredActor(OwnerCharacter.Get());
-    const bool bHit = World->LineTraceSingleByChannel(
-        Hit, CamLoc, TraceEnd, ECC_Pawn, TraceParams);
-
-    USceneComponent* HomingTarget = nullptr;
-    if (bHit && IsValid(Hit.GetActor()))
-        HomingTarget = Hit.GetActor()->GetRootComponent();
-
-    const FVector Forward = TraceDir;
-    const FVector Right   = OwnerCharacter->GetActorRightVector();
-    const FVector BaseOrigin = OwnerCharacter->GetActorLocation() + Forward * 100.0f;
-
-    // Fan spread centred on Forward — 30° total, evenly distributed
-    constexpr float TotalSpreadDeg   = 30.0f;
-    constexpr float SpawnOffsetPerBullet = 30.0f; // UU right-shift per bullet (avoids first-frame overlap)
-    const float StepDeg = (Params.AcervynBurstCount > 1)
-        ? TotalSpreadDeg / static_cast<float>(Params.AcervynBurstCount - 1)
-        : 0.0f;
-    const float StartDeg = -TotalSpreadDeg * 0.5f;
-
-    for (int32 i = 0; i < Params.AcervynBurstCount; ++i)
+    if (!OwnerCharacter->VaelComponent ||
+        !OwnerCharacter->VaelComponent->TryConsumeVael(DataAsset->VaelCostPerUse))
     {
-        const float   SpreadAngle = StartDeg + i * StepDeg;
-        const FVector ShotDir     = Forward.RotateAngleAxis(SpreadAngle, FVector::UpVector);
-        const FVector SpawnOrigin = BaseOrigin + Right * (i * SpawnOffsetPerBullet);
-        const FTransform SpawnTF(ShotDir.Rotation(), SpawnOrigin);
-
-        AWTBRProjectileBase* Proj = World->SpawnActorDeferred<AWTBRProjectileBase>(
-            Params.AcervynProjectileClass, SpawnTF, nullptr, nullptr,
-            ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-        if (!IsValid(Proj)) continue;
-
-        Proj->MaxRange = Params.AcervynRange;
-        Proj->InitializeProjectile(Params.AcervynDamage, Params.AcervynSpeed,
-            ETriggerCategory::Gunner, false, false, 0.0f);
-        Proj->FinishSpawning(SpawnTF);
-        Proj->Launch(ShotDir, OwnerCharacter.Get()); // OwnerInstigator same for all — burst same-fire exempt
-
-        if (IsValid(HomingTarget))
-            Proj->EnableHoming(HomingTarget, Params.AcervynHomingAcceleration);
+        return false;
     }
 
-    if (UWTBRActionPingSubsystem* PingSys =
-        World->GetSubsystem<UWTBRActionPingSubsystem>())
+    // Sphere overlap to find the nearest valid target
+    TArray<FOverlapResult> Overlaps;
+    FCollisionQueryParams Params;
+    Params.AddIgnoredActor(OwnerCharacter.Get());
+
+    GetWorld()->OverlapMultiByChannel(
+        Overlaps,
+        OwnerCharacter->GetActorLocation(),
+        FQuat::Identity,
+        ECC_Pawn,
+        FCollisionShape::MakeSphere(DataAsset->AcervynParams.AcervynRange),
+        Params);
+
+    BurstTarget.Reset();
+    float NearestDistSq = FLT_MAX;
+    const FVector OwnerLoc = OwnerCharacter->GetActorLocation();
+
+    for (const FOverlapResult& Overlap : Overlaps)
     {
-        PingSys->RegisterActionPing(OwnerCharacter.Get());
+        AWTBRCharacter* Candidate = Cast<AWTBRCharacter>(Overlap.GetActor());
+        if (!IsValid(Candidate) || Candidate == OwnerCharacter.Get()) continue;
+
+        const float DistSq = FVector::DistSquared(OwnerLoc, Candidate->GetActorLocation());
+        if (DistSq < NearestDistSq)
+        {
+            NearestDistSq = DistSq;
+            BurstTarget = Candidate;
+        }
     }
 
-    OnAcervynFired();
+    BurstShotsRemaining = DataAsset->AcervynParams.AcervynBurstCount;
+
+    StartCooldown();
+
+    // FIX: Fire the first shot immediately to prevent delay feel
+    FireNextBurstShot();
+
+    // Start timer for the remaining shots (if any)
+    if (BurstShotsRemaining > 0)
+    {
+        GetWorld()->GetTimerManager().SetTimer(
+            BurstTimer,
+            this,
+            &UWTBRAcervynTrigger::FireNextBurstShot,
+            DataAsset->AcervynParams.AcervynBurstInterval,
+            true);
+    }
+
     return true;
+}
+
+void UWTBRAcervynTrigger::FireNextBurstShot()
+{
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return;
+    if (!IsValid(DataAsset)) return;
+
+    const TSubclassOf<AWTBRProjectileBase> ProjClass = DataAsset->AcervynParams.AcervynProjectileClass;
+    const float Damage      = DataAsset->AcervynParams.AcervynDamage;
+    const float Speed       = DataAsset->AcervynParams.AcervynSpeed;
+    const float HomingAccel = DataAsset->AcervynParams.AcervynHomingAcceleration;
+
+    AWTBRProjectileBase* Proj = FireProjectile(ProjClass, Damage, Speed, 0.0f, false, 0.0f);
+
+    if (IsValid(Proj) && BurstTarget.IsValid())
+    {
+        Proj->EnableHoming(BurstTarget.Get()->GetRootComponent(), HomingAccel);
+    }
+
+    BurstShotsRemaining--;
+
+    if (BurstShotsRemaining <= 0)
+    {
+        GetWorld()->GetTimerManager().ClearTimer(BurstTimer);
+        BurstTarget.Reset();
+    }
+}
+
+float UWTBRAcervynTrigger::GetCooldownDuration() const
+{
+    if (!IsValid(DataAsset)) return 0.5f;
+    return DataAsset->AcervynParams.AcervynFireCooldown;
 }
