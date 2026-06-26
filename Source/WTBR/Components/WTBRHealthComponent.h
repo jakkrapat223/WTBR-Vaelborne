@@ -170,8 +170,12 @@ private:
 
     const UWTBRCoreStatsDataAsset* GetStats() const
     {
-        ensure(CoreStatsAsset.IsValid());
-        return CoreStatsAsset.Get();
+        if (CoreStatsAsset.IsNull())
+        {
+            return nullptr;
+        }
+
+        return CoreStatsAsset.LoadSynchronous();
     }
 
     // Starts (or keeps) the drain timer running; called whenever a limb is destroyed
@@ -183,11 +187,10 @@ private:
     AWTBRCharacter* ResolveContributorCharacter(AActor* DamageInstigator) const;
     AController* ResolveContributorController(AWTBRCharacter* ContributorCharacter) const;
     void RecordDamageContribution(float DamageAmount, AActor* DamageInstigator);
-    void PruneDamageHistory(float CurrentTime, float AssistWindow);
     void ResolveDeathRewards(AActor* FinalDamageInstigator);
     void ResolveDownReward(AActor* DownInstigator);
     void GrantVaelReward(AWTBRCharacter* RecipientCharacter, float Amount) const;
-    void ClearDamageHistory();
+    void ClearDamageHistory(const TCHAR* Source);
     void EnterDownedState(AActor* DownInstigator);
     void EnterEliminatedState(AActor* FinalDamageInstigator);
     void SetCombatState(EWTBRCombatState NewState);

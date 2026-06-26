@@ -184,6 +184,7 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         {
             EIC->BindAction(SwitchSubAction, ETriggerEvent::Started, this, &AWTBRCharacter::SwitchSubTrigger);
         }
+
     }
 }
 
@@ -208,24 +209,44 @@ void AWTBRCharacter::Look(const FInputActionValue& Value)
 
 void AWTBRCharacter::FireMain(const FInputActionValue& Value)
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=true | Pressed=true"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifyMainPressed();
     Server_Fire(true, true);
 }
 
 void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=true | Pressed=false"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifyMainReleased();
     Server_Fire(true, false);
 }
 
 void AWTBRCharacter::FireSub(const FInputActionValue& Value)
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=false | Pressed=true"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifySubPressed();
     Server_Fire(false, true);
 }
 
 void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=false | Pressed=false"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifySubReleased();
     Server_Fire(false, false);
 }
@@ -259,6 +280,17 @@ void AWTBRCharacter::SwitchSubTrigger(const FInputActionValue& Value)
         GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Cyan, TEXT("Switch Sub Trigger"));
     }
     Server_CycleTrigger(false);
+}
+
+void AWTBRCharacter::DebugConsumeVaelFailTest()
+{
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Debug ConsumeFail Input] Owner=%s | Auth=%s | Local=%s | Cost=999.0"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"));
+
+    Server_DebugConsumeVaelFailTest();
 }
 
 // ─── Server RPC Implementations ──────────────────────────────────────────────
@@ -315,9 +347,19 @@ void AWTBRCharacter::ApplyInputActionFallbacks()
 
 void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed)
 {
-    UE_LOG(LogTemp, Log, TEXT("Server_Fire called: bIsMain=%d bIsPressed=%d"),
-        bIsMain,
-        bIsPressed);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=%s | Pressed=%s"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        bIsMain ? TEXT("true") : TEXT("false"),
+        bIsPressed ? TEXT("true") : TEXT("false"));
+
+    ExecuteServerTriggerInput(bIsMain, bIsPressed);
+}
+
+void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed)
+{
+    if (!HasAuthority()) return;
 
     if (!TriggerSetComponent)
     {
@@ -378,7 +420,184 @@ void AWTBRCharacter::Server_CycleTrigger_Implementation(bool bIsMain)
     else         TriggerSetComponent->CycleSubSlot();
 }
 
+void AWTBRCharacter::Server_DebugConsumeVaelFailTest_Implementation()
+{
+    if (!HasAuthority()) return;
+
+    if (!IsValid(VaelComponent))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Debug ConsumeFail Result] Owner=%s | VaelComponent=None"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const float BeforeVael = VaelComponent->GetCurrentVael();
+    const bool bBeforeActive = VaelComponent->IsDesperationActive();
+    const bool bBeforeCooldown = VaelComponent->IsDesperationOnCooldown();
+
+    const bool bConsumed = VaelComponent->TryConsumeVael(999.0f);
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Debug ConsumeFail Result] Owner=%s | Cost=999.0 | Consumed=%s | VaelBefore=%.1f | VaelAfter=%.1f | ActiveBefore=%s | ActiveAfter=%s | CooldownBefore=%s | CooldownAfter=%s"),
+        *GetNameSafe(this),
+        bConsumed ? TEXT("true") : TEXT("false"),
+        BeforeVael,
+        VaelComponent->GetCurrentVael(),
+        bBeforeActive ? TEXT("true") : TEXT("false"),
+        VaelComponent->IsDesperationActive() ? TEXT("true") : TEXT("false"),
+        bBeforeCooldown ? TEXT("true") : TEXT("false"),
+        VaelComponent->IsDesperationOnCooldown() ? TEXT("true") : TEXT("false"));
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(
+            -1,
+            3.0f,
+            bConsumed ? FColor::Red : FColor::Green,
+            FString::Printf(TEXT("[Debug ConsumeFail] TryConsumeVael(999) returned %s"),
+                bConsumed ? TEXT("true") : TEXT("false")));
+    }
+}
+
 // ─── Delegate Handlers ───────────────────────────────────────────────────────
+
+void AWTBRCharacter::Server_DebugStartBelowThresholdTest_Implementation()
+{
+    if (!HasAuthority()) return;
+
+    if (!IsValid(VaelComponent))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Debug StartBelowThreshold Result] Owner=%s | VaelComponent=None"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const float BeforeVael = VaelComponent->GetCurrentVael();
+    const float LowVaelThreshold = VaelComponent->GetLowVaelThreshold();
+    const bool bBeforeActive = VaelComponent->IsDesperationActive();
+    const bool bBeforeCooldown = VaelComponent->IsDesperationOnCooldown();
+
+    VaelComponent->ResetDesperationState();
+    VaelComponent->DebugSetCurrentVaelDirect(15.0f);
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Debug StartBelowThreshold Result] Owner=%s | VaelBefore=%.1f | VaelAfter=%.1f | LowVaelThreshold=%.1f | ActiveBefore=%s | ActiveAfter=%s | CooldownBefore=%s | CooldownAfter=%s | TryConsumeUsed=false"),
+        *GetNameSafe(this),
+        BeforeVael,
+        VaelComponent->GetCurrentVael(),
+        LowVaelThreshold,
+        bBeforeActive ? TEXT("true") : TEXT("false"),
+        VaelComponent->IsDesperationActive() ? TEXT("true") : TEXT("false"),
+        bBeforeCooldown ? TEXT("true") : TEXT("false"),
+        VaelComponent->IsDesperationOnCooldown() ? TEXT("true") : TEXT("false"));
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(
+            -1,
+            3.0f,
+            FColor::Green,
+            FString::Printf(TEXT("[Debug StartBelowThreshold] Vael %.0f -> %.0f, TryConsumeUsed=false"),
+                BeforeVael,
+                VaelComponent->GetCurrentVael()));
+    }
+}
+
+void AWTBRCharacter::Server_DebugRefillVaelNoDesperationReset_Implementation()
+{
+    if (!HasAuthority()) return;
+
+    if (!IsValid(VaelComponent))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Debug RefillNoDesperationReset Result] Owner=%s | VaelComponent=None"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const float BeforeVael = VaelComponent->GetCurrentVael();
+    const float MaxVael = VaelComponent->GetMaxVael();
+    const float LowVaelThreshold = VaelComponent->GetLowVaelThreshold();
+    const bool bBeforeActive = VaelComponent->IsDesperationActive();
+    const bool bBeforeCooldown = VaelComponent->IsDesperationOnCooldown();
+
+    VaelComponent->DebugSetCurrentVaelDirect(MaxVael);
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Debug RefillNoDesperationReset Result] Owner=%s | VaelBefore=%.1f | VaelAfter=%.1f | MaxVael=%.1f | LowVaelThreshold=%.1f | ActiveBefore=%s | ActiveAfter=%s | CooldownBefore=%s | CooldownAfter=%s | CooldownPreserved=true | TryConsumeUsed=false"),
+        *GetNameSafe(this),
+        BeforeVael,
+        VaelComponent->GetCurrentVael(),
+        MaxVael,
+        LowVaelThreshold,
+        bBeforeActive ? TEXT("true") : TEXT("false"),
+        VaelComponent->IsDesperationActive() ? TEXT("true") : TEXT("false"),
+        bBeforeCooldown ? TEXT("true") : TEXT("false"),
+        VaelComponent->IsDesperationOnCooldown() ? TEXT("true") : TEXT("false"));
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(
+            -1,
+            3.0f,
+            FColor::Green,
+            FString::Printf(TEXT("[Debug RefillNoReset] Vael %.0f -> %.0f, cooldown preserved"),
+                BeforeVael,
+                VaelComponent->GetCurrentVael()));
+    }
+}
+
+void AWTBRCharacter::Server_DebugResetDesperationStateTest_Implementation()
+{
+    if (!HasAuthority()) return;
+
+    if (!IsValid(VaelComponent))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Debug ResetDesperationStateTest] Owner=%s | VaelComponent=None"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const float BeforeVael = VaelComponent->GetCurrentVael();
+    const float LowVaelThreshold = VaelComponent->GetLowVaelThreshold();
+    const bool bBeforeActive = VaelComponent->IsDesperationActive();
+    const bool bBeforeCooldown = VaelComponent->IsDesperationOnCooldown();
+    const bool bBeforeActiveTimer = VaelComponent->DebugIsDesperationActiveTimerActive();
+    const bool bBeforeCooldownTimer = VaelComponent->DebugIsDesperationCooldownTimerActive();
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Debug ResetDesperationStateTest Before] Owner=%s | CurrentVael=%.1f | LowVaelThreshold=%.1f | Active=%s | Cooldown=%s | ActiveTimerActive=%s | CooldownTimerActive=%s"),
+        *GetNameSafe(this),
+        BeforeVael,
+        LowVaelThreshold,
+        bBeforeActive ? TEXT("true") : TEXT("false"),
+        bBeforeCooldown ? TEXT("true") : TEXT("false"),
+        bBeforeActiveTimer ? TEXT("true") : TEXT("false"),
+        bBeforeCooldownTimer ? TEXT("true") : TEXT("false"));
+
+    VaelComponent->ResetDesperationState();
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Debug ResetDesperationStateTest After] Owner=%s | CurrentVael=%.1f | Active=%s | Cooldown=%s | ActiveTimerActive=%s | CooldownTimerActive=%s"),
+        *GetNameSafe(this),
+        VaelComponent->GetCurrentVael(),
+        VaelComponent->IsDesperationActive() ? TEXT("true") : TEXT("false"),
+        VaelComponent->IsDesperationOnCooldown() ? TEXT("true") : TEXT("false"),
+        VaelComponent->DebugIsDesperationActiveTimerActive() ? TEXT("true") : TEXT("false"),
+        VaelComponent->DebugIsDesperationCooldownTimerActive() ? TEXT("true") : TEXT("false"));
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(
+            -1,
+            3.0f,
+            FColor::Green,
+            TEXT("[Debug ResetDesperationStateTest] Reset called on server"));
+    }
+}
 
 void AWTBRCharacter::OnStaminaChangedHandler(float NewStamina, bool bIsExhausted)
 {
@@ -444,42 +663,38 @@ void AWTBRCharacter::OnRep_bIsStaggered()
 
 void AWTBRCharacter::Server_ActivateMainTrigger_Implementation(bool bIsDualWield)
 {
-    if (!HasAuthority()) return;
-    if (!IsValid(TriggerSetComponent)) return;
-    UWTBRTriggerBase* Trigger = TriggerSetComponent->GetActiveMainTrigger();
-    if (!IsValid(Trigger)) return;
-    FInputActionValue EmptyValue;
-    Trigger->Activate(EmptyValue, bIsDualWield);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=true | Pressed=true | LegacyActivate=true"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"));
+    ExecuteServerTriggerInput(true, true);
 }
 
 void AWTBRCharacter::Server_ReleaseMainTrigger_Implementation(bool bIsDualWield)
 {
-    if (!HasAuthority()) return;
-    if (!IsValid(TriggerSetComponent)) return;
-    UWTBRTriggerBase* Trigger = TriggerSetComponent->GetActiveMainTrigger();
-    if (!IsValid(Trigger)) return;
-    FInputActionValue EmptyValue;
-    Trigger->OnReleased(EmptyValue, bIsDualWield);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=true | Pressed=false | LegacyActivate=true"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"));
+    ExecuteServerTriggerInput(true, false);
 }
 
 void AWTBRCharacter::Server_ActivateSubTrigger_Implementation(bool bIsDualWield)
 {
-    if (!HasAuthority()) return;
-    if (!IsValid(TriggerSetComponent)) return;
-    UWTBRTriggerBase* Trigger = TriggerSetComponent->GetActiveSubTrigger();
-    if (!IsValid(Trigger)) return;
-    FInputActionValue EmptyValue;
-    Trigger->Activate(EmptyValue, bIsDualWield);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=false | Pressed=true | LegacyActivate=true"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"));
+    ExecuteServerTriggerInput(false, true);
 }
 
 void AWTBRCharacter::Server_ReleaseSubTrigger_Implementation(bool bIsDualWield)
 {
-    if (!HasAuthority()) return;
-    if (!IsValid(TriggerSetComponent)) return;
-    UWTBRTriggerBase* Trigger = TriggerSetComponent->GetActiveSubTrigger();
-    if (!IsValid(Trigger)) return;
-    FInputActionValue EmptyValue;
-    Trigger->OnReleased(EmptyValue, bIsDualWield);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=false | Pressed=false | LegacyActivate=true"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"));
+    ExecuteServerTriggerInput(false, false);
 }
 
 void AWTBRCharacter::Server_CycleMainSlot_Implementation()

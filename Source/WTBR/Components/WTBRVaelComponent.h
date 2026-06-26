@@ -30,9 +30,6 @@ public:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Config")
     TSoftObjectPtr<UWTBRCoreStatsDataAsset> CoreStatsAsset;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Vael")
-    float MaxVael = 1000.f;
-
     // Broadcast when Vael energy leaves the character capsule → radar gets a ping
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnVaelReleased OnVaelReleased;
@@ -58,12 +55,18 @@ public:
     UFUNCTION(BlueprintCallable, Category="Vael")
     void ResetDesperationState();
 
+    UFUNCTION(BlueprintCallable, Category="WTBR | Debug")
+    void DebugSetCurrentVaelDirect(float NewVael);
+
     // Call this from a Trigger/Projectile the moment the Vael actor exits the capsule
     UFUNCTION(BlueprintCallable, Category="Vael")
     void NotifyVaelLeftCharacterBounds();
 
     UFUNCTION(BlueprintPure, Category="Vael")
     float GetCurrentVael() const { return CurrentVael; }
+
+    UFUNCTION(BlueprintPure, Category="Vael")
+    float GetMaxVael() const;
 
     UFUNCTION(BlueprintPure, Category="Vael")
     bool IsOverheated() const { return bOverheated; }
@@ -76,6 +79,15 @@ public:
 
     UFUNCTION(BlueprintPure, Category="Vael")
     float GetVaelCostMultiplier() const;
+
+    UFUNCTION(BlueprintPure, Category="Vael")
+    float GetLowVaelThreshold() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Debug")
+    bool DebugIsDesperationActiveTimerActive() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Debug")
+    bool DebugIsDesperationCooldownTimerActive() const;
 
 protected:
     virtual void BeginPlay() override;
@@ -98,8 +110,16 @@ private:
 
     const UWTBRCoreStatsDataAsset* GetStats() const
     {
-        ensure(CoreStatsAsset.IsValid());
-        return CoreStatsAsset.Get();
+        if (CoreStatsAsset.IsNull())
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Vael CoreStatsCheck] Owner=%s | Component=%s | CoreStatsAsset=None | CoreStatsPath=None | Loaded=false"),
+                *GetNameSafe(GetOwner()),
+                *GetNameSafe(this));
+            return nullptr;
+        }
+
+        return CoreStatsAsset.LoadSynchronous();
     }
 
     UFUNCTION()

@@ -25,7 +25,16 @@ UWTBRHealthComponent::UWTBRHealthComponent()
 void UWTBRHealthComponent::BeginPlay()
 {
     Super::BeginPlay();
-    CurrentHP = GetMaxHP();
+    const UWTBRCoreStatsDataAsset* LoadedStats = GetStats();
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Health BeginPlay] Owner=%s | Component=%s | CoreStatsAsset=%s | CoreStatsPath=%s | HasAuthority=%s"),
+        *GetNameSafe(GetOwner()),
+        *GetNameSafe(this),
+        *GetNameSafe(LoadedStats),
+        *CoreStatsAsset.ToSoftObjectPath().ToString(),
+        GetOwner() && GetOwner()->HasAuthority() ? TEXT("true") : TEXT("false"));
+
+    CurrentHP = LoadedStats ? LoadedStats->MaxHP : GetMaxHP();
     CurrentDownedHP = 0.0f;
     CurrentCombatState = EWTBRCombatState::Alive;
     bIsInvulnerable = false;
@@ -93,7 +102,7 @@ void UWTBRHealthComponent::ResetCombatRewardState()
         World->GetTimerManager().ClearTimer(KnockdownIFrameTimerHandle);
     }
 
-    ClearDamageHistory();
+    ClearDamageHistory(TEXT("ResetCombatRewardState"));
     bDownRewardResolved = false;
     bDeathRewardsResolved = false;
     CurrentDownedHP = 0.0f;
@@ -103,8 +112,14 @@ void UWTBRHealthComponent::ResetCombatRewardState()
     SetCombatState(EWTBRCombatState::Alive);
 }
 
-void UWTBRHealthComponent::ClearDamageHistory()
+void UWTBRHealthComponent::ClearDamageHistory(const TCHAR* Source)
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Reward DamageHistory Clear] Source=%s | Victim=%s | CountBefore=%d"),
+        Source ? Source : TEXT("Unknown"),
+        *GetNameSafe(GetOwner()),
+        DamageHistory.Num());
+
     DamageHistory.Reset();
 }
 
@@ -142,11 +157,27 @@ void UWTBRHealthComponent::EnterDownedState(AActor* DownInstigator)
     if (CurrentCombatState != EWTBRCombatState::Alive) return;
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    UE_LOG(LogTemp, Warning,
+        TEXT("[EnterDownedState CoreStatsCheck] Owner=%s | Component=%s | CoreStatsAsset=%s | CoreStatsPath=%s | HP=%.1f | DownedHP=%.1f | State=%d | HasAuthority=%s"),
+        *GetNameSafe(GetOwner()),
+        *GetNameSafe(this),
+        *GetNameSafe(S),
+        *CoreStatsAsset.ToSoftObjectPath().ToString(),
+        CurrentHP,
+        CurrentDownedHP,
+        static_cast<uint8>(CurrentCombatState),
+        GetOwner() && GetOwner()->HasAuthority() ? TEXT("true") : TEXT("false"));
+
     if (!S)
     {
         UE_LOG(LogTemp, Warning,
-            TEXT("WTBR DownedState: CoreStats missing on %s; entering eliminated state without Down reward"),
-            *GetOwner()->GetName());
+            TEXT("WTBR DownedState: CoreStats missing | Owner=%s | OwnerClass=%s | Component=%s | CoreStatsAsset=%s | CoreStatsPath=%s | HasAuthority=%s"),
+            *GetNameSafe(GetOwner()),
+            GetOwner() ? *GetNameSafe(GetOwner()->GetClass()) : TEXT("None"),
+            *GetNameSafe(this),
+            *GetNameSafe(S),
+            *CoreStatsAsset.ToSoftObjectPath().ToString(),
+            GetOwner() && GetOwner()->HasAuthority() ? TEXT("true") : TEXT("false"));
         EnterEliminatedState(DownInstigator);
         return;
     }
@@ -297,13 +328,25 @@ void UWTBRHealthComponent::RecordDamageContribution(float DamageAmount, AActor* 
 
     AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
     AWTBRCharacter* ContributorCharacter = ResolveContributorCharacter(DamageInstigator);
-    if (!IsValid(ContributorCharacter) || ContributorCharacter == VictimCharacter) return;
+    const int32 CountBefore = DamageHistory.Num();
+    const EWTBRCombatState StateBefore = CurrentCombatState;
+    if (!IsValid(ContributorCharacter) || ContributorCharacter == VictimCharacter)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Reward RecordContribution] Victim=%s | Attacker=%s | Damage=%.1f | StateBefore=%d | DamageHistoryCountBefore=%d | DamageHistoryCountAfter=%d"),
+            *GetNameSafe(VictimCharacter),
+            *GetNameSafe(ContributorCharacter),
+            DamageAmount,
+            static_cast<uint8>(StateBefore),
+            CountBefore,
+            DamageHistory.Num());
+        return;
+    }
 
     UWorld* World = GetWorld();
     if (!World) return;
 
     const float CurrentTime = World->GetTimeSeconds();
-    PruneDamageHistory(CurrentTime, S->AssistTimeWindow);
 
     for (FWTBRDamageContributionRecord& Record : DamageHistory)
     {
@@ -312,6 +355,14 @@ void UWTBRHealthComponent::RecordDamageContribution(float DamageAmount, AActor* 
             Record.TotalDamage += DamageAmount;
             Record.LastDamageTime = CurrentTime;
             Record.ContributorController = ResolveContributorController(ContributorCharacter);
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Reward RecordContribution] Victim=%s | Attacker=%s | Damage=%.1f | StateBefore=%d | DamageHistoryCountBefore=%d | DamageHistoryCountAfter=%d"),
+                *GetNameSafe(VictimCharacter),
+                *GetNameSafe(ContributorCharacter),
+                DamageAmount,
+                static_cast<uint8>(StateBefore),
+                CountBefore,
+                DamageHistory.Num());
             return;
         }
     }
@@ -322,63 +373,124 @@ void UWTBRHealthComponent::RecordDamageContribution(float DamageAmount, AActor* 
     NewRecord.TotalDamage = DamageAmount;
     NewRecord.LastDamageTime = CurrentTime;
     DamageHistory.Add(NewRecord);
-}
 
-void UWTBRHealthComponent::PruneDamageHistory(float CurrentTime, float AssistWindow)
-{
-    DamageHistory.RemoveAll([CurrentTime, AssistWindow](const FWTBRDamageContributionRecord& Record)
-    {
-        if (!Record.ContributorCharacter.IsValid()) return true;
-        return AssistWindow >= 0.0f && (CurrentTime - Record.LastDamageTime) > AssistWindow;
-    });
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Reward RecordContribution] Victim=%s | Attacker=%s | Damage=%.1f | StateBefore=%d | DamageHistoryCountBefore=%d | DamageHistoryCountAfter=%d"),
+        *GetNameSafe(VictimCharacter),
+        *GetNameSafe(ContributorCharacter),
+        DamageAmount,
+        static_cast<uint8>(StateBefore),
+        CountBefore,
+        DamageHistory.Num());
 }
 
 void UWTBRHealthComponent::ResolveDeathRewards(AActor* FinalDamageInstigator)
 {
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
-    if (bDeathRewardsResolved) return;
+
+    AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
+    AWTBRCharacter* KillerCharacter = ResolveContributorCharacter(FinalDamageInstigator);
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Reward Resolve Start] Victim=%s | Killer=%s | bDeathRewardsResolved=%s | DamageHistoryCount=%d"),
+        *GetNameSafe(VictimCharacter),
+        *GetNameSafe(KillerCharacter),
+        bDeathRewardsResolved ? TEXT("true") : TEXT("false"),
+        DamageHistory.Num());
+
+    if (bDeathRewardsResolved)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Reward Resolve End]"));
+        return;
+    }
 
     bDeathRewardsResolved = true;
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
-    AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
     UWorld* World = GetWorld();
     if (!S || !IsValid(VictimCharacter) || !World)
     {
         UE_LOG(LogTemp, Warning,
             TEXT("WTBR DeathReward: skipped reward resolution for %s because CoreStats, victim, or world is invalid"),
             *GetOwner()->GetName());
-        ClearDamageHistory();
+        ClearDamageHistory(TEXT("ResolveDeathRewards_InvalidState"));
+        UE_LOG(LogTemp, Warning, TEXT("[Reward Resolve End]"));
         return;
     }
 
     const float CurrentTime = World->GetTimeSeconds();
-    PruneDamageHistory(CurrentTime, S->AssistTimeWindow);
 
-    AWTBRCharacter* KillerCharacter = ResolveContributorCharacter(FinalDamageInstigator);
     if (!IsValid(KillerCharacter) || KillerCharacter == VictimCharacter)
     {
         UE_LOG(LogTemp, Log,
             TEXT("WTBR DeathReward: skipped environmental/self elimination reward for %s"),
             *GetOwner()->GetName());
-        ClearDamageHistory();
+        ClearDamageHistory(TEXT("ResolveDeathRewards_NoValidKiller"));
+        UE_LOG(LogTemp, Warning, TEXT("[Reward Resolve End]"));
         return;
     }
 
-    GrantVaelReward(KillerCharacter, S->VaelRewardOnKill);
+    TArray<AWTBRCharacter*> AssistRecipients;
 
     for (const FWTBRDamageContributionRecord& Record : DamageHistory)
     {
         AWTBRCharacter* ContributorCharacter = Record.ContributorCharacter.Get();
-        if (!IsValid(ContributorCharacter)) continue;
-        if (ContributorCharacter == VictimCharacter || ContributorCharacter == KillerCharacter) continue;
-        if (Record.TotalDamage < S->AssistMinimumDamage) continue;
-        if ((CurrentTime - Record.LastDamageTime) > S->AssistTimeWindow) continue;
+        const float Age = CurrentTime - Record.LastDamageTime;
+        bool bQualifiesAssist = false;
+        const TCHAR* Reason = TEXT("Qualifies");
 
-        GrantVaelReward(ContributorCharacter, S->VaelRewardOnAssist);
+        if (!IsValid(ContributorCharacter))
+        {
+            Reason = TEXT("InvalidContributor");
+        }
+        else if (ContributorCharacter == VictimCharacter)
+        {
+            Reason = TEXT("Victim");
+        }
+        else if (ContributorCharacter == KillerCharacter)
+        {
+            Reason = TEXT("Killer");
+        }
+        else if (Record.TotalDamage < S->AssistMinimumDamage)
+        {
+            Reason = TEXT("BelowMinimumDamage");
+        }
+        else if (Age > S->AssistTimeWindow)
+        {
+            Reason = TEXT("Expired");
+        }
+        else
+        {
+            bQualifiesAssist = true;
+            AssistRecipients.Add(ContributorCharacter);
+        }
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Reward Contributor] Contributor=%s | Damage=%.1f | Age=%.2f | QualifiesAssist=%s | Reason=%s"),
+            *GetNameSafe(ContributorCharacter),
+            Record.TotalDamage,
+            Age,
+            bQualifiesAssist ? TEXT("true") : TEXT("false"),
+            Reason);
     }
 
-    ClearDamageHistory();
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Reward Grant Kill] Receiver=%s | Amount=%.1f"),
+        *GetNameSafe(KillerCharacter),
+        S->VaelRewardOnKill);
+    GrantVaelReward(KillerCharacter, S->VaelRewardOnKill);
+
+    for (AWTBRCharacter* AssistRecipient : AssistRecipients)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Reward Grant Assist] Receiver=%s | Amount=%.1f"),
+            *GetNameSafe(AssistRecipient),
+            S->VaelRewardOnAssist);
+        GrantVaelReward(AssistRecipient, S->VaelRewardOnAssist);
+    }
+
+    ClearDamageHistory(TEXT("ResolveDeathRewards_Complete"));
+    UE_LOG(LogTemp, Warning, TEXT("[Reward Resolve End]"));
 }
 
 void UWTBRHealthComponent::GrantVaelReward(AWTBRCharacter* RecipientCharacter, float Amount) const

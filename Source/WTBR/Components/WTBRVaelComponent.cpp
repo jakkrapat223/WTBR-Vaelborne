@@ -7,13 +7,51 @@ UWTBRVaelComponent::UWTBRVaelComponent()
 {
     PrimaryComponentTick.bCanEverTick = false;
     SetIsReplicatedByDefault(true);
-    CurrentVael = MaxVael;
+    CurrentVael = 1000.0f;
 }
 
 void UWTBRVaelComponent::BeginPlay()
 {
     Super::BeginPlay();
-    CurrentVael = MaxVael;
+    const UWTBRCoreStatsDataAsset* LoadedStats = GetStats();
+    const float LoadedMaxVael = GetMaxVael();
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Vael CoreStatsCheck] Owner=%s | Component=%s | CoreStatsAsset=%s | CoreStatsPath=%s | Loaded=%s | MaxVael=%.1f"),
+        *GetNameSafe(GetOwner()),
+        *GetNameSafe(this),
+        *GetNameSafe(LoadedStats),
+        *CoreStatsAsset.ToSoftObjectPath().ToString(),
+        LoadedStats ? TEXT("true") : TEXT("false"),
+        LoadedMaxVael);
+
+    if (GetOwner() && GetOwner()->HasAuthority())
+    {
+        CurrentVael = LoadedMaxVael;
+    }
+}
+
+float UWTBRVaelComponent::GetMaxVael() const
+{
+    const UWTBRCoreStatsDataAsset* S = GetStats();
+    return S ? FMath::Max(0.0f, S->MaxVael) : 1000.0f;
+}
+
+float UWTBRVaelComponent::GetLowVaelThreshold() const
+{
+    const UWTBRCoreStatsDataAsset* S = GetStats();
+    return S ? S->LowVaelThreshold : 25.0f;
+}
+
+bool UWTBRVaelComponent::DebugIsDesperationActiveTimerActive() const
+{
+    UWorld* World = GetWorld();
+    return World && World->GetTimerManager().IsTimerActive(DesperationActiveTimerHandle);
+}
+
+bool UWTBRVaelComponent::DebugIsDesperationCooldownTimerActive() const
+{
+    UWorld* World = GetWorld();
+    return World && World->GetTimerManager().IsTimerActive(DesperationCooldownTimerHandle);
 }
 
 bool UWTBRVaelComponent::TryConsumeVael(float Amount)
@@ -29,8 +67,24 @@ bool UWTBRVaelComponent::TryConsumeVael(float Amount)
     if (bOverheated || CurrentVael < EffectiveCost) return false;
 
     const float OldVael = CurrentVael;
-    CurrentVael = FMath::Clamp(CurrentVael - EffectiveCost, 0.0f, MaxVael);
-    OnVaelChanged.Broadcast(CurrentVael, MaxVael);
+    const float LoadedMaxVael = GetMaxVael();
+    CurrentVael = FMath::Clamp(CurrentVael - EffectiveCost, 0.0f, LoadedMaxVael);
+    OnVaelChanged.Broadcast(CurrentVael, LoadedMaxVael);
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test26 Server TryConsumeVael] Owner=%s | NetMode=%d | Role=%d | RawCost=%.1f | Multiplier=%.2f | EffectiveCost=%.1f | OldVael=%.1f | NewVael=%.1f | MaxVael=%.1f | Overheated=%s | Active=%s | Cooldown=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        (int32)GetOwnerRole(),
+        RawCost,
+        CostMultiplier,
+        EffectiveCost,
+        OldVael,
+        CurrentVael,
+        LoadedMaxVael,
+        bOverheated ? TEXT("true") : TEXT("false"),
+        bIsDesperationActive ? TEXT("true") : TEXT("false"),
+        bIsDesperationOnCooldown ? TEXT("true") : TEXT("false"));
 
     if (CurrentVael <= 0.f)
     {
@@ -48,7 +102,8 @@ bool UWTBRVaelComponent::GrantVael(float Amount)
     if (Amount <= 0.0f) return false;
 
     const float PreviousVael = CurrentVael;
-    CurrentVael = FMath::Clamp(CurrentVael + Amount, 0.0f, MaxVael);
+    const float LoadedMaxVael = GetMaxVael();
+    CurrentVael = FMath::Clamp(CurrentVael + Amount, 0.0f, LoadedMaxVael);
 
     const bool bWasOverheated = bOverheated;
     if (CurrentVael > 0.0f)
@@ -58,7 +113,7 @@ bool UWTBRVaelComponent::GrantVael(float Amount)
 
     if (!FMath::IsNearlyEqual(CurrentVael, PreviousVael))
     {
-        OnVaelChanged.Broadcast(CurrentVael, MaxVael);
+        OnVaelChanged.Broadcast(CurrentVael, LoadedMaxVael);
     }
 
     if (bOverheated != bWasOverheated)
@@ -83,6 +138,15 @@ void UWTBRVaelComponent::ResetDesperationState()
     SetDesperationOnCooldown(false);
 }
 
+void UWTBRVaelComponent::DebugSetCurrentVaelDirect(float NewVael)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
+
+    const float LoadedMaxVael = GetMaxVael();
+    CurrentVael = FMath::Clamp(NewVael, 0.0f, LoadedMaxVael);
+    OnVaelChanged.Broadcast(CurrentVael, LoadedMaxVael);
+}
+
 float UWTBRVaelComponent::GetVaelCostMultiplier() const
 {
     if (!bIsDesperationActive) return 1.0f;
@@ -101,7 +165,19 @@ void UWTBRVaelComponent::NotifyVaelLeftCharacterBounds()
 
 void UWTBRVaelComponent::OnRep_CurrentVael()
 {
-    OnVaelChanged.Broadcast(CurrentVael, MaxVael);
+    const float LoadedMaxVael = GetMaxVael();
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test26 Client OnRep_CurrentVael] Owner=%s | NetMode=%d | Role=%d | CurrentVael=%.1f | MaxVael=%.1f | Overheated=%s | Active=%s | Cooldown=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        (int32)GetOwnerRole(),
+        CurrentVael,
+        LoadedMaxVael,
+        bOverheated ? TEXT("true") : TEXT("false"),
+        bIsDesperationActive ? TEXT("true") : TEXT("false"),
+        bIsDesperationOnCooldown ? TEXT("true") : TEXT("false"));
+
+    OnVaelChanged.Broadcast(CurrentVael, LoadedMaxVael);
 }
 
 void UWTBRVaelComponent::OnRep_bOverheated()

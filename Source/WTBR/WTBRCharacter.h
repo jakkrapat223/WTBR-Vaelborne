@@ -118,6 +118,18 @@ public:
     UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
     void Server_StopVaelSprint();
 
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Debug")
+    void Server_DebugConsumeVaelFailTest();
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Debug")
+    void Server_DebugStartBelowThresholdTest();
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Debug")
+    void Server_DebugRefillVaelNoDesperationReset();
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Debug")
+    void Server_DebugResetDesperationStateTest();
+
     UPROPERTY(ReplicatedUsing = OnRep_bIsStaggered, BlueprintReadOnly,
         Category = "WTBR | Character | Stagger")
     bool bIsStaggered = false;
@@ -138,6 +150,7 @@ protected:
     void SwitchTrigger(const FInputActionValue& Value);
     void SwitchMainTrigger(const FInputActionValue& Value);
     void SwitchSubTrigger(const FInputActionValue& Value);
+    void DebugConsumeVaelFailTest();
 
     // ─── Server RPCs ──────────────────────────────────────────────────────────
     UFUNCTION(Server, Reliable)
@@ -179,6 +192,7 @@ private:
 
     void AddDefaultMappingContext();
     void ApplyInputActionFallbacks();
+    void ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed);
 
     UFUNCTION()
     void OnStaggerExpired();

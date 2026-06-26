@@ -168,6 +168,13 @@ void UWTBRMeleeTrigger::SweepCapsuleFromTo(
 void UWTBRMeleeTrigger::ApplyDamageToHits(
     const TArray<FHitResult>& Hits, float DamageMultiplier)
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[ApplyDamageToHits] Owner=%s | Auth=%s | Hits=%d"),
+        *GetNameSafe(OwnerCharacter.Get()),
+        OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"),
+        Hits.Num());
+
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return;
     if (!IsValid(DataAsset)) return;
     const float FinalDamage = DataAsset->BaseDamage * DamageMultiplier;
     for (const FHitResult& Hit : Hits)

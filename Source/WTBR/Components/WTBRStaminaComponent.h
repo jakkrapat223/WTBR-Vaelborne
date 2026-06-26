@@ -68,8 +68,12 @@ private:
 
     const UWTBRCoreStatsDataAsset* GetStats() const
     {
-        ensure(CoreStatsAsset.IsValid());
-        return CoreStatsAsset.Get();
+        if (CoreStatsAsset.IsNull())
+        {
+            return nullptr;
+        }
+
+        return CoreStatsAsset.LoadSynchronous();
     }
 
     // Starts the looping regen tick — called by RegenDelayTimer

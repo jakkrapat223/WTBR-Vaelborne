@@ -65,6 +65,9 @@ public:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Rewards", meta = (ClampMin = "0"))
     float VaelRewardOnDown = 30.0f;
 
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael", meta = (ClampMin = "0.0"))
+    float MaxVael = 1000.0f;
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Rewards", meta = (ClampMin = "0"))
     float AssistTimeWindow = 10.0f;
 
