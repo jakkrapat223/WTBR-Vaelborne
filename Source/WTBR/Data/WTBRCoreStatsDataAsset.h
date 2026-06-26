@@ -56,6 +56,39 @@ public:
         meta = (ClampMin = "0"))
     float VaelCapsuleCastTime  = 1.5f;    // seconds — interruptable
 
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Rewards", meta = (ClampMin = "0"))
+    float VaelRewardOnKill = 50.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Rewards", meta = (ClampMin = "0"))
+    float VaelRewardOnAssist = 15.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Rewards", meta = (ClampMin = "0"))
+    float VaelRewardOnDown = 30.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Rewards", meta = (ClampMin = "0"))
+    float AssistTimeWindow = 10.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Rewards", meta = (ClampMin = "0"))
+    float AssistMinimumDamage = 20.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat | Downed", meta = (ClampMin = "0"))
+    float MaxDownedHP = 100.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat | Knockdown", meta = (ClampMin = "0"))
+    float KnockdownIFrameDuration = 1.5f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Desperation", meta = (ClampMin = "0"))
+    float LowVaelThreshold = 25.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Desperation", meta = (ClampMin = "0"))
+    float DesperationDuration = 3.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Desperation", meta = (ClampMin = "0"))
+    float DesperationCooldown = 30.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Desperation", meta = (ClampMin = "0"))
+    float DesperationCostMultiplier = 0.5f;
+
     // ─── Movement ───────────────────────────────────────────────────────────
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Movement")
     float BaseWalkSpeed         = 600.f;   // cm/s (UE5 unit = 1 cm)

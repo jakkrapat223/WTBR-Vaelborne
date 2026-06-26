@@ -12,6 +12,8 @@
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnVaelReleased);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnVaelChanged, float, NewVael, float, MaxVael);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOverheatChanged, bool, bIsOverheated);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDesperationActiveChanged, bool, bIsActive);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDesperationCooldownChanged, bool, bIsOnCooldown);
 
 UCLASS(ClassGroup=(WTBR), meta=(BlueprintSpawnableComponent))
 class WTBR_API UWTBRVaelComponent : public UActorComponent
@@ -41,8 +43,20 @@ public:
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnOverheatChanged OnOverheatChanged;
 
+    UPROPERTY(BlueprintAssignable, Category="Events")
+    FOnDesperationActiveChanged OnDesperationActiveChanged;
+
+    UPROPERTY(BlueprintAssignable, Category="Events")
+    FOnDesperationCooldownChanged OnDesperationCooldownChanged;
+
     UFUNCTION(BlueprintCallable, Category="Vael")
     bool TryConsumeVael(float Amount);
+
+    UFUNCTION(BlueprintCallable, Category="Vael")
+    bool GrantVael(float Amount);
+
+    UFUNCTION(BlueprintCallable, Category="Vael")
+    void ResetDesperationState();
 
     // Call this from a Trigger/Projectile the moment the Vael actor exits the capsule
     UFUNCTION(BlueprintCallable, Category="Vael")
@@ -54,21 +68,58 @@ public:
     UFUNCTION(BlueprintPure, Category="Vael")
     bool IsOverheated() const { return bOverheated; }
 
+    UFUNCTION(BlueprintPure, Category="Vael")
+    bool IsDesperationActive() const { return bIsDesperationActive; }
+
+    UFUNCTION(BlueprintPure, Category="Vael")
+    bool IsDesperationOnCooldown() const { return bIsDesperationOnCooldown; }
+
+    UFUNCTION(BlueprintPure, Category="Vael")
+    float GetVaelCostMultiplier() const;
+
 protected:
     virtual void BeginPlay() override;
 
 private:
-    UPROPERTY(Replicated)
+    UPROPERTY(ReplicatedUsing=OnRep_CurrentVael)
     float CurrentVael;
 
-    UPROPERTY(Replicated)
+    UPROPERTY(ReplicatedUsing=OnRep_bOverheated)
     bool bOverheated = false;
+
+    UPROPERTY(ReplicatedUsing=OnRep_IsDesperationActive)
+    bool bIsDesperationActive = false;
+
+    UPROPERTY(ReplicatedUsing=OnRep_IsDesperationOnCooldown)
+    bool bIsDesperationOnCooldown = false;
+
+    FTimerHandle DesperationActiveTimerHandle;
+    FTimerHandle DesperationCooldownTimerHandle;
 
     const UWTBRCoreStatsDataAsset* GetStats() const
     {
         ensure(CoreStatsAsset.IsValid());
         return CoreStatsAsset.Get();
     }
+
+    UFUNCTION()
+    void OnRep_CurrentVael();
+
+    UFUNCTION()
+    void OnRep_bOverheated();
+
+    UFUNCTION()
+    void OnRep_IsDesperationActive();
+
+    UFUNCTION()
+    void OnRep_IsDesperationOnCooldown();
+
+    void HandleVaelChanged(float OldVael, float NewVael);
+    void TriggerDesperationWindow();
+    void EndDesperationWindow();
+    void EndDesperationCooldown();
+    void SetDesperationActive(bool bNewActive);
+    void SetDesperationOnCooldown(bool bNewOnCooldown);
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };

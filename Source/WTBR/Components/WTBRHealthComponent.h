@@ -7,6 +7,9 @@
 #include "Data/WTBRCoreStatsDataAsset.h"
 #include "WTBRHealthComponent.generated.h"
 
+class AController;
+class AWTBRCharacter;
+
 // ─── Enums & Structs (used by WTBRCharacter and WTBRTriggerBase) ────────────
 
 UENUM(BlueprintType)
@@ -17,6 +20,14 @@ enum class EWTBRLimbType : uint8
     RightArm UMETA(DisplayName="Right Arm (Sub)"),
     LeftLeg  UMETA(DisplayName="Left Leg"),
     RightLeg UMETA(DisplayName="Right Leg"),
+};
+
+UENUM(BlueprintType)
+enum class EWTBRCombatState : uint8
+{
+    Alive      UMETA(DisplayName="Alive"),
+    Downed     UMETA(DisplayName="Downed"),
+    Eliminated UMETA(DisplayName="Eliminated"),
 };
 
 USTRUCT(BlueprintType)
@@ -37,9 +48,20 @@ struct FWTBRLimbState
     float SpeedPenalty  = 0.f;         // [0,1] multiplicative
 };
 
+struct FWTBRDamageContributionRecord
+{
+    TWeakObjectPtr<AWTBRCharacter> ContributorCharacter;
+    TWeakObjectPtr<AController> ContributorController;
+    float TotalDamage = 0.f;
+    float LastDamageTime = 0.f;
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLimbDestroyed, EWTBRLimbType, Limb, FWTBRLimbState, NewState);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHPChanged, float, NewHP, float, MaxHP);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCharacterDeath);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCharacterDowned);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnCombatStateChanged, EWTBRCombatState, NewState, EWTBRCombatState, OldState);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnInvulnerabilityChanged, bool, bNewInvulnerable);
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -67,8 +89,21 @@ public:
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnCharacterDeath OnDeath;
 
+    UPROPERTY(BlueprintAssignable, Category="Events")
+    FOnCharacterDowned OnDowned;
+
+    UPROPERTY(BlueprintAssignable, Category="Events")
+    FOnCombatStateChanged OnCombatStateChanged;
+
+    UPROPERTY(BlueprintAssignable, Category="Events")
+    FOnInvulnerabilityChanged OnInvulnerabilityChanged;
+
     UFUNCTION(BlueprintCallable, Category="Health")
     void ApplyDamage(float DamageAmount, AActor* DamageInstigator = nullptr);
+
+    // Call from respawn, revive, or round reset before this character can receive rewards again.
+    UFUNCTION(BlueprintCallable, Category="Health")
+    void ResetCombatRewardState();
 
     UFUNCTION(BlueprintCallable, Category="Health")
     void DestroyLimb(EWTBRLimbType Limb);
@@ -83,7 +118,22 @@ public:
     float GetMaxHP() const;
 
     UFUNCTION(BlueprintPure, Category="Health")
-    bool IsAlive() const { return CurrentHP > 0.f; }
+    bool IsAlive() const { return CurrentCombatState == EWTBRCombatState::Alive; }
+
+    UFUNCTION(BlueprintPure, Category="Health")
+    bool IsDowned() const { return CurrentCombatState == EWTBRCombatState::Downed; }
+
+    UFUNCTION(BlueprintPure, Category="Health")
+    bool IsEliminated() const { return CurrentCombatState == EWTBRCombatState::Eliminated; }
+
+    UFUNCTION(BlueprintPure, Category="Health")
+    bool IsInvulnerable() const { return bIsInvulnerable; }
+
+    UFUNCTION(BlueprintPure, Category="Health")
+    EWTBRCombatState GetCombatState() const { return CurrentCombatState; }
+
+    UFUNCTION(BlueprintPure, Category="Health")
+    float GetCurrentDownedHP() const { return CurrentDownedHP; }
 
     UFUNCTION(BlueprintPure, Category="Health")
     FWTBRLimbState GetLimbState(EWTBRLimbType Limb) const;
@@ -103,7 +153,20 @@ private:
     UPROPERTY(ReplicatedUsing=OnRep_CurrentHP)
     float CurrentHP = 300.f;
 
+    UPROPERTY(ReplicatedUsing=OnRep_CombatState)
+    EWTBRCombatState CurrentCombatState = EWTBRCombatState::Alive;
+
+    UPROPERTY(ReplicatedUsing=OnRep_IsInvulnerable)
+    bool bIsInvulnerable = false;
+
+    UPROPERTY(Replicated)
+    float CurrentDownedHP = 0.f;
+
     FTimerHandle LimbDrainTimerHandle;
+    FTimerHandle KnockdownIFrameTimerHandle;
+    TArray<FWTBRDamageContributionRecord> DamageHistory;
+    bool bDownRewardResolved = false;
+    bool bDeathRewardsResolved = false;
 
     const UWTBRCoreStatsDataAsset* GetStats() const
     {
@@ -117,8 +180,29 @@ private:
     // Timer callback — fires every LIMB_DRAIN_TICK_INTERVAL seconds on Authority
     void TickLimbDrain();
 
+    AWTBRCharacter* ResolveContributorCharacter(AActor* DamageInstigator) const;
+    AController* ResolveContributorController(AWTBRCharacter* ContributorCharacter) const;
+    void RecordDamageContribution(float DamageAmount, AActor* DamageInstigator);
+    void PruneDamageHistory(float CurrentTime, float AssistWindow);
+    void ResolveDeathRewards(AActor* FinalDamageInstigator);
+    void ResolveDownReward(AActor* DownInstigator);
+    void GrantVaelReward(AWTBRCharacter* RecipientCharacter, float Amount) const;
+    void ClearDamageHistory();
+    void EnterDownedState(AActor* DownInstigator);
+    void EnterEliminatedState(AActor* FinalDamageInstigator);
+    void SetCombatState(EWTBRCombatState NewState);
+    void SetInvulnerable(bool bNewInvulnerable);
+    void StartKnockdownIFrame();
+    void EndKnockdownIFrame();
+
     UFUNCTION()
     void OnRep_CurrentHP();
+
+    UFUNCTION()
+    void OnRep_CombatState(EWTBRCombatState OldState);
+
+    UFUNCTION()
+    void OnRep_IsInvulnerable();
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };
