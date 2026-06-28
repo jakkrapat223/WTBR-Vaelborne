@@ -186,7 +186,8 @@ private:
     // Key = slot index (0-7). Value = streamable handle.
     // Stored here (not in FWTBRTriggerSlot) to avoid UStruct serialization issues
     // with TSharedPtr. Allows CancelHandle() on rapid slot switching.
-    // Tech Director Note: TMap is NOT replicated — server-side only. Correct.
+    // TMap is NOT replicated. Server uses it for gameplay slot loads; clients
+    // use it only for HUD/name DataAsset loads after TriggerSlots replication.
     TMap<int32, TSharedPtr<FStreamableHandle>> PendingSlotLoads;
 
     bool IsValidSlotIndex(int32 Index) const { return TriggerSlots.IsValidIndex(Index); }
@@ -196,6 +197,8 @@ private:
     void NotifySubSlotChanged(int32 OldAbsIdx, int32 NewAbsIdx);
 
     void AsyncLoadSlot(int32 SlotIndex, TFunction<void()> OnComplete);
+
+    void RequestClientSlotDataAssetLoad(int32 SlotIndex, const TCHAR* Reason);
 
     void InitializeLoadedSlot(int32 SlotIndex);
 

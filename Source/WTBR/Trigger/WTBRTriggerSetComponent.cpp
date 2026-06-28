@@ -356,6 +356,134 @@ void UWTBRTriggerSetComponent::AsyncLoadSlot(int32 SlotIndex, TFunction<void()> 
     }
 }
 
+void UWTBRTriggerSetComponent::RequestClientSlotDataAssetLoad(int32 SlotIndex, const TCHAR* Reason)
+{
+    if (HasServerAuthority())
+    {
+        return;
+    }
+    if (!IsValidSlotIndex(SlotIndex))
+    {
+        return;
+    }
+    if (!RuntimeTriggers.IsValidIndex(SlotIndex))
+    {
+        RuntimeTriggers.SetNum(TotalSlotCount);
+    }
+
+    FWTBRTriggerSlot& Slot = TriggerSlots[SlotIndex];
+    const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+    const TCHAR* LocalText = OwnerCharacter && OwnerCharacter->IsLocallyControlled()
+        ? TEXT("true")
+        : TEXT("false");
+    const bool bSoftPathValid = !Slot.DataAsset.IsNull();
+    const bool bDataAssetLoaded = Slot.DataAsset.IsValid();
+    const bool bRuntimeTriggerValid =
+        RuntimeTriggers.IsValidIndex(SlotIndex) && IsValid(RuntimeTriggers[SlotIndex]);
+
+    if (bDataAssetLoaded)
+    {
+        InitializeLoadedSlot(SlotIndex);
+        OnActiveTriggerChanged.Broadcast((ETriggerSlot)SlotIndex);
+
+        const UWTBRTriggerDataAsset* DataAsset = Slot.DataAsset.Get();
+        UE_LOG(LogTemp, Warning,
+            TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=%s | DataAssetLoaded=true | AsyncRequested=false | AsyncCompleted=true | RuntimeTriggerValid=%s | Name=%s"),
+            *GetNameSafe(GetOwner()),
+            HasServerAuthority() ? TEXT("true") : TEXT("false"),
+            LocalText,
+            SlotIndex,
+            Reason ? Reason : TEXT("None"),
+            bSoftPathValid ? TEXT("true") : TEXT("false"),
+            RuntimeTriggers.IsValidIndex(SlotIndex) && IsValid(RuntimeTriggers[SlotIndex]) ? TEXT("true") : TEXT("false"),
+            DataAsset ? *DataAsset->FunctionalName.ToString() : TEXT("None"));
+        return;
+    }
+
+    if (!bSoftPathValid)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=false | DataAssetLoaded=false | AsyncRequested=false | AsyncCompleted=false | RuntimeTriggerValid=%s | Name=None"),
+            *GetNameSafe(GetOwner()),
+            HasServerAuthority() ? TEXT("true") : TEXT("false"),
+            LocalText,
+            SlotIndex,
+            Reason ? Reason : TEXT("None"),
+            bRuntimeTriggerValid ? TEXT("true") : TEXT("false"));
+        OnActiveTriggerChanged.Broadcast((ETriggerSlot)SlotIndex);
+        return;
+    }
+
+    if (PendingSlotLoads.Contains(SlotIndex))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=true | DataAssetLoaded=false | AsyncRequested=false | AsyncCompleted=false | RuntimeTriggerValid=%s | Name=Pending"),
+            *GetNameSafe(GetOwner()),
+            HasServerAuthority() ? TEXT("true") : TEXT("false"),
+            LocalText,
+            SlotIndex,
+            Reason ? Reason : TEXT("None"),
+            bRuntimeTriggerValid ? TEXT("true") : TEXT("false"));
+        return;
+    }
+
+    FStreamableManager& StreamableMgr = UAssetManager::GetStreamableManager();
+    TSharedPtr<FStreamableHandle> Handle = StreamableMgr.RequestAsyncLoad(
+        Slot.DataAsset.ToSoftObjectPath(),
+        [this, SlotIndex]()
+        {
+            if (!IsValidSlotIndex(SlotIndex))
+            {
+                return;
+            }
+
+            FWTBRTriggerSlot& LoadedSlot = TriggerSlots[SlotIndex];
+            const bool bLoaded = LoadedSlot.DataAsset.IsValid();
+            if (bLoaded)
+            {
+                InitializeLoadedSlot(SlotIndex);
+            }
+
+            const UWTBRTriggerDataAsset* DataAsset = LoadedSlot.DataAsset.Get();
+            const bool bRuntimeTriggerValid =
+                RuntimeTriggers.IsValidIndex(SlotIndex) && IsValid(RuntimeTriggers[SlotIndex]);
+            const AWTBRCharacter* LoadedOwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+            const TCHAR* LoadedLocalText = LoadedOwnerCharacter && LoadedOwnerCharacter->IsLocallyControlled()
+                ? TEXT("true")
+                : TEXT("false");
+
+            PendingSlotLoads.Remove(SlotIndex);
+
+            UE_LOG(LogTemp, Warning,
+                TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=AsyncComplete | SoftPathValid=%s | DataAssetLoaded=%s | AsyncRequested=true | AsyncCompleted=true | RuntimeTriggerValid=%s | Name=%s"),
+                *GetNameSafe(GetOwner()),
+                HasServerAuthority() ? TEXT("true") : TEXT("false"),
+                LoadedLocalText,
+                SlotIndex,
+                !LoadedSlot.DataAsset.IsNull() ? TEXT("true") : TEXT("false"),
+                bLoaded ? TEXT("true") : TEXT("false"),
+                bRuntimeTriggerValid ? TEXT("true") : TEXT("false"),
+                DataAsset ? *DataAsset->FunctionalName.ToString() : TEXT("None"));
+
+            OnActiveTriggerChanged.Broadcast((ETriggerSlot)SlotIndex);
+        });
+
+    if (Handle.IsValid())
+    {
+        PendingSlotLoads.Add(SlotIndex, Handle);
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=true | DataAssetLoaded=false | AsyncRequested=%s | AsyncCompleted=false | RuntimeTriggerValid=%s | Name=Loading"),
+        *GetNameSafe(GetOwner()),
+        HasServerAuthority() ? TEXT("true") : TEXT("false"),
+        LocalText,
+        SlotIndex,
+        Reason ? Reason : TEXT("None"),
+        Handle.IsValid() ? TEXT("true") : TEXT("false"),
+        bRuntimeTriggerValid ? TEXT("true") : TEXT("false"));
+}
+
 void UWTBRTriggerSetComponent::InitializeLoadedSlot(int32 SlotIndex)
 {
     // RuntimeTriggers is Transient (not replicated) — both server and client
@@ -520,26 +648,34 @@ void UWTBRTriggerSetComponent::OnRep_TriggerSlots()
     // and has not been instantiated yet (RuntimeTrigger still null).
     for (int32 i = 0; i < TotalSlotCount; ++i)
     {
-        if (!TriggerSlots[i].IsEmpty()
-            && TriggerSlots[i].DataAsset.IsValid()
-            && RuntimeTriggers.IsValidIndex(i)
-            && !RuntimeTriggers[i])
+        if (!TriggerSlots[i].IsEmpty() && RuntimeTriggers.IsValidIndex(i) && !RuntimeTriggers[i])
         {
-            InitializeLoadedSlot(i);
+            if (TriggerSlots[i].DataAsset.IsValid())
+            {
+                InitializeLoadedSlot(i);
+            }
+            else
+            {
+                RequestClientSlotDataAssetLoad(i, TEXT("OnRep_TriggerSlots"));
+            }
         }
     }
 
+    RequestClientSlotDataAssetLoad(ActiveMainIndex, TEXT("OnRep_TriggerSlotsActiveMain"));
+    RequestClientSlotDataAssetLoad(ActiveSubIndex, TEXT("OnRep_TriggerSlotsActiveSub"));
     OnActiveTriggerChanged.Broadcast((ETriggerSlot)ActiveMainIndex);
     OnActiveTriggerChanged.Broadcast((ETriggerSlot)ActiveSubIndex);
 }
 
 void UWTBRTriggerSetComponent::OnRep_ActiveMainIndex()
 {
+    RequestClientSlotDataAssetLoad(ActiveMainIndex, TEXT("OnRep_ActiveMainIndex"));
     OnActiveTriggerChanged.Broadcast((ETriggerSlot)ActiveMainIndex);
 }
 
 void UWTBRTriggerSetComponent::OnRep_ActiveSubIndex()
 {
+    RequestClientSlotDataAssetLoad(ActiveSubIndex, TEXT("OnRep_ActiveSubIndex"));
     OnActiveTriggerChanged.Broadcast((ETriggerSlot)ActiveSubIndex);
 }
 
