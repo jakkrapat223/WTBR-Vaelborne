@@ -26,17 +26,50 @@ AWTBRProjectileBase* UWTBRSniperTrigger::FireSniper(
     float Damage, float Speed, float Range,
     bool bCanPenetrate, int32 CubeSplitCount)
 {
-    if (!IsValid(ProjClass)) return nullptr;
+    if (!OwnerCharacter.IsValid())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=OwnerInvalid"));
+        return nullptr;
+    }
+    if (!OwnerCharacter->HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=NoAuthority"));
+        return nullptr;
+    }
+    if (!IsValid(ProjClass))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=ProjectileClassNull"));
+        return nullptr;
+    }
+    UWorld* World = GetWorld();
+    if (!IsValid(World))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=WorldInvalid"));
+        return nullptr;
+    }
 
     FVector Dir = GetFireDirection();
     FVector Loc = GetMuzzleLocation(Dir);
+    const FRotator SpawnRot = Dir.Rotation();
 
-    AWTBRProjectileBase* Proj = GetWorld()->SpawnActorDeferred<AWTBRProjectileBase>(
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Fulgris Test] ProjectileSpawnAttempt | Class=%s | Location=%s | Rotation=%s | Speed=%.1f | Damage=%.1f"),
+        *GetNameSafe(ProjClass.Get()),
+        *Loc.ToString(),
+        *SpawnRot.ToString(),
+        Speed,
+        Damage);
+
+    AWTBRProjectileBase* Proj = World->SpawnActorDeferred<AWTBRProjectileBase>(
         ProjClass,
-        FTransform(Dir.Rotation(), Loc),
+        FTransform(SpawnRot, Loc),
         OwnerCharacter.Get(), OwnerCharacter.Get(),
         ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-    if (!IsValid(Proj)) return nullptr;
+    if (!IsValid(Proj))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=SpawnFailed"));
+        return nullptr;
+    }
 
     Proj->MaxRange      = Range;
     Proj->CubeSplitCount = CubeSplitCount;
@@ -46,7 +79,10 @@ AWTBRProjectileBase* UWTBRSniperTrigger::FireSniper(
         false,   // bExplode = false
         0.0f);
     Proj->bCanPenetrate = bCanPenetrate;
-    UGameplayStatics::FinishSpawningActor(Proj, FTransform(Dir.Rotation(), Loc));
+    UGameplayStatics::FinishSpawningActor(Proj, FTransform(SpawnRot, Loc));
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Fulgris Test] ProjectileSpawnSuccess | Projectile=%s"),
+        *GetNameSafe(Proj));
     Proj->Launch(Dir, OwnerCharacter.Get());
     OnSniperFired(Dir);
     return Proj;

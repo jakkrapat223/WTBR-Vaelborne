@@ -3,6 +3,38 @@
 #include "Components/WTBRVaelComponent.h"
 #include "Net/UnrealNetwork.h"
 
+namespace
+{
+void LogTest32VaelCoreStats(const UWTBRVaelComponent* Component, const UWTBRCoreStatsDataAsset* Stats, const TCHAR* Requester)
+{
+    if (Stats)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Test32 CoreStats Loaded] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsAsset=%s | CoreStatsPath=%s | StatsValid=true | MaxVael=%.1f | LowVaelThreshold=%.1f | DesperationCostMultiplier=%.2f"),
+            *GetNameSafe(Component),
+            *GetNameSafe(Component ? Component->GetOwner() : nullptr),
+            Component ? (int32)Component->GetNetMode() : -1,
+            Component ? (int32)Component->GetOwnerRole() : -1,
+            Requester ? Requester : TEXT("Unknown"),
+            *GetNameSafe(Stats),
+            Component ? *Component->CoreStatsAsset.ToSoftObjectPath().ToString() : TEXT("None"),
+            Stats->MaxVael,
+            Stats->LowVaelThreshold,
+            Stats->DesperationCostMultiplier);
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test32 CoreStats Missing] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsPath=%s | StatsValid=false"),
+        *GetNameSafe(Component),
+        *GetNameSafe(Component ? Component->GetOwner() : nullptr),
+        Component ? (int32)Component->GetNetMode() : -1,
+        Component ? (int32)Component->GetOwnerRole() : -1,
+        Requester ? Requester : TEXT("Unknown"),
+        Component ? *Component->CoreStatsAsset.ToSoftObjectPath().ToString() : TEXT("None"));
+}
+}
+
 UWTBRVaelComponent::UWTBRVaelComponent()
 {
     PrimaryComponentTick.bCanEverTick = false;
@@ -14,6 +46,7 @@ void UWTBRVaelComponent::BeginPlay()
 {
     Super::BeginPlay();
     const UWTBRCoreStatsDataAsset* LoadedStats = GetStats();
+    LogTest32VaelCoreStats(this, LoadedStats, TEXT("BeginPlay"));
     const float LoadedMaxVael = GetMaxVael();
     UE_LOG(LogTemp, Warning,
         TEXT("[Vael CoreStatsCheck] Owner=%s | Component=%s | CoreStatsAsset=%s | CoreStatsPath=%s | Loaded=%s | MaxVael=%.1f"),
@@ -33,12 +66,14 @@ void UWTBRVaelComponent::BeginPlay()
 float UWTBRVaelComponent::GetMaxVael() const
 {
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32VaelCoreStats(this, S, TEXT("GetMaxVael"));
     return S ? FMath::Max(0.0f, S->MaxVael) : 1000.0f;
 }
 
 float UWTBRVaelComponent::GetLowVaelThreshold() const
 {
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32VaelCoreStats(this, S, TEXT("GetLowVaelThreshold"));
     return S ? S->LowVaelThreshold : 25.0f;
 }
 
@@ -152,6 +187,7 @@ float UWTBRVaelComponent::GetVaelCostMultiplier() const
     if (!bIsDesperationActive) return 1.0f;
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32VaelCoreStats(this, S, TEXT("GetVaelCostMultiplier"));
     if (!S) return 1.0f;
 
     return FMath::Clamp(S->DesperationCostMultiplier, 0.0f, 1.0f);
@@ -187,11 +223,33 @@ void UWTBRVaelComponent::OnRep_bOverheated()
 
 void UWTBRVaelComponent::OnRep_IsDesperationActive()
 {
+    const float LoadedMaxVael = GetMaxVael();
+    const float LowVaelThreshold = GetLowVaelThreshold();
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test29 Client OnRep_IsDesperationActive] Owner=%s | NetMode=%d | Role=%d | CurrentVael=%.1f | MaxVael=%.1f | LowVaelThreshold=%.1f | Active=%s | Cooldown=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        (int32)GetOwnerRole(),
+        CurrentVael,
+        LoadedMaxVael,
+        LowVaelThreshold,
+        bIsDesperationActive ? TEXT("true") : TEXT("false"),
+        bIsDesperationOnCooldown ? TEXT("true") : TEXT("false"));
+
     OnDesperationActiveChanged.Broadcast(bIsDesperationActive);
 }
 
 void UWTBRVaelComponent::OnRep_IsDesperationOnCooldown()
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test29 Client OnRep_IsDesperationOnCooldown] Owner=%s | NetMode=%d | Role=%d | CurrentVael=%.1f | Active=%s | Cooldown=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        (int32)GetOwnerRole(),
+        CurrentVael,
+        bIsDesperationActive ? TEXT("true") : TEXT("false"),
+        bIsDesperationOnCooldown ? TEXT("true") : TEXT("false"));
+
     OnDesperationCooldownChanged.Broadcast(bIsDesperationOnCooldown);
 }
 
@@ -201,6 +259,7 @@ void UWTBRVaelComponent::HandleVaelChanged(float OldVael, float NewVael)
     if (bIsDesperationActive || bIsDesperationOnCooldown) return;
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32VaelCoreStats(this, S, TEXT("HandleVaelChanged"));
     if (!S) return;
 
     if (OldVael >= S->LowVaelThreshold && NewVael < S->LowVaelThreshold)
@@ -214,6 +273,7 @@ void UWTBRVaelComponent::TriggerDesperationWindow()
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32VaelCoreStats(this, S, TEXT("TriggerDesperationWindow"));
     if (!S) return;
 
     if (UWorld* World = GetWorld())
@@ -247,6 +307,7 @@ void UWTBRVaelComponent::EndDesperationWindow()
     SetDesperationOnCooldown(true);
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32VaelCoreStats(this, S, TEXT("EndDesperationWindow"));
     UWorld* World = GetWorld();
     if (!S || !World) return;
 
@@ -275,8 +336,23 @@ void UWTBRVaelComponent::SetDesperationActive(bool bNewActive)
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
     if (bIsDesperationActive == bNewActive) return;
 
+    const bool bOldActive = bIsDesperationActive;
     bIsDesperationActive = bNewActive;
     OnDesperationActiveChanged.Broadcast(bIsDesperationActive);
+
+    const float LoadedMaxVael = GetMaxVael();
+    const float LowVaelThreshold = GetLowVaelThreshold();
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test29 Server DesperationActiveChanged] Owner=%s | NetMode=%d | Role=%d | CurrentVael=%.1f | MaxVael=%.1f | LowVaelThreshold=%.1f | OldActive=%s | NewActive=%s | Cooldown=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        (int32)GetOwnerRole(),
+        CurrentVael,
+        LoadedMaxVael,
+        LowVaelThreshold,
+        bOldActive ? TEXT("true") : TEXT("false"),
+        bIsDesperationActive ? TEXT("true") : TEXT("false"),
+        bIsDesperationOnCooldown ? TEXT("true") : TEXT("false"));
 }
 
 void UWTBRVaelComponent::SetDesperationOnCooldown(bool bNewOnCooldown)
@@ -284,8 +360,19 @@ void UWTBRVaelComponent::SetDesperationOnCooldown(bool bNewOnCooldown)
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
     if (bIsDesperationOnCooldown == bNewOnCooldown) return;
 
+    const bool bOldCooldown = bIsDesperationOnCooldown;
     bIsDesperationOnCooldown = bNewOnCooldown;
     OnDesperationCooldownChanged.Broadcast(bIsDesperationOnCooldown);
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test29 Server DesperationCooldownChanged] Owner=%s | NetMode=%d | Role=%d | CurrentVael=%.1f | Active=%s | OldCooldown=%s | NewCooldown=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        (int32)GetOwnerRole(),
+        CurrentVael,
+        bIsDesperationActive ? TEXT("true") : TEXT("false"),
+        bOldCooldown ? TEXT("true") : TEXT("false"),
+        bIsDesperationOnCooldown ? TEXT("true") : TEXT("false"));
 }
 
 void UWTBRVaelComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

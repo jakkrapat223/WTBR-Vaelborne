@@ -29,6 +29,9 @@ public:
     // Called by UWTBRTriggerSetComponent::Server_FireSerpveil_Implementation — server only
     void ExecuteServerFire(EWTBRSerpveilShape Shape, FRotator Direction, float ChargedRange);
 
+    bool CancelCharge();
+    bool IsCharging() const { return bIsCharging; }
+
     // Blueprint aim-preview line (client only)
     UFUNCTION(BlueprintCallable, Category = "WTBR | Serpveil")
     TArray<FVector> GetPreviewPathPoints(
@@ -56,7 +59,9 @@ public:
 
 private:
     float ChargeStartTime = 0.0f;
+    float LastSerpveilFireTime = -1000000.0f;
     bool  bCachedIsMain   = false;
+    bool  bIsCharging     = false;
     FTimerHandle ChargeUpdateTimer;
 
     void UpdateChargeProgress();

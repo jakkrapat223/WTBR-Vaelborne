@@ -103,6 +103,18 @@ public:
     UWTBRTriggerBase* GetTriggerInSlot(ETriggerSlot Slot) const;
 
     UFUNCTION(BlueprintPure, Category="TriggerSet")
+    int32 GetActiveMainIndex() const { return ActiveMainIndex; }
+
+    UFUNCTION(BlueprintPure, Category="TriggerSet")
+    int32 GetActiveSubIndex() const { return ActiveSubIndex; }
+
+    UFUNCTION(BlueprintPure, Category="TriggerSet")
+    UWTBRTriggerDataAsset* GetActiveMainDataAsset() const;
+
+    UFUNCTION(BlueprintPure, Category="TriggerSet")
+    UWTBRTriggerDataAsset* GetActiveSubDataAsset() const;
+
+    UFUNCTION(BlueprintPure, Category="TriggerSet")
     EWTBRDualWieldState GetDualWieldState() const { return CurrentDualWieldState; }
 
     // Loadout assignment — called from PlayerController after character spawn
@@ -112,6 +124,10 @@ public:
     // Serpveil: client sends charged params, server validates Vael and fires
     UFUNCTION(Server, Reliable)
     void Server_FireSerpveil(EWTBRSerpveilShape Shape, FRotator Direction, float ChargedRange, bool bIsMain);
+
+    // TEMP_TEST46: server-authoritative Aegorn wall spawn hook for PIE/BP testing only.
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category = "WTBR | Debug")
+    void Server_TEMP_TEST46_PlaceAegornWall(bool bIsMain);
 
     // ── Composite Bullet Merge ────────────────────────────────────────────────
 
@@ -154,10 +170,10 @@ private:
         meta = (AllowPrivateAccess = "true"))
     TArray<FWTBRTriggerSlot> TriggerSlots;
 
-    UPROPERTY(Replicated)
+    UPROPERTY(ReplicatedUsing=OnRep_ActiveMainIndex)
     int32 ActiveMainIndex = 0;
 
-    UPROPERTY(Replicated)
+    UPROPERTY(ReplicatedUsing=OnRep_ActiveSubIndex)
     int32 ActiveSubIndex  = 4;
 
     UPROPERTY(ReplicatedUsing=OnRep_DualWieldState)
@@ -206,6 +222,12 @@ private:
 
     UFUNCTION()
     void OnRep_TriggerSlots();
+
+    UFUNCTION()
+    void OnRep_ActiveMainIndex();
+
+    UFUNCTION()
+    void OnRep_ActiveSubIndex();
 
     UFUNCTION()
     void OnRep_DualWieldState();

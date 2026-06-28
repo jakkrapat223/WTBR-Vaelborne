@@ -196,6 +196,13 @@ struct FWTBRVoltisParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Voltis")
     float HorizontalLaunchForce = 1200.0f;
 
+    // Directional air-step force when W/A/S/D is held during Voltis activation.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Voltis | Launch")
+    float DirectionalHorizontalForce = 1200.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Voltis | Launch")
+    float DirectionalVerticalForce = 300.0f;
+
     // จำนวนครั้งสูงสุดที่ดีดได้ก่อนลงพื้น (GDD: ไม่จำกัด แต่รอ Playtest)
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,

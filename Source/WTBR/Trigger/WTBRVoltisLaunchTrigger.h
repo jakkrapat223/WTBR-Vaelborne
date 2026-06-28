@@ -28,6 +28,12 @@ public:
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
+    virtual void OnReleased_Implementation(
+        const FInputActionValue& InputValue,
+        bool bIsDualWield) override;
+
+    virtual void Deactivate_Implementation() override;
+
     UFUNCTION()
     void OnCharacterLanded(const FHitResult& Hit);
 

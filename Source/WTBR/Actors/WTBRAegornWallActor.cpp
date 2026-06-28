@@ -1,5 +1,7 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Actors/WTBRAegornWallActor.h"
+#include "Actors/WTBRProjectileBase.h"
+#include "WTBRCharacter.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Net/UnrealNetwork.h"
@@ -18,19 +20,58 @@ AWTBRAegornWallActor::AWTBRAegornWallActor()
     WallCollision->SetupAttachment(RootComponent);
     WallCollision->SetBoxExtent(FVector(10.0f, 150.0f, 150.0f));
     WallCollision->SetCollisionEnabled(
-        ECollisionEnabled::QueryAndPhysics);
+        ECollisionEnabled::QueryOnly);
     WallCollision->SetCollisionObjectType(ECC_WorldStatic);
     WallCollision->SetCollisionResponseToAllChannels(ECR_Block);
+    WallCollision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+    WallCollision->SetGenerateOverlapEvents(true);
+
+    WallMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    WallMesh->SetGenerateOverlapEvents(false);
 }
 
 void AWTBRAegornWallActor::BeginPlay()
 {
     Super::BeginPlay();
     Tags.Add(TEXT("AegornWall"));
+    if (IsValid(WallMesh))
+    {
+        WallMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        WallMesh->SetGenerateOverlapEvents(false);
+    }
+    if (IsValid(WallCollision))
+    {
+        WallCollision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+        WallCollision->SetCollisionObjectType(ECC_WorldStatic);
+        WallCollision->SetCollisionResponseToAllChannels(ECR_Block);
+        WallCollision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+        WallCollision->SetGenerateOverlapEvents(true);
+        FVector WallExtent = WallCollision->GetUnscaledBoxExtent();
+        if (WallExtent.X < 20.0f)
+        {
+            WallExtent.X = 20.0f;
+            WallCollision->SetBoxExtent(WallExtent);
+        }
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Test46 AegornWall] CollisionConfig | Wall=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | GenerateOverlap=%s | RespWorldDynamic=%d | RespWorldStatic=%d | RespPawn=%d | Extent=%s | Location=%s"),
+            *GetNameSafe(this),
+            HasAuthority() ? TEXT("true") : TEXT("false"),
+            static_cast<int32>(WallCollision->GetCollisionEnabled()),
+            static_cast<int32>(WallCollision->GetCollisionObjectType()),
+            WallCollision->GetGenerateOverlapEvents() ? TEXT("true") : TEXT("false"),
+            static_cast<int32>(WallCollision->GetCollisionResponseToChannel(ECC_WorldDynamic)),
+            static_cast<int32>(WallCollision->GetCollisionResponseToChannel(ECC_WorldStatic)),
+            static_cast<int32>(WallCollision->GetCollisionResponseToChannel(ECC_Pawn)),
+            *WallCollision->GetScaledBoxExtent().ToString(),
+            *WallCollision->GetComponentLocation().ToString());
+    }
     if (HasAuthority())
     {
         WallCollision->OnComponentHit.AddDynamic(
             this, &AWTBRAegornWallActor::OnWallHit);
+        WallCollision->OnComponentBeginOverlap.AddDynamic(
+            this, &AWTBRAegornWallActor::OnWallOverlap);
     }
 }
 
@@ -47,16 +88,40 @@ void AWTBRAegornWallActor::InitializeWall(float InMaxHP)
     ensure(HasAuthority());
     MaxWallHP = InMaxHP;
     WallHP    = InMaxHP;
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 AegornWall] InitializeWall | Wall=%s | HasAuthority=%s | WallHP=%.1f | MaxWallHP=%.1f | Replicates=%s"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        WallHP,
+        MaxWallHP,
+        GetIsReplicated() ? TEXT("true") : TEXT("false"));
 }
 
 void AWTBRAegornWallActor::TakeDamageFromProjectile(float DamageAmount)
 {
     if (!HasAuthority()) return;
     if (WallHP <= 0.0f) return;
+
+    const float OldHP = WallHP;
     WallHP = FMath::Max(0.0f, WallHP - DamageAmount);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 AegornWall] WallDamage | OldHP=%.1f | Damage=%.1f | NewHP=%.1f"),
+        OldHP,
+        DamageAmount,
+        WallHP);
+
     OnWallDamaged(WallHP, DamageAmount);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 AegornWall] OnWallDamaged Fired | Wall=%s"),
+        *GetNameSafe(this));
+
     if (WallHP <= 0.0f)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Test46 AegornWall] WallDestroyed | Wall=%s"),
+            *GetNameSafe(this));
         DestroyWall();
+    }
 }
 
 float AWTBRAegornWallActor::GetWallHPPercent() const
@@ -72,6 +137,24 @@ void AWTBRAegornWallActor::OnWallHit(
     FVector NormalImpulse,
     const FHitResult& Hit)
 {
+    if (OtherActor && OtherActor->IsA(AWTBRCharacter::StaticClass()))
+    {
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 AegornWall] Hit | Wall=%s | Other=%s | OtherClass=%s | HasAuthority=%s | Source=Hit"),
+        *GetNameSafe(this),
+        *GetNameSafe(OtherActor),
+        IsValid(OtherActor) ? *GetNameSafe(OtherActor->GetClass()) : TEXT("None"),
+        HasAuthority() ? TEXT("true") : TEXT("false"));
+
+    if (HandleProjectileContact(OtherActor, TEXT("Hit")))
+    {
+        return;
+    }
+    return;
+
     if (!HasAuthority()) return;
     if (!IsValid(OtherActor)) return;
     if (!OtherActor->ActorHasTag(TEXT("WTBRProjectile"))) return;
@@ -82,8 +165,79 @@ void AWTBRAegornWallActor::OnWallHit(
     OtherActor->Destroy();
 }
 
+void AWTBRAegornWallActor::OnWallOverlap(
+    UPrimitiveComponent* OverlappedComponent,
+    AActor* OtherActor,
+    UPrimitiveComponent* OtherComp,
+    int32 OtherBodyIndex,
+    bool bFromSweep,
+    const FHitResult& SweepResult)
+{
+    if (OtherActor && OtherActor->IsA(AWTBRCharacter::StaticClass()))
+    {
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 AegornWall] Hit | Wall=%s | Other=%s | OtherClass=%s | HasAuthority=%s | Source=Overlap"),
+        *GetNameSafe(this),
+        *GetNameSafe(OtherActor),
+        IsValid(OtherActor) ? *GetNameSafe(OtherActor->GetClass()) : TEXT("None"),
+        HasAuthority() ? TEXT("true") : TEXT("false"));
+
+    HandleProjectileContact(OtherActor, TEXT("Overlap"));
+}
+
+bool AWTBRAegornWallActor::HandleProjectileContact(AActor* OtherActor, const TCHAR* Source)
+{
+    if (!HasAuthority()) return false;
+    if (!IsValid(OtherActor)) return false;
+    if (DamagedProjectiles.Contains(OtherActor)) return false;
+
+    if (AWTBRProjectileBase* Projectile = Cast<AWTBRProjectileBase>(OtherActor))
+    {
+        const float ProjectileDamage = Projectile->BaseDamage;
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Test46 AegornWall] ProjectileDetected | Method=Cast | Projectile=%s | Damage=%.1f | Source=%s"),
+            *GetNameSafe(Projectile),
+            ProjectileDamage,
+            Source);
+
+        DamagedProjectiles.Add(OtherActor);
+        TakeDamageFromProjectile(ProjectileDamage);
+        OtherActor->Destroy();
+        return true;
+    }
+
+    if (OtherActor->ActorHasTag(TEXT("WTBRProjectile")))
+    {
+        const float ProjectileDamage = 50.0f;
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Test46 AegornWall] ProjectileDetected | Method=Tag | Projectile=%s | Damage=%.1f | Source=%s"),
+            *GetNameSafe(OtherActor),
+            ProjectileDamage,
+            Source);
+
+        DamagedProjectiles.Add(OtherActor);
+        TakeDamageFromProjectile(ProjectileDamage);
+        OtherActor->Destroy();
+        return true;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 AegornWall] ProjectileRejected | Other=%s | Source=%s | HasWTBRProjectileTag=%s"),
+        *GetNameSafe(OtherActor),
+        Source,
+        OtherActor->ActorHasTag(TEXT("WTBRProjectile")) ? TEXT("true") : TEXT("false"));
+    return false;
+}
+
 void AWTBRAegornWallActor::DestroyWall()
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 AegornWall] DestroyWall | Wall=%s | HasAuthority=%s"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"));
     OnWallDestroyed.Broadcast();
     OnWallCollapsed();
     Destroy();
@@ -91,5 +245,13 @@ void AWTBRAegornWallActor::DestroyWall()
 
 void AWTBRAegornWallActor::OnRep_WallHP()
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 AegornWall] OnRep_WallHP | Wall=%s | WallHP=%.1f | MaxWallHP=%.1f"),
+        *GetNameSafe(this),
+        WallHP,
+        MaxWallHP);
     OnWallDamaged(WallHP, 0.0f);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 AegornWall] OnWallDamaged Fired | Wall=%s | Source=OnRep_WallHP"),
+        *GetNameSafe(this));
 }

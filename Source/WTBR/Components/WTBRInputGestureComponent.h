@@ -56,6 +56,8 @@ public:
     // Called from WTBRCharacter::SetupPlayerInputComponent to wire all input
     void BindInputActions(UEnhancedInputComponent* EIC);
 
+    FVector2D GetLastMoveAxis2D() const { return LastMoveAxis2D; }
+
     // Called from WTBRCharacter::SetupPlayerInputComponent
     UFUNCTION(BlueprintCallable, Category="Input")
     void NotifyMainPressed();
@@ -101,6 +103,9 @@ private:
 
     // ── Movement ──────────────────────────────────────────────────────────────
     void OnMove_Triggered(const FInputActionValue& Value);
+    void OnMove_Completed(const FInputActionValue& Value);
+
+    FVector2D LastMoveAxis2D = FVector2D::ZeroVector;
 
     // ── Look (Mouse XY) ───────────────────────────────────────────────────────
     void OnLook_Triggered(const FInputActionValue& Value);

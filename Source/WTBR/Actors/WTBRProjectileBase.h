@@ -138,6 +138,11 @@ protected:
         int32 OtherBodyIndex, bool bFromSweep,
         const FHitResult& SweepResult);
 
+    UFUNCTION()
+    void OnProjectileHit(UPrimitiveComponent* HitComponent,
+        AActor* OtherActor, UPrimitiveComponent* OtherComp,
+        FVector NormalImpulse, const FHitResult& Hit);
+
 private:
     float CachedSpeed   = 0.0f;
     bool  bHandledClash = false; // prevents double-processing when both bullets' overlaps fire

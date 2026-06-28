@@ -4,17 +4,39 @@
 #include "Components/WTBRVaelComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
 #include "Actors/WTBRProjectileBase.h"
+#include "Engine/World.h"
 
 bool UWTBRFulgrisTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
-    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
+    UWTBRVaelComponent* Vael = OwnerCharacter.IsValid()
+        ? OwnerCharacter->VaelComponent
+        : nullptr;
+    const float CurrentVael = IsValid(Vael) ? Vael->GetCurrentVael() : -1.0f;
+    const bool bHasAuthority =
+        OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority();
 
-    if (!OwnerCharacter->VaelComponent ||
-        !OwnerCharacter->VaelComponent->TryConsumeVael(DataAsset->VaelCostPerUse))
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Fulgris Test] Activate Start | Owner=%s | HasAuthority=%s | Main=%s | CurrentVael=%.2f"),
+        *GetNameSafe(OwnerCharacter.Get()),
+        bHasAuthority ? TEXT("true") : TEXT("false"),
+        TEXT("unknown"),
+        CurrentVael);
+
+    if (!OwnerCharacter.IsValid())
     {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=OwnerInvalid"));
+        return false;
+    }
+    if (!OwnerCharacter->HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=NoAuthority"));
+        return false;
+    }
+    if (!IsValid(DataAsset))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=DataAssetInvalid"));
         return false;
     }
 
@@ -23,8 +45,81 @@ bool UWTBRFulgrisTrigger::Activate_Implementation(
     const float Speed     = DataAsset->FulgrisParams.FulgrisSpeed;
     const float Range     = DataAsset->FulgrisParams.FulgrisRange;
     const int32 CubeSplit = DataAsset->FulgrisParams.FulgrisCubeSplitCount;
+    const float Cooldown  = DataAsset->FulgrisParams.FulgrisFireCooldown;
+    const float VaelCost  = DataAsset->VaelCostPerUse;
 
-    FireSniper(ProjClass, Damage, Speed, Range, false, CubeSplit);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Fulgris Test] Data | Damage=%.1f | VaelCost=%.1f | Cooldown=%.3f | ProjectileClass=%s | Range=%.1f | Speed=%.1f"),
+        Damage,
+        VaelCost,
+        Cooldown,
+        *GetNameSafe(ProjClass.Get()),
+        Range,
+        Speed);
+
+    UWorld* World = GetWorld();
+    if (!IsValid(World))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=WorldInvalid"));
+        return false;
+    }
+
+    const float CurrentTime = World->GetTimeSeconds();
+    const float TimerElapsed = World->GetTimerManager().GetTimerElapsed(CooldownTimer);
+    const float LastFire = (TimerElapsed >= 0.0f) ? CurrentTime - TimerElapsed : -1.0f;
+    const float TimeSinceLastFire = (TimerElapsed >= 0.0f) ? TimerElapsed : 9999.0f;
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Fulgris Test] CooldownCheck | CurrentTime=%.3f | LastFire=%.3f | TimeSinceLastFire=%.3f | Cooldown=%.3f"),
+        CurrentTime,
+        LastFire,
+        TimeSinceLastFire,
+        Cooldown);
+
+    if (IsOnCooldown())
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Fulgris Test] CooldownBlocked | TimeSinceLastFire=%.3f | Cooldown=%.3f"),
+            TimeSinceLastFire,
+            Cooldown);
+        return false;
+    }
+
+    if (!IsValid(ProjClass))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=ProjectileClassNull"));
+        return false;
+    }
+
+    if (!IsValid(Vael))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=VaelComponentInvalid"));
+        return false;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Fulgris Test] ConsumeCheck | CurrentVael=%.2f | Cost=%.2f"),
+        Vael->GetCurrentVael(),
+        VaelCost);
+
+    if (!Vael->TryConsumeVael(VaelCost))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Fulgris Test] ConsumeFail | CurrentVael=%.2f | Cost=%.2f"),
+            Vael->GetCurrentVael(),
+            VaelCost);
+        return false;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Fulgris Test] ConsumeSuccess | NewVael=%.2f | Cost=%.2f"),
+        Vael->GetCurrentVael(),
+        VaelCost);
+
+    if (!FireSniper(ProjClass, Damage, Speed, Range, false, CubeSplit))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=SpawnFailed"));
+        return false;
+    }
     StartCooldown();
     return true;
 }

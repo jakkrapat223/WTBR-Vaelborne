@@ -42,6 +42,8 @@ public:
     UFUNCTION(BlueprintCallable, Category = "WTBR | Aegorn | Wall")
     void PlaceWall();
 
+    bool CancelShield();
+
     virtual void InitializeTrigger(
         AWTBRCharacter* InOwnerCharacter,
         UWTBRTriggerDataAsset* InDataAsset) override;

@@ -8,6 +8,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "WTBRCharacter.h"
+#include "Actors/WTBRAegornWallActor.h"
 #include "Components/WTBRHealthComponent.h"
 
 AWTBRProjectileBase::AWTBRProjectileBase()
@@ -45,10 +46,37 @@ AWTBRProjectileBase::AWTBRProjectileBase()
 void AWTBRProjectileBase::BeginPlay()
 {
     Super::BeginPlay();
-    if (HasAuthority())
+    if (IsValid(BoxCollision))
+    {
+        BoxCollision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+        BoxCollision->SetCollisionObjectType(ECC_WorldDynamic);
+        BoxCollision->SetCollisionResponseToAllChannels(ECR_Ignore);
+        BoxCollision->SetCollisionResponseToChannel(ECC_Pawn,         ECR_Overlap);
+        BoxCollision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
+        BoxCollision->SetCollisionResponseToChannel(ECC_WorldStatic,  ECR_Block);
+        BoxCollision->SetGenerateOverlapEvents(true);
+        BoxCollision->SetNotifyRigidBodyCollision(true);
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Test46 ProjectileContact] CollisionConfig | Projectile=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | GenerateOverlap=%s | RespPawn=%d | RespWorldDynamic=%d | RespWorldStatic=%d | Extent=%s | Location=%s"),
+            *GetNameSafe(this),
+            HasAuthority() ? TEXT("true") : TEXT("false"),
+            static_cast<int32>(BoxCollision->GetCollisionEnabled()),
+            static_cast<int32>(BoxCollision->GetCollisionObjectType()),
+            BoxCollision->GetGenerateOverlapEvents() ? TEXT("true") : TEXT("false"),
+            static_cast<int32>(BoxCollision->GetCollisionResponseToChannel(ECC_Pawn)),
+            static_cast<int32>(BoxCollision->GetCollisionResponseToChannel(ECC_WorldDynamic)),
+            static_cast<int32>(BoxCollision->GetCollisionResponseToChannel(ECC_WorldStatic)),
+            *BoxCollision->GetScaledBoxExtent().ToString(),
+            *BoxCollision->GetComponentLocation().ToString());
+    }
+
+    if (HasAuthority() && IsValid(BoxCollision))
     {
         BoxCollision->OnComponentBeginOverlap.AddDynamic(
             this, &AWTBRProjectileBase::OnOverlapBegin);
+        BoxCollision->OnComponentHit.AddDynamic(
+            this, &AWTBRProjectileBase::OnProjectileHit);
     }
 }
 
@@ -80,12 +108,57 @@ void AWTBRProjectileBase::InitializeProjectile(
 void AWTBRProjectileBase::Launch(FVector Direction, AActor* InInstigator)
 {
     if (!HasAuthority()) return;
+    if (!IsValid(ProjectileMovement)) return;
 
     OwnerInstigator = InInstigator;
-    const FVector SafeDir = Direction.GetSafeNormal();
 
+    FVector SafeDir = Direction.GetSafeNormal();
+    if (SafeDir.IsNearlyZero())
+    {
+        SafeDir = GetActorForwardVector().GetSafeNormal();
+    }
+    if (SafeDir.IsNearlyZero())
+    {
+        SafeDir = FVector::ForwardVector;
+    }
+
+    SetActorRotation(SafeDir.Rotation());
+
+    USceneComponent* DesiredUpdatedComponent = nullptr;
+    if (IsValid(BoxCollision))
+    {
+        DesiredUpdatedComponent = BoxCollision;
+    }
+    else if (IsValid(RootComponent))
+    {
+        DesiredUpdatedComponent = RootComponent;
+    }
+    if (IsValid(DesiredUpdatedComponent))
+    {
+        ProjectileMovement->SetUpdatedComponent(DesiredUpdatedComponent);
+    }
+
+    // Launch is the straight ProjectileMovement path; curve/path projectiles use InitializePathMovement().
+    if (IsValid(InterpMovement) && InterpMovement->IsActive())
+    {
+        InterpMovement->Deactivate();
+    }
+
+    ProjectileMovement->StopMovementImmediately();
+    ProjectileMovement->Deactivate();
+    ProjectileMovement->ProjectileGravityScale = 0.0f;
     ProjectileMovement->Velocity = SafeDir * CachedSpeed;
     ProjectileMovement->Activate();
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test36 Projectile Launch] Projectile=%s | Dir=%s | Speed=%.2f | Velocity=%s | GravityScale=%.2f | UpdatedComponent=%s | Active=%s"),
+        *GetNameSafe(this),
+        *SafeDir.ToString(),
+        CachedSpeed,
+        *ProjectileMovement->Velocity.ToString(),
+        ProjectileMovement->ProjectileGravityScale,
+        *GetNameSafe(ProjectileMovement->UpdatedComponent),
+        ProjectileMovement->IsActive() ? TEXT("true") : TEXT("false"));
 
     if (CachedSpeed > 0.0f)
         SetLifeSpan(MaxRange / CachedSpeed);
@@ -111,10 +184,105 @@ void AWTBRProjectileBase::OnOverlapBegin(
     bool bFromSweep,
     const FHitResult& SweepResult)
 {
-    if (!HasAuthority()) return;
-    if (!IsValid(OtherActor)) return;
-    if (OtherActor == OwnerInstigator) return;
-    if (DamagedActors.Contains(OtherActor)) return; // skip already-hit actors (penetration guard)
+    const bool bIsAegornWall =
+        IsValid(OtherActor) && OtherActor->IsA(AWTBRAegornWallActor::StaticClass());
+    const int32 ProjectileCollisionEnabled = IsValid(BoxCollision)
+        ? static_cast<int32>(BoxCollision->GetCollisionEnabled())
+        : -1;
+    const int32 ProjectileObjectType = IsValid(BoxCollision)
+        ? static_cast<int32>(BoxCollision->GetCollisionObjectType())
+        : -1;
+    const int32 OtherObjectType = IsValid(OtherComp)
+        ? static_cast<int32>(OtherComp->GetCollisionObjectType())
+        : -1;
+    const int32 ProjectileResponseToOther =
+        (IsValid(BoxCollision) && IsValid(OtherComp))
+            ? static_cast<int32>(BoxCollision->GetCollisionResponseToChannel(
+                OtherComp->GetCollisionObjectType()))
+            : -1;
+    const int32 OtherResponseToProjectile =
+        (IsValid(BoxCollision) && IsValid(OtherComp))
+            ? static_cast<int32>(OtherComp->GetCollisionResponseToChannel(
+                BoxCollision->GetCollisionObjectType()))
+            : -1;
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 ProjectileContact] Projectile=%s | ProjectileClass=%s | Other=%s | OtherClass=%s | OtherComp=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | OtherObjectType=%d | ResponseToOther=%d | OtherResponseToProjectile=%d | IsAegornWall=%s"),
+        *GetNameSafe(this),
+        *GetNameSafe(GetClass()),
+        *GetNameSafe(OtherActor),
+        IsValid(OtherActor) ? *GetNameSafe(OtherActor->GetClass()) : TEXT("None"),
+        *GetNameSafe(OtherComp),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        ProjectileCollisionEnabled,
+        ProjectileObjectType,
+        OtherObjectType,
+        ProjectileResponseToOther,
+        OtherResponseToProjectile,
+        bIsAegornWall ? TEXT("true") : TEXT("false"));
+
+    if (OwnerCategory == ETriggerCategory::Gunner)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Acervyn Retest] HitAttempt | Projectile=%s | Other=%s | HasAuthority=%s | DamagedActors=%d | Damage=%.1f"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor),
+            HasAuthority() ? TEXT("true") : TEXT("false"),
+            DamagedActors.Num(),
+            BaseDamage);
+    }
+
+    if (!HasAuthority())
+    {
+        if (OwnerCategory == ETriggerCategory::Gunner)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Acervyn Retest] HitRejected | Reason=NoAuthority | Projectile=%s | Other=%s"),
+                *GetNameSafe(this),
+                *GetNameSafe(OtherActor));
+        }
+        return;
+    }
+    if (!IsValid(OtherActor))
+    {
+        if (OwnerCategory == ETriggerCategory::Gunner)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Acervyn Retest] HitRejected | Reason=InvalidTarget | Projectile=%s"),
+                *GetNameSafe(this));
+        }
+        return;
+    }
+    if (OtherActor == OwnerInstigator)
+    {
+        if (OwnerCategory == ETriggerCategory::Gunner)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Acervyn Retest] HitRejected | Reason=Self | Projectile=%s | Other=%s"),
+                *GetNameSafe(this),
+                *GetNameSafe(OtherActor));
+        }
+        return;
+    }
+
+    if (AWTBRAegornWallActor* AegornWall = Cast<AWTBRAegornWallActor>(OtherActor))
+    {
+        AegornWall->HandleProjectileContact(this, TEXT("ProjectileOverlap"));
+        return;
+    }
+
+    if (DamagedActors.Contains(OtherActor))
+    {
+        if (OwnerCategory == ETriggerCategory::Gunner)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Acervyn Retest] HitRejected | Reason=AlreadyHit | Projectile=%s | Other=%s | DamagedActors=%d"),
+                *GetNameSafe(this),
+                *GetNameSafe(OtherActor),
+                DamagedActors.Num());
+        }
+        return; // skip already-hit actors (penetration guard)
+    }
 
     // Bullet vs Bullet
     if (AWTBRProjectileBase* OtherBullet = Cast<AWTBRProjectileBase>(OtherActor))
@@ -136,11 +304,45 @@ void AWTBRProjectileBase::OnOverlapBegin(
         const FVector ImpactPoint = SweepResult.bBlockingHit
             ? SweepResult.ImpactPoint : GetActorLocation();
 
+        if (OwnerCategory == ETriggerCategory::Gunner)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Acervyn Retest] HitAccepted | Projectile=%s | Target=%s | Impact=%s | Damage=%.1f"),
+                *GetNameSafe(this),
+                *GetNameSafe(HitChar),
+                *ImpactPoint.ToString(),
+                BaseDamage);
+        }
+
         OnProjectileHitVFX(ImpactPoint);
         DamagedActors.Add(OtherActor); // track before applying so re-entry is blocked
 
         if (IsValid(HitChar->HealthComponent))
+        {
+            const float OldHP = HitChar->HealthComponent->GetCurrentHP();
             HitChar->HealthComponent->ApplyDamage(BaseDamage, OwnerInstigator.Get());
+            const float NewHP = HitChar->HealthComponent->GetCurrentHP();
+            if (OwnerCategory == ETriggerCategory::Gunner)
+            {
+                UE_LOG(LogTemp, Warning,
+                    TEXT("[Acervyn Retest] DamageApplied | Projectile=%s | Target=%s | Damage=%.1f | OldHP=%.1f | NewHP=%.1f | DamagedActors=%d"),
+                    *GetNameSafe(this),
+                    *GetNameSafe(HitChar),
+                    BaseDamage,
+                    OldHP,
+                    NewHP,
+                    DamagedActors.Num());
+            }
+            if (OwnerCategory == ETriggerCategory::SniperBullet)
+            {
+                UE_LOG(LogTemp, Warning,
+                    TEXT("[Fulgris Test] DamageApplied | Target=%s | Damage=%.1f | OldHP=%.1f | NewHP=%.1f"),
+                    *GetNameSafe(HitChar),
+                    BaseDamage,
+                    OldHP,
+                    NewHP);
+            }
+        }
 
         if (KnockbackForce > 0.0f)
         {
@@ -159,6 +361,76 @@ void AWTBRProjectileBase::OnOverlapBegin(
 
     // Environment hit (not character, not projectile):
     // All bullets stop at geometry — even penetrating snipers cannot pass through walls
+    ProjectileState = EProjectileState::Destroyed;
+    Destroy();
+}
+
+void AWTBRProjectileBase::OnProjectileHit(
+    UPrimitiveComponent* HitComponent,
+    AActor* OtherActor,
+    UPrimitiveComponent* OtherComp,
+    FVector NormalImpulse,
+    const FHitResult& Hit)
+{
+    const bool bIsAegornWall =
+        IsValid(OtherActor) && OtherActor->IsA(AWTBRAegornWallActor::StaticClass());
+    const int32 ProjectileCollisionEnabled = IsValid(BoxCollision)
+        ? static_cast<int32>(BoxCollision->GetCollisionEnabled())
+        : -1;
+    const int32 ProjectileObjectType = IsValid(BoxCollision)
+        ? static_cast<int32>(BoxCollision->GetCollisionObjectType())
+        : -1;
+    const int32 OtherObjectType = IsValid(OtherComp)
+        ? static_cast<int32>(OtherComp->GetCollisionObjectType())
+        : -1;
+    const int32 ProjectileResponseToOther =
+        (IsValid(BoxCollision) && IsValid(OtherComp))
+            ? static_cast<int32>(BoxCollision->GetCollisionResponseToChannel(
+                OtherComp->GetCollisionObjectType()))
+            : -1;
+    const int32 OtherResponseToProjectile =
+        (IsValid(BoxCollision) && IsValid(OtherComp))
+            ? static_cast<int32>(OtherComp->GetCollisionResponseToChannel(
+                BoxCollision->GetCollisionObjectType()))
+            : -1;
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 ProjectileContact] Hit | Projectile=%s | ProjectileClass=%s | Other=%s | OtherClass=%s | OtherComp=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | OtherObjectType=%d | ResponseToOther=%d | OtherResponseToProjectile=%d | IsAegornWall=%s"),
+        *GetNameSafe(this),
+        *GetNameSafe(GetClass()),
+        *GetNameSafe(OtherActor),
+        IsValid(OtherActor) ? *GetNameSafe(OtherActor->GetClass()) : TEXT("None"),
+        *GetNameSafe(OtherComp),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        ProjectileCollisionEnabled,
+        ProjectileObjectType,
+        OtherObjectType,
+        ProjectileResponseToOther,
+        OtherResponseToProjectile,
+        bIsAegornWall ? TEXT("true") : TEXT("false"));
+
+    if (!HasAuthority()) return;
+    if (!IsValid(OtherActor)) return;
+    if (OtherActor == OwnerInstigator) return;
+
+    if (AWTBRAegornWallActor* AegornWall = Cast<AWTBRAegornWallActor>(OtherActor))
+    {
+        AegornWall->HandleProjectileContact(this, TEXT("ProjectileHit"));
+        return;
+    }
+
+    if (AWTBRProjectileBase* OtherBullet = Cast<AWTBRProjectileBase>(OtherActor))
+    {
+        OnBulletClash(OtherBullet);
+        return;
+    }
+
+    if (bExplodeOnImpact)
+    {
+        TriggerExplosion();
+        return;
+    }
+
     ProjectileState = EProjectileState::Destroyed;
     Destroy();
 }

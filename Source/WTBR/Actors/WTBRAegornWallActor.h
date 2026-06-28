@@ -46,6 +46,8 @@ public:
     UFUNCTION(BlueprintPure, Category = "WTBR | Aegorn Wall")
     float GetWallHPPercent() const;
 
+    bool HandleProjectileContact(AActor* OtherActor, const TCHAR* Source);
+
     UFUNCTION(BlueprintImplementableEvent,
         Category = "WTBR | Aegorn Wall | VFX")
     void OnWallDamaged(float NewHP, float DamageAmount);
@@ -69,6 +71,17 @@ protected:
                    FVector NormalImpulse,
                    const FHitResult& Hit);
 
+    UFUNCTION()
+    void OnWallOverlap(UPrimitiveComponent* OverlappedComponent,
+                       AActor* OtherActor,
+                       UPrimitiveComponent* OtherComp,
+                       int32 OtherBodyIndex,
+                       bool bFromSweep,
+                       const FHitResult& SweepResult);
+
 private:
     void DestroyWall();
+
+    UPROPERTY()
+    TArray<TObjectPtr<AActor>> DamagedProjectiles;
 };

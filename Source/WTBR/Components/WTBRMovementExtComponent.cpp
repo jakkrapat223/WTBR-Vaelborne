@@ -8,6 +8,38 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Net/UnrealNetwork.h"
 
+namespace
+{
+void LogTest32MovementCoreStats(const UWTBRMovementExtComponent* Component, const UWTBRCoreStatsDataAsset* Stats, const TCHAR* Requester)
+{
+    if (Stats)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Test32 CoreStats Loaded] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsAsset=%s | CoreStatsPath=%s | StatsValid=true | BaseWalkSpeed=%.1f | SprintCostPerSecond=%.1f | VaelSprintSpeedMultiplier=%.2f | MaxStamina=%.1f"),
+            *GetNameSafe(Component),
+            *GetNameSafe(Component ? Component->GetOwner() : nullptr),
+            Component ? (int32)Component->GetNetMode() : -1,
+            Component && Component->GetOwner() ? (int32)Component->GetOwner()->GetLocalRole() : -1,
+            Requester ? Requester : TEXT("Unknown"),
+            *GetNameSafe(Stats),
+            Stats ? *Stats->GetPathName() : TEXT("None"),
+            Stats->BaseWalkSpeed,
+            Stats->SprintStaminaCostPerSecond,
+            Stats->VaelSprintSpeedMultiplier,
+            Stats->MaxStamina);
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test32 CoreStats Missing] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsPath=None | StatsValid=false"),
+        *GetNameSafe(Component),
+        *GetNameSafe(Component ? Component->GetOwner() : nullptr),
+        Component ? (int32)Component->GetNetMode() : -1,
+        Component && Component->GetOwner() ? (int32)Component->GetOwner()->GetLocalRole() : -1,
+        Requester ? Requester : TEXT("Unknown"));
+}
+}
+
 UWTBRMovementExtComponent::UWTBRMovementExtComponent()
 {
     PrimaryComponentTick.bCanEverTick = false;
@@ -17,6 +49,7 @@ UWTBRMovementExtComponent::UWTBRMovementExtComponent()
 void UWTBRMovementExtComponent::BeginPlay()
 {
     Super::BeginPlay();
+    LogTest32MovementCoreStats(this, CoreStatsAsset.Get(), TEXT("BeginPlay"));
     StaminaComponent = GetOwner()->FindComponentByClass<UWTBRStaminaComponent>();
     PushSpeedToMovement();
 }
@@ -95,6 +128,7 @@ void UWTBRMovementExtComponent::DrainSprintStamina()
 {
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
     if (!StaminaComponent) return;
+    LogTest32MovementCoreStats(this, CoreStatsAsset.Get(), TEXT("DrainSprintStamina"));
     if (!IsValid(CoreStatsAsset)) return;
 
     const float CostThisTick = CoreStatsAsset->SprintStaminaCostPerSecond * 0.1f;
@@ -109,6 +143,7 @@ void UWTBRMovementExtComponent::OnRep_bIsSprinting()
     ACharacter* Owner = Cast<ACharacter>(GetOwner());
     if (!Owner) return;
 
+    LogTest32MovementCoreStats(this, CoreStatsAsset.Get(), TEXT("OnRep_bIsSprinting"));
     if (IsValid(CoreStatsAsset))
     {
         const float TargetSpeed = bIsSprinting

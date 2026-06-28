@@ -21,6 +21,12 @@ public:
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
+    virtual void OnReleased_Implementation(
+        const FInputActionValue& InputValue,
+        bool bIsDualWield) override;
+
+    virtual void Deactivate_Implementation() override;
+
     // Starts suppression pulse when Vexorn becomes the active Sub-Trigger.
     virtual void OnEquipped() override;
 
@@ -43,6 +49,11 @@ private:
 
     // Characters currently inside the suppression radius.
     TArray<TWeakObjectPtr<AWTBRCharacter>> TrackedSuppressed;
+
+    // Logging throttle only; does not affect gameplay state.
+    float LastPulseLogTime = -9999.0f;
+    int32 LastRawOverlapCount = INDEX_NONE;
+    int32 LastTargetCount = INDEX_NONE;
 
     // Sphere overlap → array diff → RegisterSignalBlock / UnregisterSignalBlock.
     void TickSuppression();

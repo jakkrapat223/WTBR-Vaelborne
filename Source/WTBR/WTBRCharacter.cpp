@@ -20,6 +20,44 @@
 #include "Components/WTBRInputGestureComponent.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRAegornTrigger.h"
+#include "Trigger/WTBRSerpveilTrigger.h"
+
+namespace
+{
+    FText GetHUDTriggerName(const UWTBRTriggerBase* Trigger)
+    {
+        if (!IsValid(Trigger))
+        {
+            return FText::FromString(TEXT("None"));
+        }
+
+        const FText FunctionalName = Trigger->GetFunctionalName();
+        return FunctionalName.IsEmpty() ? FText::FromString(TEXT("None")) : FunctionalName;
+    }
+
+    FText GetHUDTriggerDataAssetName(const UWTBRTriggerDataAsset* DataAsset)
+    {
+        if (!IsValid(DataAsset))
+        {
+            return FText::FromString(TEXT("None"));
+        }
+
+        return DataAsset->FunctionalName.IsEmpty()
+            ? FText::FromString(TEXT("None"))
+            : DataAsset->FunctionalName;
+    }
+
+    FText GetHUDTriggerNameWithFallback(const UWTBRTriggerBase* Trigger, const UWTBRTriggerDataAsset* DataAsset)
+    {
+        if (IsValid(Trigger))
+        {
+            return GetHUDTriggerName(Trigger);
+        }
+
+        return GetHUDTriggerDataAssetName(DataAsset);
+    }
+}
 
 AWTBRCharacter::AWTBRCharacter()
 {
@@ -151,7 +189,11 @@ void AWTBRCharacter::BeginPlay()
     {
         TriggerSetComponent->OnDualWieldStateChanged.AddDynamic(
             this, &AWTBRCharacter::OnDualWieldStateChangedHandler);
+        TriggerSetComponent->OnActiveTriggerChanged.AddDynamic(
+            this, &AWTBRCharacter::OnActiveTriggerChangedHandler);
     }
+
+    RefreshHUDHints();
 }
 
 void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -209,13 +251,15 @@ void AWTBRCharacter::Look(const FInputActionValue& Value)
 
 void AWTBRCharacter::FireMain(const FInputActionValue& Value)
 {
+    const FVector ClientMoveInputDir = GetClientMoveInputDirectionForTrigger();
     UE_LOG(LogTemp, Warning,
-        TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=true | Pressed=true"),
+        TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=true | Pressed=true | ClientMoveInputDir=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
-        IsLocallyControlled() ? TEXT("true") : TEXT("false"));
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"),
+        *ClientMoveInputDir.ToString());
     if (InputGestureComponent) InputGestureComponent->NotifyMainPressed();
-    Server_Fire(true, true);
+    Server_Fire(true, true, ClientMoveInputDir);
 }
 
 void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
@@ -226,18 +270,20 @@ void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
         HasAuthority() ? TEXT("true") : TEXT("false"),
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifyMainReleased();
-    Server_Fire(true, false);
+    Server_Fire(true, false, FVector::ZeroVector);
 }
 
 void AWTBRCharacter::FireSub(const FInputActionValue& Value)
 {
+    const FVector ClientMoveInputDir = GetClientMoveInputDirectionForTrigger();
     UE_LOG(LogTemp, Warning,
-        TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=false | Pressed=true"),
+        TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=false | Pressed=true | ClientMoveInputDir=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
-        IsLocallyControlled() ? TEXT("true") : TEXT("false"));
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"),
+        *ClientMoveInputDir.ToString());
     if (InputGestureComponent) InputGestureComponent->NotifySubPressed();
-    Server_Fire(false, true);
+    Server_Fire(false, true, ClientMoveInputDir);
 }
 
 void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
@@ -248,13 +294,24 @@ void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
         HasAuthority() ? TEXT("true") : TEXT("false"),
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifySubReleased();
-    Server_Fire(false, false);
+    Server_Fire(false, false, FVector::ZeroVector);
 }
 
 void AWTBRCharacter::Dodge(const FInputActionValue& Value)
 {
     if (StaminaComponent) StaminaComponent->TryConsumeDodgeStamina();
     Server_Dodge();
+}
+
+void AWTBRCharacter::CancelCurrentAction()
+{
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Cancel Test] InputReceived | Owner=%s | Auth=%s | Local=%s"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"));
+
+    Server_CancelCurrentAction();
 }
 
 void AWTBRCharacter::SwitchTrigger(const FInputActionValue& Value)
@@ -345,19 +402,58 @@ void AWTBRCharacter::ApplyInputActionFallbacks()
     }
 }
 
-void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed)
+FVector AWTBRCharacter::GetClientMoveInputDirectionForTrigger() const
 {
+    if (!IsValid(InputGestureComponent))
+    {
+        return FVector::ZeroVector;
+    }
+
+    FVector2D MoveAxis = InputGestureComponent->GetLastMoveAxis2D();
+    if (MoveAxis.SizeSquared() > 1.0f)
+    {
+        MoveAxis = MoveAxis.GetSafeNormal();
+    }
+    if (MoveAxis.IsNearlyZero())
+    {
+        return FVector::ZeroVector;
+    }
+
+    const FRotator ControlRot = Controller ? Controller->GetControlRotation() : GetActorRotation();
+    const FRotator YawRot(0.0f, ControlRot.Yaw, 0.0f);
+    const FVector ForwardDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
+    const FVector RightDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
+    return ((ForwardDir * MoveAxis.Y) + (RightDir * MoveAxis.X)).GetSafeNormal2D();
+}
+
+FVector AWTBRCharacter::SanitizeClientMoveInputDirection(FVector ClientMoveInputDir)
+{
+    ClientMoveInputDir.Z = 0.0f;
+    if (ClientMoveInputDir.ContainsNaN() || ClientMoveInputDir.SizeSquared2D() <= KINDA_SMALL_NUMBER)
+    {
+        return FVector::ZeroVector;
+    }
+
+    ClientMoveInputDir = ClientMoveInputDir.GetClampedToMaxSize2D(1.0f);
+    return ClientMoveInputDir.GetSafeNormal2D();
+}
+
+void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir)
+{
+    const FVector SafeClientMoveInputDir = SanitizeClientMoveInputDirection(ClientMoveInputDir);
     UE_LOG(LogTemp, Warning,
-        TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=%s | Pressed=%s"),
+        TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=%s | Pressed=%s | ClientMoveInputDir=%s | SafeClientMoveInputDir=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
         bIsMain ? TEXT("true") : TEXT("false"),
-        bIsPressed ? TEXT("true") : TEXT("false"));
+        bIsPressed ? TEXT("true") : TEXT("false"),
+        *ClientMoveInputDir.ToString(),
+        *SafeClientMoveInputDir.ToString());
 
-    ExecuteServerTriggerInput(bIsMain, bIsPressed);
+    ExecuteServerTriggerInput(bIsMain, bIsPressed, SafeClientMoveInputDir);
 }
 
-void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed)
+void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir)
 {
     if (!HasAuthority()) return;
 
@@ -386,24 +482,111 @@ void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed)
 
     const bool bIsDualWield =
         TriggerSetComponent->GetDualWieldState() != EWTBRDualWieldState::None;
-    const FInputActionValue EmptyInputValue;
+    const FInputActionValue TriggerInputValue(ClientMoveInputDir);
 
     if (bIsPressed)
     {
         Trigger->OnTriggerActivated(this, bIsMain);
-        const bool bActivated = Trigger->Activate(EmptyInputValue, bIsDualWield);
+        const bool bActivated = Trigger->Activate(TriggerInputValue, bIsDualWield);
         UE_LOG(LogTemp, Log, TEXT("Trigger Activate result: %d"), bActivated);
     }
     else
     {
         Trigger->OnTriggerDeactivated(this, bIsMain);
-        Trigger->OnReleased(EmptyInputValue, bIsDualWield);
+        Trigger->OnReleased(TriggerInputValue, bIsDualWield);
     }
 }
 
 void AWTBRCharacter::Server_Dodge_Implementation()
 {
     // Authoritative dodge validation / animation notify hook — extend in Phase 2
+}
+
+void AWTBRCharacter::Server_CancelCurrentAction_Implementation()
+{
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Cancel Test] ServerCancelStart | Owner=%s | Auth=%s"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"));
+
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Cancel Test] Blocked | Reason=NoAuthority | Owner=%s"),
+            *GetNameSafe(this));
+        return;
+    }
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Cancel Test] Blocked | Reason=InvalidOwner | Owner=%s | TriggerSet=null"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    UWTBRTriggerBase* MainTrigger = TriggerSetComponent->GetActiveMainTrigger();
+    UWTBRTriggerBase* SubTrigger = TriggerSetComponent->GetActiveSubTrigger();
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Cancel Test] ActiveTrigger | Owner=%s | Main=%s | Sub=%s | MergeState=%d"),
+        *GetNameSafe(this),
+        *GetNameSafe(MainTrigger),
+        *GetNameSafe(SubTrigger),
+        static_cast<int32>(TriggerSetComponent->GetCurrentMergeState()));
+
+    if (TriggerSetComponent->GetCurrentMergeState() != EWTBRCompositeBulletType::None)
+    {
+        const EWTBRCompositeBulletType OldMergeState = TriggerSetComponent->GetCurrentMergeState();
+        TriggerSetComponent->CancelMerge();
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Cancel Test] CompositeMergeCanceled | Owner=%s | MergeState=%d | NoRefund=true"),
+            *GetNameSafe(this),
+            static_cast<int32>(OldMergeState));
+        return;
+    }
+
+    auto TryCancelTrigger = [this](UWTBRTriggerBase* Trigger, const TCHAR* SlotName) -> bool
+    {
+        if (!IsValid(Trigger))
+        {
+            return false;
+        }
+
+        if (UWTBRSerpveilTrigger* SerpveilTrigger = Cast<UWTBRSerpveilTrigger>(Trigger))
+        {
+            if (SerpveilTrigger->CancelCharge())
+            {
+                return true;
+            }
+        }
+
+        if (UWTBRAegornTrigger* AegornTrigger = Cast<UWTBRAegornTrigger>(Trigger))
+        {
+            if (AegornTrigger->CancelShield())
+            {
+                return true;
+            }
+        }
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Cancel Test] NoEffect | Owner=%s | Slot=%s | Trigger=%s | Reason=CompletedActionOrUnsupported"),
+            *GetNameSafe(this),
+            SlotName,
+            *GetNameSafe(Trigger));
+        return false;
+    };
+
+    if (TryCancelTrigger(MainTrigger, TEXT("Main")))
+    {
+        return;
+    }
+    if (TryCancelTrigger(SubTrigger, TEXT("Sub")))
+    {
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Cancel Test] Resolved | Reason=NoRemainingAction | Owner=%s"),
+        *GetNameSafe(this));
 }
 
 void AWTBRCharacter::Server_SwitchTrigger_Implementation(int32 SlotIndex, bool bIsMain)
@@ -415,6 +598,13 @@ void AWTBRCharacter::Server_SwitchTrigger_Implementation(int32 SlotIndex, bool b
 
 void AWTBRCharacter::Server_CycleTrigger_Implementation(bool bIsMain)
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test34 Server CycleTrigger] Owner=%s | Auth=%s | Main=%s | TriggerSet=%s"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        bIsMain ? TEXT("true") : TEXT("false"),
+        IsValid(TriggerSetComponent) ? TEXT("valid") : TEXT("null"));
+
     if (!TriggerSetComponent) return;
     if (bIsMain) TriggerSetComponent->CycleMainSlot();
     else         TriggerSetComponent->CycleSubSlot();
@@ -621,6 +811,125 @@ void AWTBRCharacter::OnDualWieldStateChangedHandler(EWTBRDualWieldState NewState
 }
 
 // ─── Replication ─────────────────────────────────────────────────────────────
+
+void AWTBRCharacter::OnActiveTriggerChangedHandler(ETriggerSlot NewSlot)
+{
+    RefreshHUDHints();
+}
+
+FText AWTBRCharacter::GetMainTriggerHintText() const
+{
+    const UWTBRTriggerBase* MainTrigger = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveMainTrigger()
+        : nullptr;
+    const UWTBRTriggerDataAsset* MainDataAsset = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveMainDataAsset()
+        : nullptr;
+
+    return FText::FromString(FString::Printf(
+        TEXT("Main [LMB] %s"),
+        *GetHUDTriggerNameWithFallback(MainTrigger, MainDataAsset).ToString()));
+}
+
+FText AWTBRCharacter::GetMainTriggerNameText() const
+{
+    const UWTBRTriggerBase* MainTrigger = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveMainTrigger()
+        : nullptr;
+    const UWTBRTriggerDataAsset* MainDataAsset = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveMainDataAsset()
+        : nullptr;
+
+    return GetHUDTriggerNameWithFallback(MainTrigger, MainDataAsset);
+}
+
+FText AWTBRCharacter::GetSubTriggerHintText() const
+{
+    const UWTBRTriggerBase* SubTrigger = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveSubTrigger()
+        : nullptr;
+    const UWTBRTriggerDataAsset* SubDataAsset = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveSubDataAsset()
+        : nullptr;
+
+    return FText::FromString(FString::Printf(
+        TEXT("Sub [RMB] %s"),
+        *GetHUDTriggerNameWithFallback(SubTrigger, SubDataAsset).ToString()));
+}
+
+FText AWTBRCharacter::GetSubTriggerNameText() const
+{
+    const UWTBRTriggerBase* SubTrigger = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveSubTrigger()
+        : nullptr;
+    const UWTBRTriggerDataAsset* SubDataAsset = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveSubDataAsset()
+        : nullptr;
+
+    return GetHUDTriggerNameWithFallback(SubTrigger, SubDataAsset);
+}
+
+FText AWTBRCharacter::GetSwitchMainHintText() const
+{
+    return FText::FromString(TEXT("Q Switch Main"));
+}
+
+FText AWTBRCharacter::GetSwitchSubHintText() const
+{
+    return FText::FromString(TEXT("E Switch Sub"));
+}
+
+FText AWTBRCharacter::GetCancelHintText() const
+{
+    return FText::FromString(TEXT("X Cancel"));
+}
+
+void AWTBRCharacter::RefreshHUDHints()
+{
+    const UWTBRTriggerBase* MainTrigger = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveMainTrigger()
+        : nullptr;
+    const UWTBRTriggerBase* SubTrigger = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveSubTrigger()
+        : nullptr;
+    const UWTBRTriggerDataAsset* MainDataAsset = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveMainDataAsset()
+        : nullptr;
+    const UWTBRTriggerDataAsset* SubDataAsset = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveSubDataAsset()
+        : nullptr;
+    const int32 ActiveMainIndex = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveMainIndex()
+        : INDEX_NONE;
+    const int32 ActiveSubIndex = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveSubIndex()
+        : INDEX_NONE;
+
+    const FText MainName = GetHUDTriggerNameWithFallback(MainTrigger, MainDataAsset);
+    const FText SubName = GetHUDTriggerNameWithFallback(SubTrigger, SubDataAsset);
+    const FText MainHint = GetMainTriggerHintText();
+    const FText SubHint = GetSubTriggerHintText();
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[HUD Hint Test] Refresh | Owner=%s | Auth=%s | Local=%s | ActiveMainIndex=%d | ActiveSubIndex=%d | MainTriggerValid=%s | SubTriggerValid=%s | MainFallbackDA=%s | SubFallbackDA=%s | MainClass=%s | MainName=%s | SubClass=%s | SubName=%s | MainHint=%s | SubHint=%s"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"),
+        ActiveMainIndex,
+        ActiveSubIndex,
+        IsValid(MainTrigger) ? TEXT("true") : TEXT("false"),
+        IsValid(SubTrigger) ? TEXT("true") : TEXT("false"),
+        IsValid(MainDataAsset) ? TEXT("true") : TEXT("false"),
+        IsValid(SubDataAsset) ? TEXT("true") : TEXT("false"),
+        *GetNameSafe(MainTrigger ? MainTrigger->GetClass() : nullptr),
+        *MainName.ToString(),
+        *GetNameSafe(SubTrigger ? SubTrigger->GetClass() : nullptr),
+        *SubName.ToString(),
+        *MainHint.ToString(),
+        *SubHint.ToString());
+
+    OnHUDHintsChanged.Broadcast();
+}
 
 void AWTBRCharacter::OnRep_ActionPing()
 {

@@ -2,6 +2,7 @@
 
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
+#include "Trigger/WTBRAegornTrigger.h"
 #include "Trigger/WTBRSerpveilTrigger.h"
 #include "WTBRCharacter.h"
 #include "Actors/WTBRProjectileBase.h"
@@ -161,8 +162,15 @@ void UWTBRTriggerSetComponent::CycleMainSlot()
 {
     if (!HasServerAuthority()) return;
 
+    const int32 OldIndex = ActiveMainIndex;
     const int32 NewIndex = (ActiveMainIndex + 1) % MainSlotCount;
     ActiveMainIndex = NewIndex;
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test34 CycleMainSlot] Owner=%s | Old=%d | New=%d"),
+        *GetNameSafe(GetOwner()),
+        OldIndex,
+        NewIndex);
 
     AsyncLoadSlot(NewIndex, [this, NewIndex]()
     {
@@ -171,6 +179,11 @@ void UWTBRTriggerSetComponent::CycleMainSlot()
             InstantiateRuntimeTrigger(NewIndex);
             UpdateDualWieldState();
             OnActiveTriggerChanged.Broadcast((ETriggerSlot)NewIndex);
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Test34 CycleMainSlot Complete] Owner=%s | ActiveMainIndex=%d | Trigger=%s"),
+                *GetNameSafe(GetOwner()),
+                ActiveMainIndex,
+                *GetNameSafe(GetActiveMainTrigger()));
         }
     });
 }
@@ -182,6 +195,12 @@ void UWTBRTriggerSetComponent::CycleSubSlot()
     const int32 OldAbsIndex      = ActiveSubIndex;
     const int32 NewRelativeIndex = (OldAbsIndex - MainSlotCount + 1) % SubSlotCount;
     const int32 NewAbsIndex      = NewRelativeIndex + MainSlotCount;
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test34 CycleSubSlot] Owner=%s | Old=%d | New=%d"),
+        *GetNameSafe(GetOwner()),
+        OldAbsIndex,
+        NewAbsIndex);
 
     if (RuntimeTriggers.IsValidIndex(OldAbsIndex) && RuntimeTriggers[OldAbsIndex])
     {
@@ -203,6 +222,11 @@ void UWTBRTriggerSetComponent::CycleSubSlot()
                 OnSubTriggerEquipped.Broadcast(RuntimeTriggers[NewAbsIndex]);
             }
             OnActiveTriggerChanged.Broadcast((ETriggerSlot)NewAbsIndex);
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Test34 CycleSubSlot Complete] Owner=%s | ActiveSubIndex=%d | Trigger=%s"),
+                *GetNameSafe(GetOwner()),
+                ActiveSubIndex,
+                *GetNameSafe(GetActiveSubTrigger()));
         }
     });
 }
@@ -228,6 +252,20 @@ UWTBRTriggerBase* UWTBRTriggerSetComponent::GetTriggerInSlot(ETriggerSlot Slot) 
 {
     const int32 Idx = (int32)Slot;
     return RuntimeTriggers.IsValidIndex(Idx) ? RuntimeTriggers[Idx] : nullptr;
+}
+
+UWTBRTriggerDataAsset* UWTBRTriggerSetComponent::GetActiveMainDataAsset() const
+{
+    return TriggerSlots.IsValidIndex(ActiveMainIndex)
+        ? TriggerSlots[ActiveMainIndex].DataAsset.Get()
+        : nullptr;
+}
+
+UWTBRTriggerDataAsset* UWTBRTriggerSetComponent::GetActiveSubDataAsset() const
+{
+    return TriggerSlots.IsValidIndex(ActiveSubIndex)
+        ? TriggerSlots[ActiveSubIndex].DataAsset.Get()
+        : nullptr;
 }
 
 void UWTBRTriggerSetComponent::UpdateDualWieldState()
@@ -451,6 +489,23 @@ void UWTBRTriggerSetComponent::Server_FireSerpveil_Implementation(
     SerpveilTrigger->ExecuteServerFire(Shape, Direction, ChargedRange);
 }
 
+void UWTBRTriggerSetComponent::Server_TEMP_TEST46_PlaceAegornWall_Implementation(bool bIsMain)
+{
+    if (!HasServerAuthority()) return;
+
+    UWTBRTriggerBase* Trigger = bIsMain ? GetActiveMainTrigger() : GetActiveSubTrigger();
+    UWTBRAegornTrigger* AegornTrigger = Cast<UWTBRAegornTrigger>(Trigger);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test46 AegornWall] TEMP_TEST46 Request | Owner=%s | Main=%s | Trigger=%s | IsAegorn=%s"),
+        *GetNameSafe(GetOwner()),
+        bIsMain ? TEXT("true") : TEXT("false"),
+        *GetNameSafe(Trigger),
+        IsValid(AegornTrigger) ? TEXT("true") : TEXT("false"));
+
+    if (!IsValid(AegornTrigger)) return;
+    AegornTrigger->PlaceWall();
+}
+
 void UWTBRTriggerSetComponent::OnRep_TriggerSlots()
 {
     // Guard: ensure RuntimeTriggers array is sized before use.
@@ -473,6 +528,19 @@ void UWTBRTriggerSetComponent::OnRep_TriggerSlots()
             InitializeLoadedSlot(i);
         }
     }
+
+    OnActiveTriggerChanged.Broadcast((ETriggerSlot)ActiveMainIndex);
+    OnActiveTriggerChanged.Broadcast((ETriggerSlot)ActiveSubIndex);
+}
+
+void UWTBRTriggerSetComponent::OnRep_ActiveMainIndex()
+{
+    OnActiveTriggerChanged.Broadcast((ETriggerSlot)ActiveMainIndex);
+}
+
+void UWTBRTriggerSetComponent::OnRep_ActiveSubIndex()
+{
+    OnActiveTriggerChanged.Broadcast((ETriggerSlot)ActiveSubIndex);
 }
 
 void UWTBRTriggerSetComponent::OnRep_DualWieldState()

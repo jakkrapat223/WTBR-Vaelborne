@@ -18,6 +18,8 @@ class UWTBRVaelComponent;
 class UWTBRMovementExtComponent;
 class UWTBRInputGestureComponent;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRHUDHintsChanged);
+
 UCLASS(config=Game)
 class AWTBRCharacter : public ACharacter
 {
@@ -83,8 +85,35 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
     TObjectPtr<UWTBRTriggerSetComponent> TriggerSetComponent;
 
+    UPROPERTY(BlueprintAssignable, Category="WTBR | HUD")
+    FWTBRHUDHintsChanged OnHUDHintsChanged;
+
     FORCEINLINE TObjectPtr<USpringArmComponent> GetCameraBoom()    const { return CameraBoom; }
     FORCEINLINE TObjectPtr<UCameraComponent>    GetFollowCamera()  const { return FollowCamera; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    FText GetMainTriggerHintText() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    FText GetMainTriggerNameText() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    FText GetSubTriggerHintText() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    FText GetSubTriggerNameText() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    FText GetSwitchMainHintText() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    FText GetSwitchSubHintText() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    FText GetCancelHintText() const;
+
+    UFUNCTION(BlueprintCallable, Category="WTBR | HUD")
+    void RefreshHUDHints();
 
     // ── Stagger System ────────────────────────────────────────────────────────
     // Shared between Nexil Tripwire and Voltis Indoor Hard Landing
@@ -117,6 +146,12 @@ public:
 
     UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
     void Server_StopVaelSprint();
+
+    UFUNCTION(BlueprintCallable, Category="WTBR | Input")
+    void CancelCurrentAction();
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
+    void Server_CancelCurrentAction();
 
     UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Debug")
     void Server_DebugConsumeVaelFailTest();
@@ -154,7 +189,7 @@ protected:
 
     // ─── Server RPCs ──────────────────────────────────────────────────────────
     UFUNCTION(Server, Reliable)
-    void Server_Fire(bool bIsMain, bool bIsPressed);
+    void Server_Fire(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir);
 
     UFUNCTION(Server, Unreliable)
     void Server_Dodge();
@@ -186,13 +221,18 @@ private:
     UFUNCTION()
     void OnDualWieldStateChangedHandler(EWTBRDualWieldState NewState, ETriggerCategory ActiveCategory);
 
+    UFUNCTION()
+    void OnActiveTriggerChangedHandler(ETriggerSlot NewSlot);
+
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
     FTimerHandle StaggerTimer;
 
     void AddDefaultMappingContext();
     void ApplyInputActionFallbacks();
-    void ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed);
+    void ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir = FVector::ZeroVector);
+    FVector GetClientMoveInputDirectionForTrigger() const;
+    static FVector SanitizeClientMoveInputDirection(FVector ClientMoveInputDir);
 
     UFUNCTION()
     void OnStaggerExpired();

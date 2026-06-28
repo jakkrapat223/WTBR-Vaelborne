@@ -6,6 +6,40 @@
 
 static const float REGEN_TICK_INTERVAL = 0.05f;
 
+namespace
+{
+void LogTest32StaminaCoreStats(const UWTBRStaminaComponent* Component, const UWTBRCoreStatsDataAsset* Stats, const TCHAR* Requester)
+{
+    if (Stats)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Test32 CoreStats Loaded] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsAsset=%s | CoreStatsPath=%s | StatsValid=true | MaxStamina=%.1f | DodgeCost=%.1f | RegenRate=%.1f | RegenDelay=%.2f | ExhaustedSpeedPenalty=%.2f"),
+            *GetNameSafe(Component),
+            *GetNameSafe(Component ? Component->GetOwner() : nullptr),
+            Component ? (int32)Component->GetNetMode() : -1,
+            Component ? (int32)Component->GetOwnerRole() : -1,
+            Requester ? Requester : TEXT("Unknown"),
+            *GetNameSafe(Stats),
+            Component ? *Component->CoreStatsAsset.ToSoftObjectPath().ToString() : TEXT("None"),
+            Stats->MaxStamina,
+            Stats->StaminaDodgeCost,
+            Stats->StaminaRegenRate,
+            Stats->StaminaRegenDelay,
+            Stats->StaminaExhaustedSpeedPenalty);
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test32 CoreStats Missing] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsPath=%s | StatsValid=false"),
+        *GetNameSafe(Component),
+        *GetNameSafe(Component ? Component->GetOwner() : nullptr),
+        Component ? (int32)Component->GetNetMode() : -1,
+        Component ? (int32)Component->GetOwnerRole() : -1,
+        Requester ? Requester : TEXT("Unknown"),
+        Component ? *Component->CoreStatsAsset.ToSoftObjectPath().ToString() : TEXT("None"));
+}
+}
+
 UWTBRStaminaComponent::UWTBRStaminaComponent()
 {
     PrimaryComponentTick.bCanEverTick = false;
@@ -15,6 +49,7 @@ UWTBRStaminaComponent::UWTBRStaminaComponent()
 void UWTBRStaminaComponent::BeginPlay()
 {
     Super::BeginPlay();
+    LogTest32StaminaCoreStats(this, GetStats(), TEXT("BeginPlay"));
     CurrentStamina = GetMaxStamina();
 }
 
@@ -41,6 +76,7 @@ bool UWTBRStaminaComponent::TryConsumeStamina(float Amount)
         TM.ClearTimer(RegenTickTimer);
 
         const auto* S = GetStats();
+        LogTest32StaminaCoreStats(this, S, TEXT("TryConsumeStamina"));
         const float Delay = S ? S->StaminaRegenDelay : 1.2f;
         TM.SetTimer(RegenDelayTimer, this, &UWTBRStaminaComponent::StartRegenTick, Delay, false);
     }
@@ -55,12 +91,14 @@ bool UWTBRStaminaComponent::TryConsumeDodgeStamina()
 float UWTBRStaminaComponent::GetMaxStamina() const
 {
     const auto* S = GetStats();
+    LogTest32StaminaCoreStats(this, S, TEXT("GetMaxStamina"));
     return S ? S->MaxStamina : 100.f;
 }
 
 float UWTBRStaminaComponent::GetDodgeCost() const
 {
     const auto* S = GetStats();
+    LogTest32StaminaCoreStats(this, S, TEXT("GetDodgeCost"));
     return S ? S->StaminaDodgeCost : 33.f;
 }
 
@@ -68,6 +106,7 @@ float UWTBRStaminaComponent::GetSpeedPenalty() const
 {
     if (!bExhausted) return 0.f;
     const auto* S = GetStats();
+    LogTest32StaminaCoreStats(this, S, TEXT("GetSpeedPenalty"));
     return S ? S->StaminaExhaustedSpeedPenalty : 0.10f;
 }
 
@@ -84,6 +123,7 @@ void UWTBRStaminaComponent::TickRegen()
 {
     const float Max        = GetMaxStamina();
     const auto* S          = GetStats();
+    LogTest32StaminaCoreStats(this, S, TEXT("TickRegen"));
     const float RegenRate  = S ? S->StaminaRegenRate : 35.f;
     const float RegenDelta = RegenRate * REGEN_TICK_INTERVAL;
 

@@ -73,6 +73,10 @@ void UWTBRInputGestureComponent::BindInputActions(UEnhancedInputComponent* EIC)
     {
         EIC->BindAction(IA_Move, ETriggerEvent::Triggered,
             this, &UWTBRInputGestureComponent::OnMove_Triggered);
+        EIC->BindAction(IA_Move, ETriggerEvent::Completed,
+            this, &UWTBRInputGestureComponent::OnMove_Completed);
+        EIC->BindAction(IA_Move, ETriggerEvent::Canceled,
+            this, &UWTBRInputGestureComponent::OnMove_Completed);
     }
 
     // ── Look (Mouse XY) ───────────────────────────────────────────────────────
@@ -99,24 +103,36 @@ void UWTBRInputGestureComponent::OnMove_Triggered(const FInputActionValue& Value
 
     // UE5 Enhanced Input + Axis2D: X = strafe, Y = forward/backward
     const FVector2D MoveAxis = Value.Get<FVector2D>();
-    if (MoveAxis.IsNearlyZero()) return;
+    LastMoveAxis2D = MoveAxis.SizeSquared() > 1.0f
+        ? MoveAxis.GetSafeNormal()
+        : MoveAxis;
+    if (LastMoveAxis2D.IsNearlyZero())
+    {
+        LastMoveAxis2D = FVector2D::ZeroVector;
+        return;
+    }
 
     const FRotator ControlRot = Char->GetControlRotation();
     const FRotator YawRot(0.0f, ControlRot.Yaw, 0.0f);
 
     // Forward/Backward from Y axis
-    if (!FMath::IsNearlyZero(MoveAxis.Y))
+    if (!FMath::IsNearlyZero(LastMoveAxis2D.Y))
     {
         const FVector ForwardDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::X);
-        Char->AddMovementInput(ForwardDir, MoveAxis.Y);
+        Char->AddMovementInput(ForwardDir, LastMoveAxis2D.Y);
     }
 
     // Left/Right from X axis
-    if (!FMath::IsNearlyZero(MoveAxis.X))
+    if (!FMath::IsNearlyZero(LastMoveAxis2D.X))
     {
         const FVector RightDir = FRotationMatrix(YawRot).GetUnitAxis(EAxis::Y);
-        Char->AddMovementInput(RightDir, MoveAxis.X);
+        Char->AddMovementInput(RightDir, LastMoveAxis2D.X);
     }
+}
+
+void UWTBRInputGestureComponent::OnMove_Completed(const FInputActionValue& Value)
+{
+    LastMoveAxis2D = FVector2D::ZeroVector;
 }
 
 void UWTBRInputGestureComponent::OnLook_Triggered(const FInputActionValue& Value)

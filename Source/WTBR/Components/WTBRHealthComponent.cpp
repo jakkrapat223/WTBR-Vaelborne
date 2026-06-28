@@ -13,6 +13,38 @@
 // Drain fires every 0.5 s on Authority; HP removed = drainRate * MaxHP * interval per limb
 static const float LIMB_DRAIN_TICK_INTERVAL = 0.5f;
 
+namespace
+{
+void LogTest32HealthCoreStats(const UWTBRHealthComponent* Component, const UWTBRCoreStatsDataAsset* Stats, const TCHAR* Requester)
+{
+    if (Stats)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Test32 CoreStats Loaded] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsAsset=%s | CoreStatsPath=%s | StatsValid=true | MaxHP=%.1f | MaxDownedHP=%.1f | KnockdownIFrameDuration=%.2f"),
+            *GetNameSafe(Component),
+            *GetNameSafe(Component ? Component->GetOwner() : nullptr),
+            Component ? (int32)Component->GetNetMode() : -1,
+            Component ? (int32)Component->GetOwnerRole() : -1,
+            Requester ? Requester : TEXT("Unknown"),
+            *GetNameSafe(Stats),
+            Component ? *Component->CoreStatsAsset.ToSoftObjectPath().ToString() : TEXT("None"),
+            Stats->MaxHP,
+            Stats->MaxDownedHP,
+            Stats->KnockdownIFrameDuration);
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test32 CoreStats Missing] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsPath=%s | StatsValid=false"),
+        *GetNameSafe(Component),
+        *GetNameSafe(Component ? Component->GetOwner() : nullptr),
+        Component ? (int32)Component->GetNetMode() : -1,
+        Component ? (int32)Component->GetOwnerRole() : -1,
+        Requester ? Requester : TEXT("Unknown"),
+        Component ? *Component->CoreStatsAsset.ToSoftObjectPath().ToString() : TEXT("None"));
+}
+}
+
 UWTBRHealthComponent::UWTBRHealthComponent()
 {
     PrimaryComponentTick.bCanEverTick = false;
@@ -26,6 +58,7 @@ void UWTBRHealthComponent::BeginPlay()
 {
     Super::BeginPlay();
     const UWTBRCoreStatsDataAsset* LoadedStats = GetStats();
+    LogTest32HealthCoreStats(this, LoadedStats, TEXT("BeginPlay"));
     UE_LOG(LogTemp, Warning,
         TEXT("[Health BeginPlay] Owner=%s | Component=%s | CoreStatsAsset=%s | CoreStatsPath=%s | HasAuthority=%s"),
         *GetNameSafe(GetOwner()),
@@ -48,7 +81,20 @@ void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstiga
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
     if (DamageAmount <= 0.0f) return;
     if (CurrentCombatState == EWTBRCombatState::Eliminated) return;
-    if (CurrentCombatState == EWTBRCombatState::Downed && bIsInvulnerable) return;
+    if (CurrentCombatState == EWTBRCombatState::Downed && bIsInvulnerable)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Test28 Server DamageIgnored_Invulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s | DamageAmount=%.1f"),
+            *GetNameSafe(GetOwner()),
+            (int32)GetNetMode(),
+            GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
+            (int32)CurrentCombatState,
+            CurrentHP,
+            CurrentDownedHP,
+            bIsInvulnerable ? TEXT("true") : TEXT("false"),
+            DamageAmount);
+        return;
+    }
 
     UE_LOG(LogTemp, Log, TEXT("WTBR ApplyDamage: %.0f → HP %.0f→%.0f on %s"),
         DamageAmount, CurrentHP, FMath::Max(0.f, CurrentHP - DamageAmount),
@@ -132,6 +178,17 @@ void UWTBRHealthComponent::SetCombatState(EWTBRCombatState NewState)
     CurrentCombatState = NewState;
     OnCombatStateChanged.Broadcast(CurrentCombatState, OldState);
 
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test27 Server SetCombatState] Owner=%s | NetMode=%d | Role=%d | OldState=%d | NewState=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
+        (int32)OldState,
+        (int32)CurrentCombatState,
+        CurrentHP,
+        CurrentDownedHP,
+        bIsInvulnerable ? TEXT("true") : TEXT("false"));
+
     if (CurrentCombatState == EWTBRCombatState::Downed)
     {
         OnDowned.Broadcast();
@@ -149,6 +206,16 @@ void UWTBRHealthComponent::SetInvulnerable(bool bNewInvulnerable)
 
     bIsInvulnerable = bNewInvulnerable;
     OnInvulnerabilityChanged.Broadcast(bIsInvulnerable);
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test28 Server SetInvulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
+        (int32)CurrentCombatState,
+        CurrentHP,
+        CurrentDownedHP,
+        bIsInvulnerable ? TEXT("true") : TEXT("false"));
 }
 
 void UWTBRHealthComponent::EnterDownedState(AActor* DownInstigator)
@@ -156,7 +223,17 @@ void UWTBRHealthComponent::EnterDownedState(AActor* DownInstigator)
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
     if (CurrentCombatState != EWTBRCombatState::Alive) return;
 
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test27 Server EnterDownedState] Owner=%s | NetMode=%d | Role=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
+        CurrentHP,
+        CurrentDownedHP,
+        bIsInvulnerable ? TEXT("true") : TEXT("false"));
+
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32HealthCoreStats(this, S, TEXT("EnterDownedState"));
     UE_LOG(LogTemp, Warning,
         TEXT("[EnterDownedState CoreStatsCheck] Owner=%s | Component=%s | CoreStatsAsset=%s | CoreStatsPath=%s | HP=%.1f | DownedHP=%.1f | State=%d | HasAuthority=%s"),
         *GetNameSafe(GetOwner()),
@@ -196,6 +273,15 @@ void UWTBRHealthComponent::EnterEliminatedState(AActor* FinalDamageInstigator)
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
     if (CurrentCombatState == EWTBRCombatState::Eliminated) return;
 
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test27 Server EnterEliminatedState] Owner=%s | NetMode=%d | Role=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
+        CurrentHP,
+        CurrentDownedHP,
+        bIsInvulnerable ? TEXT("true") : TEXT("false"));
+
     if (UWorld* World = GetWorld())
     {
         World->GetTimerManager().ClearTimer(KnockdownIFrameTimerHandle);
@@ -215,6 +301,7 @@ void UWTBRHealthComponent::ResolveDownReward(AActor* DownInstigator)
     bDownRewardResolved = true;
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32HealthCoreStats(this, S, TEXT("ResolveDownReward"));
     AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
     AWTBRCharacter* DownCharacter = ResolveContributorCharacter(DownInstigator);
     if (!S || !IsValid(VictimCharacter) || !IsValid(DownCharacter) || DownCharacter == VictimCharacter)
@@ -233,6 +320,7 @@ void UWTBRHealthComponent::StartKnockdownIFrame()
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32HealthCoreStats(this, S, TEXT("StartKnockdownIFrame"));
     if (!S || S->KnockdownIFrameDuration <= 0.0f)
     {
         SetInvulnerable(false);
@@ -324,6 +412,7 @@ void UWTBRHealthComponent::RecordDamageContribution(float DamageAmount, AActor* 
     if (DamageAmount <= 0.0f) return;
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32HealthCoreStats(this, S, TEXT("RecordDamageContribution"));
     if (!S) return;
 
     AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
@@ -407,6 +496,7 @@ void UWTBRHealthComponent::ResolveDeathRewards(AActor* FinalDamageInstigator)
     bDeathRewardsResolved = true;
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32HealthCoreStats(this, S, TEXT("ResolveDeathRewards"));
     UWorld* World = GetWorld();
     if (!S || !IsValid(VictimCharacter) || !World)
     {
@@ -514,6 +604,7 @@ void UWTBRHealthComponent::DestroyLimb(EWTBRLimbType Limb)
     State.bDestroyed = true;
 
     const UWTBRCoreStatsDataAsset* S = GetStats();
+    LogTest32HealthCoreStats(this, S, TEXT("DestroyLimb"));
     if (Limb == EWTBRLimbType::LeftLeg || Limb == EWTBRLimbType::RightLeg)
     {
         State.SpeedPenalty  = S ? S->LimbLegSpeedPenalty  : 0.40f;
@@ -564,6 +655,7 @@ void UWTBRHealthComponent::RestoreLimb(EWTBRLimbType Limb)
 float UWTBRHealthComponent::GetMaxHP() const
 {
     const auto* S = GetStats();
+    LogTest32HealthCoreStats(this, S, TEXT("GetMaxHP"));
     return S ? S->MaxHP : 300.f;
 }
 
@@ -622,6 +714,7 @@ void UWTBRHealthComponent::TickLimbDrain()
 {
     const float MaxHP = GetMaxHP();
     const auto* S     = GetStats();
+    LogTest32HealthCoreStats(this, S, TEXT("TickLimbDrain"));
     const float RateMid = S
         ? (S->LimbHPDrainRateMin + S->LimbHPDrainRateMax) * 0.5f
         : 0.0075f;
@@ -649,6 +742,17 @@ void UWTBRHealthComponent::OnRep_CurrentHP()
 
 void UWTBRHealthComponent::OnRep_CombatState(EWTBRCombatState OldState)
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test27 Client OnRep_CombatState] Owner=%s | NetMode=%d | Role=%d | OldState=%d | NewState=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
+        (int32)OldState,
+        (int32)CurrentCombatState,
+        CurrentHP,
+        CurrentDownedHP,
+        bIsInvulnerable ? TEXT("true") : TEXT("false"));
+
     OnCombatStateChanged.Broadcast(CurrentCombatState, OldState);
 
     if (CurrentCombatState == EWTBRCombatState::Downed)
@@ -663,6 +767,16 @@ void UWTBRHealthComponent::OnRep_CombatState(EWTBRCombatState OldState)
 
 void UWTBRHealthComponent::OnRep_IsInvulnerable()
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Test28 Client OnRep_IsInvulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
+        (int32)CurrentCombatState,
+        CurrentHP,
+        CurrentDownedHP,
+        bIsInvulnerable ? TEXT("true") : TEXT("false"));
+
     OnInvulnerabilityChanged.Broadcast(bIsInvulnerable);
 }
 

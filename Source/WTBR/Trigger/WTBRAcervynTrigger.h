@@ -12,6 +12,10 @@ class WTBR_API UWTBRAcervynTrigger : public UWTBRGunnerTrigger
     GENERATED_BODY()
 
 public:
+    virtual void InitializeTrigger(
+        AWTBRCharacter* InOwnerCharacter,
+        UWTBRTriggerDataAsset* InDataAsset) override;
+
     virtual bool Activate_Implementation(
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
