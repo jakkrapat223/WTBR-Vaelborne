@@ -611,6 +611,7 @@ void UWTBRTriggerSetComponent::Server_FireSerpveil_Implementation(
 
 void UWTBRTriggerSetComponent::Server_TEMP_TEST46_PlaceAegornWall_Implementation(bool bIsMain)
 {
+    if (!WTBRShouldLogValidation()) return;
     if (!HasServerAuthority()) return;
 
     UWTBRTriggerBase* Trigger = bIsMain ? GetActiveMainTrigger() : GetActiveSubTrigger();

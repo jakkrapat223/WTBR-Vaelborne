@@ -331,11 +331,6 @@ void AWTBRCharacter::SwitchMainTrigger(const FInputActionValue& Value)
 
 void AWTBRCharacter::SwitchSubTrigger(const FInputActionValue& Value)
 {
-    UE_LOG(LogTemp, Log, TEXT("WTBR SwitchSub input pressed"));
-    if (GEngine)
-    {
-        GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Cyan, TEXT("Switch Sub Trigger"));
-    }
     Server_CycleTrigger(false);
 }
 
@@ -484,17 +479,6 @@ void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FV
         *GetNameSafe(Trigger),
         IsValid(Trigger) ? *GetNameSafe(Trigger->GetClass()) : TEXT("None"));
 
-    UE_LOG(LogTemp, Log, TEXT("Active Trigger: %s"),
-        Trigger ? *Trigger->GetClass()->GetName() : TEXT("nullptr"));
-
-    if (GEngine)
-    {
-        GEngine->AddOnScreenDebugMessage(-1, 3.f,
-            Trigger ? FColor::Green : FColor::Red,
-            FString::Printf(TEXT("[Fire] %s"),
-                Trigger ? *Trigger->GetClass()->GetName() : TEXT("NO TRIGGER - slot empty?")));
-    }
-
     if (!Trigger) return;
 
     const bool bIsDualWield =
@@ -621,11 +605,12 @@ void AWTBRCharacter::Server_CycleTrigger_Implementation(bool bIsMain)
 
 void AWTBRCharacter::Server_DebugConsumeVaelFailTest_Implementation()
 {
+    if (!WTBRShouldLogValidation()) return;
     if (!HasAuthority()) return;
 
     if (!IsValid(VaelComponent))
     {
-        UE_LOG(LogTemp, Warning,
+        WTBR_VALIDATION_LOG(Verbose,
             TEXT("[Debug ConsumeFail Result] Owner=%s | VaelComponent=None"),
             *GetNameSafe(this));
         return;
@@ -637,7 +622,7 @@ void AWTBRCharacter::Server_DebugConsumeVaelFailTest_Implementation()
 
     const bool bConsumed = VaelComponent->TryConsumeVael(999.0f);
 
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Debug ConsumeFail Result] Owner=%s | Cost=999.0 | Consumed=%s | VaelBefore=%.1f | VaelAfter=%.1f | ActiveBefore=%s | ActiveAfter=%s | CooldownBefore=%s | CooldownAfter=%s"),
         *GetNameSafe(this),
         bConsumed ? TEXT("true") : TEXT("false"),
@@ -663,11 +648,12 @@ void AWTBRCharacter::Server_DebugConsumeVaelFailTest_Implementation()
 
 void AWTBRCharacter::Server_DebugStartBelowThresholdTest_Implementation()
 {
+    if (!WTBRShouldLogValidation()) return;
     if (!HasAuthority()) return;
 
     if (!IsValid(VaelComponent))
     {
-        UE_LOG(LogTemp, Warning,
+        WTBR_VALIDATION_LOG(Verbose,
             TEXT("[Debug StartBelowThreshold Result] Owner=%s | VaelComponent=None"),
             *GetNameSafe(this));
         return;
@@ -681,7 +667,7 @@ void AWTBRCharacter::Server_DebugStartBelowThresholdTest_Implementation()
     VaelComponent->ResetDesperationState();
     VaelComponent->DebugSetCurrentVaelDirect(15.0f);
 
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Debug StartBelowThreshold Result] Owner=%s | VaelBefore=%.1f | VaelAfter=%.1f | LowVaelThreshold=%.1f | ActiveBefore=%s | ActiveAfter=%s | CooldownBefore=%s | CooldownAfter=%s | TryConsumeUsed=false"),
         *GetNameSafe(this),
         BeforeVael,
@@ -706,11 +692,12 @@ void AWTBRCharacter::Server_DebugStartBelowThresholdTest_Implementation()
 
 void AWTBRCharacter::Server_DebugRefillVaelNoDesperationReset_Implementation()
 {
+    if (!WTBRShouldLogValidation()) return;
     if (!HasAuthority()) return;
 
     if (!IsValid(VaelComponent))
     {
-        UE_LOG(LogTemp, Warning,
+        WTBR_VALIDATION_LOG(Verbose,
             TEXT("[Debug RefillNoDesperationReset Result] Owner=%s | VaelComponent=None"),
             *GetNameSafe(this));
         return;
@@ -724,7 +711,7 @@ void AWTBRCharacter::Server_DebugRefillVaelNoDesperationReset_Implementation()
 
     VaelComponent->DebugSetCurrentVaelDirect(MaxVael);
 
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Debug RefillNoDesperationReset Result] Owner=%s | VaelBefore=%.1f | VaelAfter=%.1f | MaxVael=%.1f | LowVaelThreshold=%.1f | ActiveBefore=%s | ActiveAfter=%s | CooldownBefore=%s | CooldownAfter=%s | CooldownPreserved=true | TryConsumeUsed=false"),
         *GetNameSafe(this),
         BeforeVael,
@@ -750,11 +737,12 @@ void AWTBRCharacter::Server_DebugRefillVaelNoDesperationReset_Implementation()
 
 void AWTBRCharacter::Server_DebugResetDesperationStateTest_Implementation()
 {
+    if (!WTBRShouldLogValidation()) return;
     if (!HasAuthority()) return;
 
     if (!IsValid(VaelComponent))
     {
-        UE_LOG(LogTemp, Warning,
+        WTBR_VALIDATION_LOG(Verbose,
             TEXT("[Debug ResetDesperationStateTest] Owner=%s | VaelComponent=None"),
             *GetNameSafe(this));
         return;
@@ -767,7 +755,7 @@ void AWTBRCharacter::Server_DebugResetDesperationStateTest_Implementation()
     const bool bBeforeActiveTimer = VaelComponent->DebugIsDesperationActiveTimerActive();
     const bool bBeforeCooldownTimer = VaelComponent->DebugIsDesperationCooldownTimerActive();
 
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Debug ResetDesperationStateTest Before] Owner=%s | CurrentVael=%.1f | LowVaelThreshold=%.1f | Active=%s | Cooldown=%s | ActiveTimerActive=%s | CooldownTimerActive=%s"),
         *GetNameSafe(this),
         BeforeVael,
@@ -779,7 +767,7 @@ void AWTBRCharacter::Server_DebugResetDesperationStateTest_Implementation()
 
     VaelComponent->ResetDesperationState();
 
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Debug ResetDesperationStateTest After] Owner=%s | CurrentVael=%.1f | Active=%s | Cooldown=%s | ActiveTimerActive=%s | CooldownTimerActive=%s"),
         *GetNameSafe(this),
         VaelComponent->GetCurrentVael(),
