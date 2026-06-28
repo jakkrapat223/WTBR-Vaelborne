@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRLacernTrigger.h"
+#include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
@@ -8,8 +9,7 @@ bool UWTBRLacernTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Lacern Test] Activate | Owner=%s | Auth=%s | Dual=%s | Cooldown=%s | Extending=%s | DataAsset=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] Activate | Owner=%s | Auth=%s | Dual=%s | Cooldown=%s | Extending=%s | DataAsset=%s"),
         *GetNameSafe(OwnerCharacter.Get()),
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"),
         bIsDualWield ? TEXT("true") : TEXT("false"),
@@ -19,34 +19,30 @@ bool UWTBRLacernTrigger::Activate_Implementation(
 
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Lacern Test] Rejected | Reason=OwnerInvalid"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] Rejected | Reason=OwnerInvalid"));
         return false;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Lacern Test] Rejected | Reason=NoAuthority | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] Rejected | Reason=NoAuthority | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
     if (IsOnCooldown())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Lacern Test] Rejected | Reason=Cooldown | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] Rejected | Reason=Cooldown | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
     if (bIsExtending)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Lacern Test] Rejected | Reason=AlreadyExtending | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] Rejected | Reason=AlreadyExtending | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
     if (!IsValid(DataAsset))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Lacern Test] Rejected | Reason=DataAssetInvalid | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] Rejected | Reason=DataAssetInvalid | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
@@ -57,8 +53,7 @@ bool UWTBRLacernTrigger::Activate_Implementation(
 
 void UWTBRLacernTrigger::Deactivate_Implementation()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Lacern Test] Cleanup | Owner=%s | Extending=%s | CurrentExtendDist=%.1f | HitsThisSwing=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] Cleanup | Owner=%s | Extending=%s | CurrentExtendDist=%.1f | HitsThisSwing=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         bIsExtending ? TEXT("true") : TEXT("false"),
         CurrentExtendDist,
@@ -93,8 +88,7 @@ void UWTBRLacernTrigger::StartExtend(bool bDualWield)
     bIsDualWieldSwing = bDualWield;
     HitActorsThisSwing.Empty();
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Lacern Test] ExtendStart | Owner=%s | Dual=%s | ExtendLength=%.1f | ExtendSpeed=%.1f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] ExtendStart | Owner=%s | Dual=%s | ExtendLength=%.1f | ExtendSpeed=%.1f"),
         *GetNameSafe(OwnerCharacter.Get()),
         bDualWield ? TEXT("true") : TEXT("false"),
         IsValid(DataAsset) ? DataAsset->LacernParams.ExtendLength : 0.0f,
@@ -157,8 +151,7 @@ void UWTBRLacernTrigger::TickExtend()
 void UWTBRLacernTrigger::StartRetract()
 {
     if (!GetWorld()) return;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Lacern Test] RetractStart | Owner=%s | CurrentExtendDist=%.1f | HitsThisSwing=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] RetractStart | Owner=%s | CurrentExtendDist=%.1f | HitsThisSwing=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         CurrentExtendDist,
         HitActorsThisSwing.Num());
@@ -196,8 +189,7 @@ void UWTBRLacernTrigger::OnRetractComplete()
     PreviousBladePos = FVector::ZeroVector;
 
     // เรียก StartCooldown() ตรงๆ (ได้หลังย้าย protected ใน MeleeTrigger) — Fix 3C
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Lacern Test] End | Owner=%s | CooldownStart=true"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] End | Owner=%s | CooldownStart=true"),
         *GetNameSafe(OwnerCharacter.Get()));
     StartCooldown();
 }
@@ -246,16 +238,14 @@ void UWTBRLacernTrigger::SweepAtCurrentPosition(
         if (!IsValid(HitActor)) continue;
         if (HitActorsThisSwing.Contains(HitActor))
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Lacern Test] HitRejected | Reason=AlreadyHit | Owner=%s | Target=%s"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] HitRejected | Reason=AlreadyHit | Owner=%s | Target=%s"),
                 *GetNameSafe(OwnerCharacter.Get()),
                 *GetNameSafe(HitActor));
             continue;
         }
         HitActorsThisSwing.Add(HitActor);
         OutNewHits.Add(Hit);
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Lacern Test] HitAttempt | Owner=%s | Target=%s | CurrentExtendDist=%.1f | RightOffset=%.1f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] HitAttempt | Owner=%s | Target=%s | CurrentExtendDist=%.1f | RightOffset=%.1f"),
             *GetNameSafe(OwnerCharacter.Get()),
             *GetNameSafe(HitActor),
             CurrentExtendDist,

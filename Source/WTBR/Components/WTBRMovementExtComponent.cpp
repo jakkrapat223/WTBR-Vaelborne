@@ -1,6 +1,7 @@
 // Copyright Vaelborne: Dominion. All Rights Reserved.
 
 #include "Components/WTBRMovementExtComponent.h"
+#include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
 #include "Components/WTBRStaminaComponent.h"
@@ -14,8 +15,7 @@ void LogTest32MovementCoreStats(const UWTBRMovementExtComponent* Component, cons
 {
     if (Stats)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test32 CoreStats Loaded] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsAsset=%s | CoreStatsPath=%s | StatsValid=true | BaseWalkSpeed=%.1f | SprintCostPerSecond=%.1f | VaelSprintSpeedMultiplier=%.2f | MaxStamina=%.1f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test32 CoreStats Loaded] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsAsset=%s | CoreStatsPath=%s | StatsValid=true | BaseWalkSpeed=%.1f | SprintCostPerSecond=%.1f | VaelSprintSpeedMultiplier=%.2f | MaxStamina=%.1f"),
             *GetNameSafe(Component),
             *GetNameSafe(Component ? Component->GetOwner() : nullptr),
             Component ? (int32)Component->GetNetMode() : -1,
@@ -30,8 +30,7 @@ void LogTest32MovementCoreStats(const UWTBRMovementExtComponent* Component, cons
         return;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test32 CoreStats Missing] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsPath=None | StatsValid=false"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test32 CoreStats Missing] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsPath=None | StatsValid=false"),
         *GetNameSafe(Component),
         *GetNameSafe(Component ? Component->GetOwner() : nullptr),
         Component ? (int32)Component->GetNetMode() : -1,

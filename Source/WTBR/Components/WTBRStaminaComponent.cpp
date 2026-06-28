@@ -1,6 +1,7 @@
 // Copyright Vaelborne: Dominion. All Rights Reserved.
 
 #include "Components/WTBRStaminaComponent.h"
+#include "WTBRValidationLog.h"
 #include "Data/WTBRCoreStatsDataAsset.h"
 #include "Net/UnrealNetwork.h"
 
@@ -12,8 +13,7 @@ void LogTest32StaminaCoreStats(const UWTBRStaminaComponent* Component, const UWT
 {
     if (Stats)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test32 CoreStats Loaded] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsAsset=%s | CoreStatsPath=%s | StatsValid=true | MaxStamina=%.1f | DodgeCost=%.1f | RegenRate=%.1f | RegenDelay=%.2f | ExhaustedSpeedPenalty=%.2f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test32 CoreStats Loaded] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsAsset=%s | CoreStatsPath=%s | StatsValid=true | MaxStamina=%.1f | DodgeCost=%.1f | RegenRate=%.1f | RegenDelay=%.2f | ExhaustedSpeedPenalty=%.2f"),
             *GetNameSafe(Component),
             *GetNameSafe(Component ? Component->GetOwner() : nullptr),
             Component ? (int32)Component->GetNetMode() : -1,
@@ -29,8 +29,7 @@ void LogTest32StaminaCoreStats(const UWTBRStaminaComponent* Component, const UWT
         return;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test32 CoreStats Missing] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsPath=%s | StatsValid=false"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test32 CoreStats Missing] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsPath=%s | StatsValid=false"),
         *GetNameSafe(Component),
         *GetNameSafe(Component ? Component->GetOwner() : nullptr),
         Component ? (int32)Component->GetNetMode() : -1,

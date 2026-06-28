@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRMeleeTrigger.h"
+#include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRHealthComponent.h"
 #include "DrawDebugHelpers.h"
@@ -168,22 +169,63 @@ void UWTBRMeleeTrigger::SweepCapsuleFromTo(
 void UWTBRMeleeTrigger::ApplyDamageToHits(
     const TArray<FHitResult>& Hits, float DamageMultiplier)
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[ApplyDamageToHits] Owner=%s | Auth=%s | Hits=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[ApplyDamageToHits] Owner=%s | Auth=%s | Hits=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"),
         Hits.Num());
 
-    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return;
-    if (!IsValid(DataAsset)) return;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority())
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] MeleeRejected | Attacker=%s | Reason=NoAuthorityOrOwnerInvalid | Hits=%d"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            Hits.Num());
+        return;
+    }
+    if (!IsValid(DataAsset))
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] MeleeRejected | Attacker=%s | Reason=DataAssetInvalid | Hits=%d"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            Hits.Num());
+        return;
+    }
     const float FinalDamage = DataAsset->BaseDamage * DamageMultiplier;
     for (const FHitResult& Hit : Hits)
     {
         AWTBRCharacter* HitChar = Cast<AWTBRCharacter>(Hit.GetActor());
-        if (!IsValid(HitChar)) continue;
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] MeleeHitAttempt | Attacker=%s | Target=%s | TargetClass=%s | HasAuthority=%s | Damage=%.1f"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            *GetNameSafe(Hit.GetActor()),
+            IsValid(Hit.GetActor()) ? *GetNameSafe(Hit.GetActor()->GetClass()) : TEXT("None"),
+            OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"),
+            FinalDamage);
+        if (!IsValid(HitChar))
+        {
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] MeleeRejected | Attacker=%s | Target=%s | Reason=InvalidTarget"),
+                *GetNameSafe(OwnerCharacter.Get()),
+                *GetNameSafe(Hit.GetActor()));
+            continue;
+        }
         UWTBRHealthComponent* Health = HitChar->HealthComponent;
-        if (!IsValid(Health)) continue;
+        if (!IsValid(Health))
+        {
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] MeleeRejected | Attacker=%s | Target=%s | Reason=HealthComponentInvalid"),
+                *GetNameSafe(OwnerCharacter.Get()),
+                *GetNameSafe(HitChar));
+            continue;
+        }
+        const float OldHP = Health->GetCurrentHP();
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] MeleeDamageApply | Attacker=%s | Target=%s | OldHP=%.1f | Damage=%.1f | ApplyDamageCalled=true"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            *GetNameSafe(HitChar),
+            OldHP,
+            FinalDamage);
         Health->ApplyDamage(FinalDamage, OwnerCharacter.Get());
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] MeleeDamageResult | Attacker=%s | Target=%s | OldHP=%.1f | Damage=%.1f | NewHP=%.1f"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            *GetNameSafe(HitChar),
+            OldHP,
+            FinalDamage,
+            Health->GetCurrentHP());
     }
 }
 
@@ -193,8 +235,20 @@ void UWTBRMeleeTrigger::FilterHits(
     InOutHits.RemoveAll([InstigatorActor](const FHitResult& Hit)
     {
         const AActor* A = Hit.GetActor();
-        if (!IsValid(A)) return true;
-        if (A == InstigatorActor) return true;
+        if (!IsValid(A))
+        {
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] MeleeHitRejected | Attacker=%s | Target=%s | Reason=InvalidTarget"),
+                *GetNameSafe(InstigatorActor),
+                *GetNameSafe(A));
+            return true;
+        }
+        if (A == InstigatorActor)
+        {
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] MeleeHitRejected | Attacker=%s | Target=%s | Reason=Self"),
+                *GetNameSafe(InstigatorActor),
+                *GetNameSafe(A));
+            return true;
+        }
         // TODO Phase 5: Friendly filter via TeamID
         return false;
     });

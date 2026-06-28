@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRNexilTrigger.h"
+#include "WTBRValidationLog.h"
 #include "Actors/WTBRNexilWireActor.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
@@ -11,8 +12,7 @@ void UWTBRNexilTrigger::InitializeTrigger(
 {
     Super::InitializeTrigger(InOwnerCharacter, InDataAsset);
     ActiveWires.Empty();
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] Initialize | Trigger=%s | TriggerClass=%s | Owner=%s | DataAsset=%s | WireActorClass=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Initialize | Trigger=%s | TriggerClass=%s | Owner=%s | DataAsset=%s | WireActorClass=%s"),
         *GetNameSafe(this),
         *GetNameSafe(GetClass()),
         *GetNameSafe(InOwnerCharacter),
@@ -24,8 +24,7 @@ bool UWTBRNexilTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] Activate Start | Trigger=%s | TriggerClass=%s | Owner=%s | HasAuthority=%s | Main=unknown | DualWield=%s | ActiveWires=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Activate Start | Trigger=%s | TriggerClass=%s | Owner=%s | HasAuthority=%s | Main=unknown | DualWield=%s | ActiveWires=%d"),
         *GetNameSafe(this),
         *GetNameSafe(GetClass()),
         *GetNameSafe(OwnerCharacter.Get()),
@@ -35,17 +34,17 @@ bool UWTBRNexilTrigger::Activate_Implementation(
 
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Nexil Test] Fail | Reason=OwnerInvalid | Function=Activate"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=OwnerInvalid | Function=Activate"));
         return false;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Nexil Test] Fail | Reason=NoAuthority | Function=Activate"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=NoAuthority | Function=Activate"));
         return false;
     }
     if (!Super::Activate_Implementation(InputValue, bIsDualWield))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Nexil Test] Fail | Reason=SuperActivateFalse"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=SuperActivateFalse"));
         return false;
     }
     PlaceWire();
@@ -56,22 +55,21 @@ void UWTBRNexilTrigger::PlaceWire()
 {
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Nexil Test] Fail | Reason=OwnerInvalid | Function=PlaceWire"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=OwnerInvalid | Function=PlaceWire"));
         return;
     }
     if (!IsValid(DataAsset))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Nexil Test] Fail | Reason=DataAssetInvalid | Function=PlaceWire"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=DataAssetInvalid | Function=PlaceWire"));
         return;
     }
     if (!GetWorld())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Nexil Test] Fail | Reason=WorldInvalid | Function=PlaceWire"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=WorldInvalid | Function=PlaceWire"));
         return;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] PlaceWire Start | Owner=%s | WireActorClass=%s | Duration=%.1f | Stagger=%.2f | Length=%.1f | MaxWires=%d | ActiveBefore=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] PlaceWire Start | Owner=%s | WireActorClass=%s | Duration=%.1f | Stagger=%.2f | Length=%.1f | MaxWires=%d | ActiveBefore=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         *WireActorClass.ToString(),
         DataAsset->NexilParams.WireDuration,
@@ -82,8 +80,7 @@ void UWTBRNexilTrigger::PlaceWire()
 
     if (WireActorClass.IsNull())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Nexil Test] Fail | Reason=WireActorClassNull | TriggerClass=%s | ExpectedBP=BP_WTBRNexilTrigger_C"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=WireActorClassNull | TriggerClass=%s | ExpectedBP=BP_WTBRNexilTrigger_C"),
             *GetNameSafe(GetClass()));
         return;
     }
@@ -92,16 +89,14 @@ void UWTBRNexilTrigger::PlaceWire()
         WireActorClass.LoadSynchronous();
     if (!IsValid(WireClass))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Nexil Test] Fail | Reason=WireClassLoadFailed | WireActorClass=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=WireClassLoadFailed | WireActorClass=%s"),
             *WireActorClass.ToString());
         return;
     }
 
     const FVector  SpawnLoc = OwnerCharacter->GetActorLocation();
     const FRotator SpawnRot = OwnerCharacter->GetActorRotation();
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] WireSpawnAttempt | Class=%s | Location=%s | Rotation=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] WireSpawnAttempt | Class=%s | Location=%s | Rotation=%s"),
         *GetNameSafe(WireClass.Get()),
         *SpawnLoc.ToString(),
         *SpawnRot.ToString());
@@ -117,7 +112,7 @@ void UWTBRNexilTrigger::PlaceWire()
             WireClass, SpawnLoc, SpawnRot, Params);
     if (!IsValid(Wire))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Nexil Test] Fail | Reason=SpawnFailed"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=SpawnFailed"));
         return;
     }
 
@@ -132,8 +127,7 @@ void UWTBRNexilTrigger::PlaceWire()
         this, &UWTBRNexilTrigger::NotifyWireDestroyed);
 
     ActiveWires.Add(Wire);
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] WireSpawned | Wire=%s | Location=%s | ActiveAfterAdd=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] WireSpawned | Wire=%s | Location=%s | ActiveAfterAdd=%d"),
         *GetNameSafe(Wire),
         *Wire->GetActorLocation().ToString(),
         GetActiveWireCount());
@@ -153,8 +147,7 @@ void UWTBRNexilTrigger::RemoveOldestWire()
     ActiveWires.RemoveAt(0);
     if (Oldest.IsValid())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Nexil Test] MaxWires RemovingOldest | Wire=%s | ActiveAfterRemove=%d"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] MaxWires RemovingOldest | Wire=%s | ActiveAfterRemove=%d"),
             *GetNameSafe(Oldest.Get()),
             GetActiveWireCount());
         Oldest->Destroy();
@@ -166,15 +159,14 @@ void UWTBRNexilTrigger::NotifyWireTriggered(
 {
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Nexil Test] Fail | Reason=OwnerInvalid | Function=NotifyWireTriggered"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=OwnerInvalid | Function=NotifyWireTriggered"));
         return;
     }
 
     // Nexil tripwire fires Action Ping when wire is tripped (Vael leaves capsule)
     if (OwnerCharacter->VaelComponent)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Nexil Test] ActionPing | Owner=%s | Wire=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] ActionPing | Owner=%s | Wire=%s"),
             *GetNameSafe(OwnerCharacter.Get()),
             *GetNameSafe(TriggeredWire));
         OwnerCharacter->VaelComponent->NotifyVaelLeftCharacterBounds();
@@ -185,8 +177,7 @@ void UWTBRNexilTrigger::NotifyWireTriggered(
     {
         return W.Get() == TriggeredWire;
     });
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] WireTriggered Notify | Wire=%s | ActiveAfterRemove=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] WireTriggered Notify | Wire=%s | ActiveAfterRemove=%d"),
         *GetNameSafe(TriggeredWire),
         GetActiveWireCount());
     OnWireTriggered.Broadcast(TriggeredWire);
@@ -200,8 +191,7 @@ void UWTBRNexilTrigger::NotifyWireDestroyed(AActor* DestroyedActor)
     {
         return W.Get() == DestroyedActor;
     });
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] WireDestroyed Notify | Wire=%s | ActiveAfterRemove=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] WireDestroyed Notify | Wire=%s | ActiveAfterRemove=%d"),
         *GetNameSafe(DestroyedActor),
         GetActiveWireCount());
 }
@@ -216,8 +206,7 @@ int32 UWTBRNexilTrigger::GetActiveWireCount() const
 
 void UWTBRNexilTrigger::Deactivate_Implementation()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] Deactivate Cleanup | Owner=%s | ActiveBefore=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Deactivate Cleanup | Owner=%s | ActiveBefore=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         GetActiveWireCount());
     for (auto& W : ActiveWires)

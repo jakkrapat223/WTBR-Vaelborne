@@ -1,6 +1,7 @@
 // Copyright Vaelborne: Dominion. All Rights Reserved.
 
 #include "WTBRCharacter.h"
+#include "WTBRValidationLog.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -305,8 +306,7 @@ void AWTBRCharacter::Dodge(const FInputActionValue& Value)
 
 void AWTBRCharacter::CancelCurrentAction()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Cancel Test] InputReceived | Owner=%s | Auth=%s | Local=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] InputReceived | Owner=%s | Auth=%s | Local=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
@@ -449,6 +449,14 @@ void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed, F
         bIsPressed ? TEXT("true") : TEXT("false"),
         *ClientMoveInputDir.ToString(),
         *SafeClientMoveInputDir.ToString());
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] TriggerRPC | Owner=%s | Auth=%s | Local=%s | Main=%s | Pressed=%s | ServerRPCReceived=true | ClientMoveInputDir=%s | SafeClientMoveInputDir=%s"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"),
+        bIsMain ? TEXT("true") : TEXT("false"),
+        bIsPressed ? TEXT("true") : TEXT("false"),
+        *ClientMoveInputDir.ToString(),
+        *SafeClientMoveInputDir.ToString());
 
     ExecuteServerTriggerInput(bIsMain, bIsPressed, SafeClientMoveInputDir);
 }
@@ -466,6 +474,15 @@ void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FV
     UWTBRTriggerBase* Trigger = bIsMain
         ? TriggerSetComponent->GetActiveMainTrigger()
         : TriggerSetComponent->GetActiveSubTrigger();
+
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ActiveTrigger | Owner=%s | Auth=%s | Local=%s | Slot=%s | Pressed=%s | Trigger=%s | TriggerClass=%s"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"),
+        bIsMain ? TEXT("Main") : TEXT("Sub"),
+        bIsPressed ? TEXT("true") : TEXT("false"),
+        *GetNameSafe(Trigger),
+        IsValid(Trigger) ? *GetNameSafe(Trigger->GetClass()) : TEXT("None"));
 
     UE_LOG(LogTemp, Log, TEXT("Active Trigger: %s"),
         Trigger ? *Trigger->GetClass()->GetName() : TEXT("nullptr"));
@@ -504,30 +521,26 @@ void AWTBRCharacter::Server_Dodge_Implementation()
 
 void AWTBRCharacter::Server_CancelCurrentAction_Implementation()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Cancel Test] ServerCancelStart | Owner=%s | Auth=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] ServerCancelStart | Owner=%s | Auth=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"));
 
     if (!HasAuthority())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Cancel Test] Blocked | Reason=NoAuthority | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] Blocked | Reason=NoAuthority | Owner=%s"),
             *GetNameSafe(this));
         return;
     }
     if (!IsValid(TriggerSetComponent))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Cancel Test] Blocked | Reason=InvalidOwner | Owner=%s | TriggerSet=null"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] Blocked | Reason=InvalidOwner | Owner=%s | TriggerSet=null"),
             *GetNameSafe(this));
         return;
     }
 
     UWTBRTriggerBase* MainTrigger = TriggerSetComponent->GetActiveMainTrigger();
     UWTBRTriggerBase* SubTrigger = TriggerSetComponent->GetActiveSubTrigger();
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Cancel Test] ActiveTrigger | Owner=%s | Main=%s | Sub=%s | MergeState=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] ActiveTrigger | Owner=%s | Main=%s | Sub=%s | MergeState=%d"),
         *GetNameSafe(this),
         *GetNameSafe(MainTrigger),
         *GetNameSafe(SubTrigger),
@@ -537,8 +550,7 @@ void AWTBRCharacter::Server_CancelCurrentAction_Implementation()
     {
         const EWTBRCompositeBulletType OldMergeState = TriggerSetComponent->GetCurrentMergeState();
         TriggerSetComponent->CancelMerge();
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Cancel Test] CompositeMergeCanceled | Owner=%s | MergeState=%d | NoRefund=true"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] CompositeMergeCanceled | Owner=%s | MergeState=%d | NoRefund=true"),
             *GetNameSafe(this),
             static_cast<int32>(OldMergeState));
         return;
@@ -567,8 +579,7 @@ void AWTBRCharacter::Server_CancelCurrentAction_Implementation()
             }
         }
 
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Cancel Test] NoEffect | Owner=%s | Slot=%s | Trigger=%s | Reason=CompletedActionOrUnsupported"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] NoEffect | Owner=%s | Slot=%s | Trigger=%s | Reason=CompletedActionOrUnsupported"),
             *GetNameSafe(this),
             SlotName,
             *GetNameSafe(Trigger));
@@ -584,8 +595,7 @@ void AWTBRCharacter::Server_CancelCurrentAction_Implementation()
         return;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Cancel Test] Resolved | Reason=NoRemainingAction | Owner=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] Resolved | Reason=NoRemainingAction | Owner=%s"),
         *GetNameSafe(this));
 }
 
@@ -598,8 +608,7 @@ void AWTBRCharacter::Server_SwitchTrigger_Implementation(int32 SlotIndex, bool b
 
 void AWTBRCharacter::Server_CycleTrigger_Implementation(bool bIsMain)
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test34 Server CycleTrigger] Owner=%s | Auth=%s | Main=%s | TriggerSet=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test34 Server CycleTrigger] Owner=%s | Auth=%s | Main=%s | TriggerSet=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
         bIsMain ? TEXT("true") : TEXT("false"),
@@ -910,8 +919,7 @@ void AWTBRCharacter::RefreshHUDHints()
     const FText MainHint = GetMainTriggerHintText();
     const FText SubHint = GetSubTriggerHintText();
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[HUD Hint Test] Refresh | Owner=%s | Auth=%s | Local=%s | ActiveMainIndex=%d | ActiveSubIndex=%d | MainTriggerValid=%s | SubTriggerValid=%s | MainFallbackDA=%s | SubFallbackDA=%s | MainClass=%s | MainName=%s | SubClass=%s | SubName=%s | MainHint=%s | SubHint=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[HUD Hint Test] Refresh | Owner=%s | Auth=%s | Local=%s | ActiveMainIndex=%d | ActiveSubIndex=%d | MainTriggerValid=%s | SubTriggerValid=%s | MainFallbackDA=%s | SubFallbackDA=%s | MainClass=%s | MainName=%s | SubClass=%s | SubName=%s | MainHint=%s | SubHint=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
         IsLocallyControlled() ? TEXT("true") : TEXT("false"),
@@ -947,10 +955,29 @@ void AWTBRCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 
 void AWTBRCharacter::ApplyStagger(float Duration)
 {
-    if (!HasAuthority()) return;
-    if (Duration <= 0.0f) return;
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyStagger Start | Target=%s | Auth=%s | Duration=%.2f | ApplyStaggerCalled=true"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        Duration);
+    if (!HasAuthority())
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyStagger Rejected | Target=%s | Reason=NoAuthority | Duration=%.2f"),
+            *GetNameSafe(this),
+            Duration);
+        return;
+    }
+    if (Duration <= 0.0f)
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyStagger Rejected | Target=%s | Reason=NonPositiveDuration | Duration=%.2f"),
+            *GetNameSafe(this),
+            Duration);
+        return;
+    }
     if (TriggerSetComponent) TriggerSetComponent->CancelMerge();
     bIsStaggered = true;
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyStagger Result | Target=%s | bIsStaggered=true | Duration=%.2f"),
+        *GetNameSafe(this),
+        Duration);
     GetWorld()->GetTimerManager().SetTimer(
         StaggerTimer,
         this, &AWTBRCharacter::OnStaggerExpired,
@@ -965,6 +992,11 @@ void AWTBRCharacter::OnStaggerExpired()
 
 void AWTBRCharacter::OnRep_bIsStaggered()
 {
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] OnRep_bIsStaggered | Target=%s | Auth=%s | Local=%s | bIsStaggered=%s"),
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        IsLocallyControlled() ? TEXT("true") : TEXT("false"),
+        bIsStaggered ? TEXT("true") : TEXT("false"));
     // Blueprint: true=disable input+stagger anim | false=re-enable input
 }
 

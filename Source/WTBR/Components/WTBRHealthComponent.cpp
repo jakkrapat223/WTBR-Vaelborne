@@ -1,6 +1,7 @@
 // Copyright Vaelborne: Dominion. All Rights Reserved.
 
 #include "Components/WTBRHealthComponent.h"
+#include "WTBRValidationLog.h"
 #include "Data/WTBRCoreStatsDataAsset.h"
 #include "Net/UnrealNetwork.h"
 #include "WTBRCharacter.h"
@@ -19,8 +20,7 @@ void LogTest32HealthCoreStats(const UWTBRHealthComponent* Component, const UWTBR
 {
     if (Stats)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test32 CoreStats Loaded] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsAsset=%s | CoreStatsPath=%s | StatsValid=true | MaxHP=%.1f | MaxDownedHP=%.1f | KnockdownIFrameDuration=%.2f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test32 CoreStats Loaded] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsAsset=%s | CoreStatsPath=%s | StatsValid=true | MaxHP=%.1f | MaxDownedHP=%.1f | KnockdownIFrameDuration=%.2f"),
             *GetNameSafe(Component),
             *GetNameSafe(Component ? Component->GetOwner() : nullptr),
             Component ? (int32)Component->GetNetMode() : -1,
@@ -34,8 +34,7 @@ void LogTest32HealthCoreStats(const UWTBRHealthComponent* Component, const UWTBR
         return;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test32 CoreStats Missing] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsPath=%s | StatsValid=false"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test32 CoreStats Missing] Component=%s | Owner=%s | NetMode=%d | Role=%d | Requester=%s | CoreStatsPath=%s | StatsValid=false"),
         *GetNameSafe(Component),
         *GetNameSafe(Component ? Component->GetOwner() : nullptr),
         Component ? (int32)Component->GetNetMode() : -1,
@@ -78,13 +77,40 @@ void UWTBRHealthComponent::BeginPlay()
 
 void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstigator)
 {
-    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
-    if (DamageAmount <= 0.0f) return;
-    if (CurrentCombatState == EWTBRCombatState::Eliminated) return;
+    const float OldHP = CurrentHP;
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyDamage Start | Target=%s | Auth=%s | Instigator=%s | OldHP=%.1f | Damage=%.1f | State=%d | Invulnerable=%s | ApplyDamageCalled=true"),
+        *GetNameSafe(GetOwner()),
+        GetOwner() && GetOwner()->HasAuthority() ? TEXT("true") : TEXT("false"),
+        *GetNameSafe(DamageInstigator),
+        OldHP,
+        DamageAmount,
+        static_cast<int32>(CurrentCombatState),
+        bIsInvulnerable ? TEXT("true") : TEXT("false"));
+
+    if (!GetOwner() || !GetOwner()->HasAuthority())
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyDamage Rejected | Target=%s | Reason=NoAuthorityOrOwnerInvalid | Damage=%.1f"),
+            *GetNameSafe(GetOwner()),
+            DamageAmount);
+        return;
+    }
+    if (DamageAmount <= 0.0f)
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyDamage Rejected | Target=%s | Reason=NonPositiveDamage | Damage=%.1f"),
+            *GetNameSafe(GetOwner()),
+            DamageAmount);
+        return;
+    }
+    if (CurrentCombatState == EWTBRCombatState::Eliminated)
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyDamage Rejected | Target=%s | Reason=Eliminated | Damage=%.1f"),
+            *GetNameSafe(GetOwner()),
+            DamageAmount);
+        return;
+    }
     if (CurrentCombatState == EWTBRCombatState::Downed && bIsInvulnerable)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test28 Server DamageIgnored_Invulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s | DamageAmount=%.1f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test28 Server DamageIgnored_Invulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s | DamageAmount=%.1f"),
             *GetNameSafe(GetOwner()),
             (int32)GetNetMode(),
             GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
@@ -92,6 +118,10 @@ void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstiga
             CurrentHP,
             CurrentDownedHP,
             bIsInvulnerable ? TEXT("true") : TEXT("false"),
+            DamageAmount);
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyDamage Rejected | Target=%s | Reason=DownedInvulnerable | OldHP=%.1f | Damage=%.1f"),
+            *GetNameSafe(GetOwner()),
+            OldHP,
             DamageAmount);
         return;
     }
@@ -121,6 +151,12 @@ void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstiga
     if (CurrentCombatState == EWTBRCombatState::Alive)
     {
         CurrentHP = FMath::Max(0.f, CurrentHP - DamageAmount);
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyDamage Result | Target=%s | Instigator=%s | OldHP=%.1f | Damage=%.1f | NewHP=%.1f | State=Alive"),
+            *GetNameSafe(GetOwner()),
+            *GetNameSafe(DamageInstigator),
+            OldHP,
+            DamageAmount,
+            CurrentHP);
         OnHPChanged.Broadcast(CurrentHP, GetMaxHP());
         if (CurrentHP <= 0.f)
         {
@@ -131,7 +167,15 @@ void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstiga
 
     if (CurrentCombatState == EWTBRCombatState::Downed)
     {
+        const float OldDownedHP = CurrentDownedHP;
         CurrentDownedHP = FMath::Max(0.f, CurrentDownedHP - DamageAmount);
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyDamage Result | Target=%s | Instigator=%s | OldHP=%.1f | OldDownedHP=%.1f | Damage=%.1f | NewDownedHP=%.1f | State=Downed"),
+            *GetNameSafe(GetOwner()),
+            *GetNameSafe(DamageInstigator),
+            OldHP,
+            OldDownedHP,
+            DamageAmount,
+            CurrentDownedHP);
         if (CurrentDownedHP <= 0.f)
         {
             EnterEliminatedState(DamageInstigator);
@@ -178,8 +222,7 @@ void UWTBRHealthComponent::SetCombatState(EWTBRCombatState NewState)
     CurrentCombatState = NewState;
     OnCombatStateChanged.Broadcast(CurrentCombatState, OldState);
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test27 Server SetCombatState] Owner=%s | NetMode=%d | Role=%d | OldState=%d | NewState=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test27 Server SetCombatState] Owner=%s | NetMode=%d | Role=%d | OldState=%d | NewState=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
         *GetNameSafe(GetOwner()),
         (int32)GetNetMode(),
         GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
@@ -207,8 +250,7 @@ void UWTBRHealthComponent::SetInvulnerable(bool bNewInvulnerable)
     bIsInvulnerable = bNewInvulnerable;
     OnInvulnerabilityChanged.Broadcast(bIsInvulnerable);
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test28 Server SetInvulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test28 Server SetInvulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
         *GetNameSafe(GetOwner()),
         (int32)GetNetMode(),
         GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
@@ -223,8 +265,7 @@ void UWTBRHealthComponent::EnterDownedState(AActor* DownInstigator)
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
     if (CurrentCombatState != EWTBRCombatState::Alive) return;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test27 Server EnterDownedState] Owner=%s | NetMode=%d | Role=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test27 Server EnterDownedState] Owner=%s | NetMode=%d | Role=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
         *GetNameSafe(GetOwner()),
         (int32)GetNetMode(),
         GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
@@ -273,8 +314,7 @@ void UWTBRHealthComponent::EnterEliminatedState(AActor* FinalDamageInstigator)
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
     if (CurrentCombatState == EWTBRCombatState::Eliminated) return;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test27 Server EnterEliminatedState] Owner=%s | NetMode=%d | Role=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test27 Server EnterEliminatedState] Owner=%s | NetMode=%d | Role=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
         *GetNameSafe(GetOwner()),
         (int32)GetNetMode(),
         GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
@@ -421,8 +461,7 @@ void UWTBRHealthComponent::RecordDamageContribution(float DamageAmount, AActor* 
     const EWTBRCombatState StateBefore = CurrentCombatState;
     if (!IsValid(ContributorCharacter) || ContributorCharacter == VictimCharacter)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Reward RecordContribution] Victim=%s | Attacker=%s | Damage=%.1f | StateBefore=%d | DamageHistoryCountBefore=%d | DamageHistoryCountAfter=%d"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Reward RecordContribution] Victim=%s | Attacker=%s | Damage=%.1f | StateBefore=%d | DamageHistoryCountBefore=%d | DamageHistoryCountAfter=%d"),
             *GetNameSafe(VictimCharacter),
             *GetNameSafe(ContributorCharacter),
             DamageAmount,
@@ -444,8 +483,7 @@ void UWTBRHealthComponent::RecordDamageContribution(float DamageAmount, AActor* 
             Record.TotalDamage += DamageAmount;
             Record.LastDamageTime = CurrentTime;
             Record.ContributorController = ResolveContributorController(ContributorCharacter);
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Reward RecordContribution] Victim=%s | Attacker=%s | Damage=%.1f | StateBefore=%d | DamageHistoryCountBefore=%d | DamageHistoryCountAfter=%d"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Reward RecordContribution] Victim=%s | Attacker=%s | Damage=%.1f | StateBefore=%d | DamageHistoryCountBefore=%d | DamageHistoryCountAfter=%d"),
                 *GetNameSafe(VictimCharacter),
                 *GetNameSafe(ContributorCharacter),
                 DamageAmount,
@@ -463,8 +501,7 @@ void UWTBRHealthComponent::RecordDamageContribution(float DamageAmount, AActor* 
     NewRecord.LastDamageTime = CurrentTime;
     DamageHistory.Add(NewRecord);
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Reward RecordContribution] Victim=%s | Attacker=%s | Damage=%.1f | StateBefore=%d | DamageHistoryCountBefore=%d | DamageHistoryCountAfter=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Reward RecordContribution] Victim=%s | Attacker=%s | Damage=%.1f | StateBefore=%d | DamageHistoryCountBefore=%d | DamageHistoryCountAfter=%d"),
         *GetNameSafe(VictimCharacter),
         *GetNameSafe(ContributorCharacter),
         DamageAmount,
@@ -737,13 +774,18 @@ void UWTBRHealthComponent::TickLimbDrain()
 
 void UWTBRHealthComponent::OnRep_CurrentHP()
 {
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] OnRep_CurrentHP | Target=%s | Auth=%s | Role=%d | CurrentHP=%.1f | MaxHP=%.1f | OnRepFired=true"),
+        *GetNameSafe(GetOwner()),
+        GetOwner() && GetOwner()->HasAuthority() ? TEXT("true") : TEXT("false"),
+        GetOwner() ? static_cast<int32>(GetOwner()->GetLocalRole()) : -1,
+        CurrentHP,
+        GetMaxHP());
     OnHPChanged.Broadcast(CurrentHP, GetMaxHP());
 }
 
 void UWTBRHealthComponent::OnRep_CombatState(EWTBRCombatState OldState)
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test27 Client OnRep_CombatState] Owner=%s | NetMode=%d | Role=%d | OldState=%d | NewState=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test27 Client OnRep_CombatState] Owner=%s | NetMode=%d | Role=%d | OldState=%d | NewState=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
         *GetNameSafe(GetOwner()),
         (int32)GetNetMode(),
         GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
@@ -767,8 +809,7 @@ void UWTBRHealthComponent::OnRep_CombatState(EWTBRCombatState OldState)
 
 void UWTBRHealthComponent::OnRep_IsInvulnerable()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test28 Client OnRep_IsInvulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test28 Client OnRep_IsInvulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s"),
         *GetNameSafe(GetOwner()),
         (int32)GetNetMode(),
         GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,

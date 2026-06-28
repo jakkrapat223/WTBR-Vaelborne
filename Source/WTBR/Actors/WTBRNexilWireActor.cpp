@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Actors/WTBRNexilWireActor.h"
+#include "WTBRValidationLog.h"
 #include "Trigger/WTBRNexilTrigger.h"
 #include "WTBRCharacter.h"
 #include "Components/BoxComponent.h"
@@ -30,8 +31,7 @@ AWTBRNexilWireActor::AWTBRNexilWireActor()
 void AWTBRNexilWireActor::BeginPlay()
 {
     Super::BeginPlay();
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] Wire BeginPlay | Wire=%s | HasAuthority=%s | Replicates=%s | OverlapEnabled=%d | GenerateOverlap=%s | Location=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Wire BeginPlay | Wire=%s | HasAuthority=%s | Replicates=%s | OverlapEnabled=%d | GenerateOverlap=%s | Location=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
         GetIsReplicated() ? TEXT("true") : TEXT("false"),
@@ -63,8 +63,7 @@ void AWTBRNexilWireActor::InitializeWire(
     OwnerTrigger    = InOwnerTrigger;
     WireOverlap->SetBoxExtent(
         FVector(10.0f, InWireLength * 0.5f, 30.0f));
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] Wire Initialized | Wire=%s | Lifetime=%.1f | Stagger=%.2f | Length=%.1f | Extent=%s | OwnerTrigger=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Wire Initialized | Wire=%s | Lifetime=%.1f | Stagger=%.2f | Length=%.1f | Extent=%s | OwnerTrigger=%s"),
         *GetNameSafe(this),
         InLifetime,
         InStaggerDuration,
@@ -78,8 +77,7 @@ void AWTBRNexilWireActor::InitializeWire(
             this, &AWTBRNexilWireActor::OnLifetimeExpired,
             InLifetime,
             false);
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Nexil Test] LifetimeTimerStart | Wire=%s | Lifetime=%.1f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] LifetimeTimerStart | Wire=%s | Lifetime=%.1f"),
             *GetNameSafe(this),
             InLifetime);
     }
@@ -93,8 +91,7 @@ void AWTBRNexilWireActor::OnWireOverlapBegin(
     bool bFromSweep,
     const FHitResult& SweepResult)
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] WireOverlap | Wire=%s | Other=%s | OtherClass=%s | HasAuthority=%s | Triggered=%s | IsInstigator=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] WireOverlap | Wire=%s | Other=%s | OtherClass=%s | HasAuthority=%s | Triggered=%s | IsInstigator=%s"),
         *GetNameSafe(this),
         *GetNameSafe(OtherActor),
         IsValid(OtherActor) ? *GetNameSafe(OtherActor->GetClass()) : TEXT("None"),
@@ -102,18 +99,53 @@ void AWTBRNexilWireActor::OnWireOverlapBegin(
         bIsTriggered ? TEXT("true") : TEXT("false"),
         OtherActor == GetInstigator() ? TEXT("true") : TEXT("false"));
 
-    if (!HasAuthority()) return;
-    if (bIsTriggered) return;
-    if (!IsValid(OtherActor)) return;
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilOverlap | Wire=%s | OverlapActor=%s | ActorClass=%s | HasAuthority=%s | OwnerIgnored=%s | AlreadyTriggered=%s | EnemyValid=%s"),
+        *GetNameSafe(this),
+        *GetNameSafe(OtherActor),
+        IsValid(OtherActor) ? *GetNameSafe(OtherActor->GetClass()) : TEXT("None"),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        OtherActor == GetInstigator() ? TEXT("true") : TEXT("false"),
+        bIsTriggered ? TEXT("true") : TEXT("false"),
+        IsValid(Cast<AWTBRCharacter>(OtherActor)) && OtherActor != GetInstigator() ? TEXT("true") : TEXT("false"));
+
+    if (!HasAuthority())
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilRejected | Wire=%s | OverlapActor=%s | Reason=NoAuthority"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor));
+        return;
+    }
+    if (bIsTriggered)
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilRejected | Wire=%s | OverlapActor=%s | Reason=AlreadyTriggered"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor));
+        return;
+    }
+    if (!IsValid(OtherActor))
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilRejected | Wire=%s | OverlapActor=%s | Reason=InvalidActor"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor));
+        return;
+    }
 
     // TD Fix 2: Self-Stagger check — instigator cannot trip own wire
-    if (OtherActor == GetInstigator()) return;
+    if (OtherActor == GetInstigator())
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilRejected | Wire=%s | OverlapActor=%s | Reason=OwnerIgnored"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor));
+        return;
+    }
 
     AWTBRCharacter* HitChar = Cast<AWTBRCharacter>(OtherActor);
     if (!IsValid(HitChar))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Nexil Test] Fail | Reason=OverlapNotCharacter | Other=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=OverlapNotCharacter | Other=%s"),
+            *GetNameSafe(OtherActor));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilRejected | Wire=%s | OverlapActor=%s | Reason=OverlapNotCharacter"),
+            *GetNameSafe(this),
             *GetNameSafe(OtherActor));
         return;
     }
@@ -123,8 +155,10 @@ void AWTBRNexilWireActor::OnWireOverlapBegin(
 
 void AWTBRNexilWireActor::TriggerAndDestroy(AActor* TriggeredBy)
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] Wire Triggered | Wire=%s | TriggeredBy=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Wire Triggered | Wire=%s | TriggeredBy=%s"),
+        *GetNameSafe(this),
+        *GetNameSafe(TriggeredBy));
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilTriggered | Wire=%s | TriggeredBy=%s | CleanupReason=TriggeredOverlap"),
         *GetNameSafe(this),
         *GetNameSafe(TriggeredBy));
     bIsTriggered = true;
@@ -140,13 +174,14 @@ void AWTBRNexilWireActor::ApplyStaggerToCharacter(AActor* TargetActor)
     AWTBRCharacter* TargetChar = Cast<AWTBRCharacter>(TargetActor);
     if (!IsValid(TargetChar))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Nexil Test] Fail | Reason=StaggerTargetInvalid | Target=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=StaggerTargetInvalid | Target=%s"),
             *GetNameSafe(TargetActor));
         return;
     }
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] StaggerApplied | Target=%s | Duration=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] StaggerApplied | Target=%s | Duration=%.2f"),
+        *GetNameSafe(TargetChar),
+        StaggerDuration);
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilStaggerApplied | Target=%s | Duration=%.2f | StaggerApplied=true"),
         *GetNameSafe(TargetChar),
         StaggerDuration);
     TargetChar->ApplyStagger(StaggerDuration);
@@ -154,16 +189,14 @@ void AWTBRNexilWireActor::ApplyStaggerToCharacter(AActor* TargetActor)
 
 void AWTBRNexilWireActor::OnLifetimeExpired()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] LifetimeExpired | Wire=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] LifetimeExpired | Wire=%s"),
         *GetNameSafe(this));
     Destroy();
 }
 
 void AWTBRNexilWireActor::OnRep_bIsTriggered()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Nexil Test] OnRep_bIsTriggered | Wire=%s | Triggered=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] OnRep_bIsTriggered | Wire=%s | Triggered=%s"),
         *GetNameSafe(this),
         bIsTriggered ? TEXT("true") : TEXT("false"));
     if (bIsTriggered)

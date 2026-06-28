@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRAcervynTrigger.h"
+#include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
@@ -13,8 +14,7 @@ void UWTBRAcervynTrigger::InitializeTrigger(
 {
     Super::InitializeTrigger(InOwnerCharacter, InDataAsset);
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Acervyn Retest] Initialize | Owner=%s | DataAsset=%s | Damage=%.1f | VaelCost=%.1f | Cooldown=%.3f | Range=%.1f | Speed=%.1f | BurstCount=%d | BurstInterval=%.3f | HomingAccel=%.1f | ProjectileClass=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] Initialize | Owner=%s | DataAsset=%s | Damage=%.1f | VaelCost=%.1f | Cooldown=%.3f | Range=%.1f | Speed=%.1f | BurstCount=%d | BurstInterval=%.3f | HomingAccel=%.1f | ProjectileClass=%s"),
         *GetNameSafe(InOwnerCharacter),
         *GetNameSafe(InDataAsset),
         IsValid(InDataAsset) ? InDataAsset->AcervynParams.AcervynDamage : -1.0f,
@@ -35,8 +35,7 @@ bool UWTBRAcervynTrigger::Activate_Implementation(
     const float CurrentVael = OwnerCharacter.IsValid() && IsValid(OwnerCharacter->VaelComponent)
         ? OwnerCharacter->VaelComponent->GetCurrentVael()
         : -1.0f;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Acervyn Retest] Activate Start | Owner=%s | HasAuthority=%s | DualWield=%s | DataAsset=%s | CurrentVael=%.2f | CooldownActive=%s | BurstShotsRemaining=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] Activate Start | Owner=%s | HasAuthority=%s | DualWield=%s | DataAsset=%s | CurrentVael=%.2f | CooldownActive=%s | BurstShotsRemaining=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"),
         bIsDualWield ? TEXT("true") : TEXT("false"),
@@ -47,23 +46,22 @@ bool UWTBRAcervynTrigger::Activate_Implementation(
 
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Acervyn Retest] HitRejected | Reason=InvalidOwner"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=InvalidOwner"));
         return false;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Acervyn Retest] HitRejected | Reason=NoAuthority | Owner=%s"), *GetNameSafe(OwnerCharacter.Get()));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=NoAuthority | Owner=%s"), *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
     if (!IsValid(DataAsset))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Acervyn Retest] HitRejected | Reason=InvalidDataAsset | Owner=%s"), *GetNameSafe(OwnerCharacter.Get()));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=InvalidDataAsset | Owner=%s"), *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
     if (IsOnCooldown())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Acervyn Retest] HitRejected | Reason=Cooldown | Owner=%s | Cooldown=%.3f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=Cooldown | Owner=%s | Cooldown=%.3f"),
             *GetNameSafe(OwnerCharacter.Get()),
             GetCooldownDuration());
         return false;
@@ -72,15 +70,13 @@ bool UWTBRAcervynTrigger::Activate_Implementation(
     if (!OwnerCharacter->VaelComponent ||
         !OwnerCharacter->VaelComponent->TryConsumeVael(DataAsset->VaelCostPerUse))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Acervyn Retest] VaelConsume | Result=Fail | Owner=%s | Cost=%.2f | CurrentVael=%.2f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] VaelConsume | Result=Fail | Owner=%s | Cost=%.2f | CurrentVael=%.2f"),
             *GetNameSafe(OwnerCharacter.Get()),
             DataAsset->VaelCostPerUse,
             CurrentVael);
         return false;
     }
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Acervyn Retest] VaelConsume | Result=Success | Owner=%s | Cost=%.2f | OldVael=%.2f | NewVael=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] VaelConsume | Result=Success | Owner=%s | Cost=%.2f | OldVael=%.2f | NewVael=%.2f"),
         *GetNameSafe(OwnerCharacter.Get()),
         DataAsset->VaelCostPerUse,
         CurrentVael,
@@ -98,8 +94,7 @@ bool UWTBRAcervynTrigger::Activate_Implementation(
         ECC_Pawn,
         FCollisionShape::MakeSphere(DataAsset->AcervynParams.AcervynRange),
         Params);
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Acervyn Retest] MultiHitState | Owner=%s | OverlapOK=%s | RawOverlaps=%d | Range=%.1f | CurrentDesign=NearestSingleTargetBurst"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] MultiHitState | Owner=%s | OverlapOK=%s | RawOverlaps=%d | Range=%.1f | CurrentDesign=NearestSingleTargetBurst"),
         *GetNameSafe(OwnerCharacter.Get()),
         bOverlapOK ? TEXT("true") : TEXT("false"),
         Overlaps.Num(),
@@ -112,23 +107,20 @@ bool UWTBRAcervynTrigger::Activate_Implementation(
     for (const FOverlapResult& Overlap : Overlaps)
     {
         AWTBRCharacter* Candidate = Cast<AWTBRCharacter>(Overlap.GetActor());
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Acervyn Retest] HitAttempt | Owner=%s | Candidate=%s | CandidateClass=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitAttempt | Owner=%s | Candidate=%s | CandidateClass=%s"),
             *GetNameSafe(OwnerCharacter.Get()),
             *GetNameSafe(Overlap.GetActor()),
             IsValid(Overlap.GetActor()) ? *GetNameSafe(Overlap.GetActor()->GetClass()) : TEXT("None"));
 
         if (!IsValid(Candidate))
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Acervyn Retest] HitRejected | Reason=InvalidTarget | Candidate=%s"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=InvalidTarget | Candidate=%s"),
                 *GetNameSafe(Overlap.GetActor()));
             continue;
         }
         if (Candidate == OwnerCharacter.Get())
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Acervyn Retest] HitRejected | Reason=Self | Candidate=%s"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=Self | Candidate=%s"),
                 *GetNameSafe(Candidate));
             continue;
         }
@@ -141,8 +133,7 @@ bool UWTBRAcervynTrigger::Activate_Implementation(
         }
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Acervyn Retest] HitAccepted | Owner=%s | BurstTarget=%s | Distance=%.1f | Note=NearestTargetSelected"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitAccepted | Owner=%s | BurstTarget=%s | Distance=%.1f | Note=NearestTargetSelected"),
         *GetNameSafe(OwnerCharacter.Get()),
         *GetNameSafe(BurstTarget.Get()),
         BurstTarget.IsValid() ? FMath::Sqrt(NearestDistSq) : -1.0f);
@@ -150,8 +141,7 @@ bool UWTBRAcervynTrigger::Activate_Implementation(
     BurstShotsRemaining = DataAsset->AcervynParams.AcervynBurstCount;
 
     StartCooldown();
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Acervyn Retest] CooldownStart | Owner=%s | Cooldown=%.3f | BurstCount=%d | BurstInterval=%.3f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] CooldownStart | Owner=%s | Cooldown=%.3f | BurstCount=%d | BurstInterval=%.3f"),
         *GetNameSafe(OwnerCharacter.Get()),
         GetCooldownDuration(),
         BurstShotsRemaining,
@@ -184,8 +174,7 @@ void UWTBRAcervynTrigger::FireNextBurstShot()
     const float Speed       = DataAsset->AcervynParams.AcervynSpeed;
     const float HomingAccel = DataAsset->AcervynParams.AcervynHomingAcceleration;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Acervyn Retest] MultiHitState | Owner=%s | BurstShotsRemainingBefore=%d | Target=%s | ProjectileClass=%s | Damage=%.1f | Speed=%.1f | HomingAccel=%.1f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] MultiHitState | Owner=%s | BurstShotsRemainingBefore=%d | Target=%s | ProjectileClass=%s | Damage=%.1f | Speed=%.1f | HomingAccel=%.1f"),
         *GetNameSafe(OwnerCharacter.Get()),
         BurstShotsRemaining,
         *GetNameSafe(BurstTarget.Get()),
@@ -199,16 +188,14 @@ void UWTBRAcervynTrigger::FireNextBurstShot()
     if (IsValid(Proj) && BurstTarget.IsValid())
     {
         Proj->EnableHoming(BurstTarget.Get()->GetRootComponent(), HomingAccel);
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Acervyn Retest] HitAccepted | Projectile=%s | HomingTarget=%s | HomingAccel=%.1f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitAccepted | Projectile=%s | HomingTarget=%s | HomingAccel=%.1f"),
             *GetNameSafe(Proj),
             *GetNameSafe(BurstTarget.Get()),
             HomingAccel);
     }
     else
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Acervyn Retest] HitRejected | Reason=%s | Projectile=%s | Target=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=%s | Projectile=%s | Target=%s"),
             IsValid(Proj) ? TEXT("InvalidTarget") : TEXT("SpawnFailed"),
             *GetNameSafe(Proj),
             *GetNameSafe(BurstTarget.Get()));
@@ -220,8 +207,7 @@ void UWTBRAcervynTrigger::FireNextBurstShot()
     {
         GetWorld()->GetTimerManager().ClearTimer(BurstTimer);
         BurstTarget.Reset();
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Acervyn Retest] ActionEnd | Owner=%s | Cleanup=BurstTimerCleared_TargetReset"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] ActionEnd | Owner=%s | Cleanup=BurstTimerCleared_TargetReset"),
             *GetNameSafe(OwnerCharacter.Get()));
     }
 }

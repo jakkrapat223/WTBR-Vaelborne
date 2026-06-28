@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRFulgrisTrigger.h"
+#include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
@@ -17,8 +18,7 @@ bool UWTBRFulgrisTrigger::Activate_Implementation(
     const bool bHasAuthority =
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority();
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Fulgris Test] Activate Start | Owner=%s | HasAuthority=%s | Main=%s | CurrentVael=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Activate Start | Owner=%s | HasAuthority=%s | Main=%s | CurrentVael=%.2f"),
         *GetNameSafe(OwnerCharacter.Get()),
         bHasAuthority ? TEXT("true") : TEXT("false"),
         TEXT("unknown"),
@@ -26,17 +26,17 @@ bool UWTBRFulgrisTrigger::Activate_Implementation(
 
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=OwnerInvalid"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=OwnerInvalid"));
         return false;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=NoAuthority"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=NoAuthority"));
         return false;
     }
     if (!IsValid(DataAsset))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=DataAssetInvalid"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=DataAssetInvalid"));
         return false;
     }
 
@@ -48,8 +48,7 @@ bool UWTBRFulgrisTrigger::Activate_Implementation(
     const float Cooldown  = DataAsset->FulgrisParams.FulgrisFireCooldown;
     const float VaelCost  = DataAsset->VaelCostPerUse;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Fulgris Test] Data | Damage=%.1f | VaelCost=%.1f | Cooldown=%.3f | ProjectileClass=%s | Range=%.1f | Speed=%.1f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Data | Damage=%.1f | VaelCost=%.1f | Cooldown=%.3f | ProjectileClass=%s | Range=%.1f | Speed=%.1f"),
         Damage,
         VaelCost,
         Cooldown,
@@ -60,7 +59,7 @@ bool UWTBRFulgrisTrigger::Activate_Implementation(
     UWorld* World = GetWorld();
     if (!IsValid(World))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=WorldInvalid"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=WorldInvalid"));
         return false;
     }
 
@@ -68,8 +67,7 @@ bool UWTBRFulgrisTrigger::Activate_Implementation(
     const float TimerElapsed = World->GetTimerManager().GetTimerElapsed(CooldownTimer);
     const float LastFire = (TimerElapsed >= 0.0f) ? CurrentTime - TimerElapsed : -1.0f;
     const float TimeSinceLastFire = (TimerElapsed >= 0.0f) ? TimerElapsed : 9999.0f;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Fulgris Test] CooldownCheck | CurrentTime=%.3f | LastFire=%.3f | TimeSinceLastFire=%.3f | Cooldown=%.3f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] CooldownCheck | CurrentTime=%.3f | LastFire=%.3f | TimeSinceLastFire=%.3f | Cooldown=%.3f"),
         CurrentTime,
         LastFire,
         TimeSinceLastFire,
@@ -77,8 +75,7 @@ bool UWTBRFulgrisTrigger::Activate_Implementation(
 
     if (IsOnCooldown())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Fulgris Test] CooldownBlocked | TimeSinceLastFire=%.3f | Cooldown=%.3f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] CooldownBlocked | TimeSinceLastFire=%.3f | Cooldown=%.3f"),
             TimeSinceLastFire,
             Cooldown);
         return false;
@@ -86,38 +83,35 @@ bool UWTBRFulgrisTrigger::Activate_Implementation(
 
     if (!IsValid(ProjClass))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=ProjectileClassNull"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=ProjectileClassNull"));
         return false;
     }
 
     if (!IsValid(Vael))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=VaelComponentInvalid"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=VaelComponentInvalid"));
         return false;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Fulgris Test] ConsumeCheck | CurrentVael=%.2f | Cost=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] ConsumeCheck | CurrentVael=%.2f | Cost=%.2f"),
         Vael->GetCurrentVael(),
         VaelCost);
 
     if (!Vael->TryConsumeVael(VaelCost))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Fulgris Test] ConsumeFail | CurrentVael=%.2f | Cost=%.2f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] ConsumeFail | CurrentVael=%.2f | Cost=%.2f"),
             Vael->GetCurrentVael(),
             VaelCost);
         return false;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Fulgris Test] ConsumeSuccess | NewVael=%.2f | Cost=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] ConsumeSuccess | NewVael=%.2f | Cost=%.2f"),
         Vael->GetCurrentVael(),
         VaelCost);
 
     if (!FireSniper(ProjClass, Damage, Speed, Range, false, CubeSplit))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=SpawnFailed"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=SpawnFailed"));
         return false;
     }
     StartCooldown();

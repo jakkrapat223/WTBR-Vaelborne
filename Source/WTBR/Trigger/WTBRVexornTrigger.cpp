@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRVexornTrigger.h"
+#include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
@@ -19,14 +20,12 @@ bool UWTBRVexornTrigger::Activate_Implementation(
         ? DataAsset->VexornParams.VexornVaelCost
         : 0.0f;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Vexorn Test] Activate Start | Owner=%s | HasAuthority=%s | Passive=true | TrapSpawn=false | SphereOverlap=true | SignalBlock=true | CurrentVael=%.2f | VaelCost=%.2f | Cooldown=None"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Activate Start | Owner=%s | HasAuthority=%s | Passive=true | TrapSpawn=false | SphereOverlap=true | SignalBlock=true | CurrentVael=%.2f | VaelCost=%.2f | Cooldown=None"),
         *GetNameSafe(OwnerCharacter.Get()),
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"),
         CurrentVael,
         VexornCost);
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Vexorn Test] Activate NoOp | Reason=PassiveManagedByEquip | Returns=false"));
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Activate NoOp | Reason=PassiveManagedByEquip | Returns=false"));
     return false;
 }
 
@@ -34,16 +33,14 @@ void UWTBRVexornTrigger::OnReleased_Implementation(
     const FInputActionValue& /*InputValue*/,
     bool /*bIsDualWield*/)
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Vexorn Test] Release | Owner=%s | HasAuthority=%s | Passive=true | Action=NoOp"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Release | Owner=%s | HasAuthority=%s | Passive=true | Action=NoOp"),
         *GetNameSafe(OwnerCharacter.Get()),
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"));
 }
 
 void UWTBRVexornTrigger::Deactivate_Implementation()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Vexorn Test] Deactivate | Owner=%s | HasAuthority=%s | SuppressionActive=%s | Tracked=%d | Action=NoOp"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Deactivate | Owner=%s | HasAuthority=%s | SuppressionActive=%s | Tracked=%d | Action=NoOp"),
         *GetNameSafe(OwnerCharacter.Get()),
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"),
         bSuppressionActive ? TEXT("true") : TEXT("false"),
@@ -52,24 +49,23 @@ void UWTBRVexornTrigger::Deactivate_Implementation()
 
 void UWTBRVexornTrigger::OnEquipped()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Vexorn Test] Equipped | Owner=%s | HasAuthority=%s | Passive=true | TrapSpawn=false | SphereOverlap=true | SignalBlock=true"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Equipped | Owner=%s | HasAuthority=%s | Passive=true | TrapSpawn=false | SphereOverlap=true | SignalBlock=true"),
         *GetNameSafe(OwnerCharacter.Get()),
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"));
 
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=OwnerInvalid | Function=OnEquipped"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=OwnerInvalid | Function=OnEquipped"));
         return;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=NoAuthority | Function=OnEquipped"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=NoAuthority | Function=OnEquipped"));
         return;
     }
     if (!GetWorld())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=WorldInvalid | Function=OnEquipped"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=WorldInvalid | Function=OnEquipped"));
         return;
     }
 
@@ -86,16 +82,14 @@ void UWTBRVexornTrigger::OnEquipped()
         0.5f,
         true);
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Vexorn Test] TimerStart | Owner=%s | Interval=0.500 | SuppressionActive=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] TimerStart | Owner=%s | Interval=0.500 | SuppressionActive=%s"),
         *GetNameSafe(OwnerCharacter.Get()),
         bSuppressionActive ? TEXT("true") : TEXT("false"));
 }
 
 void UWTBRVexornTrigger::OnUnequipped()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Vexorn Test] Unequipped | Owner=%s | HasAuthority=%s | SuppressionActive=%s | Tracked=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Unequipped | Owner=%s | HasAuthority=%s | SuppressionActive=%s | Tracked=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"),
         bSuppressionActive ? TEXT("true") : TEXT("false"),
@@ -103,17 +97,17 @@ void UWTBRVexornTrigger::OnUnequipped()
 
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=OwnerInvalid | Function=OnUnequipped"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=OwnerInvalid | Function=OnUnequipped"));
         return;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=NoAuthority | Function=OnUnequipped"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=NoAuthority | Function=OnUnequipped"));
         return;
     }
     if (!GetWorld())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=WorldInvalid | Function=OnUnequipped"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=WorldInvalid | Function=OnUnequipped"));
         return;
     }
 
@@ -121,8 +115,7 @@ void UWTBRVexornTrigger::OnUnequipped()
     OnRep_bSuppressionActive();
 
     GetWorld()->GetTimerManager().ClearTimer(TimerHandle_SuppressionPulse);
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Vexorn Test] TimerStop | Owner=%s | SuppressionActive=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] TimerStop | Owner=%s | SuppressionActive=%s"),
         *GetNameSafe(OwnerCharacter.Get()),
         bSuppressionActive ? TEXT("true") : TEXT("false"));
     RemoveSuppressionFromAll();
@@ -132,23 +125,23 @@ void UWTBRVexornTrigger::TickSuppression()
 {
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=OwnerInvalid | Function=TickSuppression"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=OwnerInvalid | Function=TickSuppression"));
         return;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=NoAuthority | Function=TickSuppression"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=NoAuthority | Function=TickSuppression"));
         return;
     }
     if (!IsValid(DataAsset))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=DataAssetInvalid | Function=TickSuppression"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=DataAssetInvalid | Function=TickSuppression"));
         return;
     }
     UWorld* World = GetWorld();
     if (!IsValid(World))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=WorldInvalid | Function=TickSuppression"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=WorldInvalid | Function=TickSuppression"));
         return;
     }
 
@@ -182,7 +175,7 @@ void UWTBRVexornTrigger::TickSuppression()
         World->GetSubsystem<UWTBRActionPingSubsystem>();
     if (!IsValid(PingSys))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=PingSubsystemInvalid | Function=TickSuppression"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=PingSubsystemInvalid | Function=TickSuppression"));
         return;
     }
 
@@ -192,8 +185,7 @@ void UWTBRVexornTrigger::TickSuppression()
         || LastTargetCount != CurrentlyOverlapping.Num();
     if (bCountsChanged || CurrentTime - LastPulseLogTime >= 2.0f)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Vexorn Test] OverlapPulse | Owner=%s | Radius=%.1f | RawOverlaps=%d | ValidTargets=%d | TrackedBefore=%d | SuppressionActive=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] OverlapPulse | Owner=%s | Radius=%.1f | RawOverlaps=%d | ValidTargets=%d | TrackedBefore=%d | SuppressionActive=%s"),
             *GetNameSafe(OwnerCharacter.Get()),
             Radius,
             Overlaps.Num(),
@@ -211,8 +203,7 @@ void UWTBRVexornTrigger::TickSuppression()
         if (!OldTarget.IsValid()) continue;
         if (!CurrentlyOverlapping.Contains(OldTarget))
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Vexorn Test] SignalBlockRemoved | Owner=%s | Target=%s | Reason=LeftRadius"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] SignalBlockRemoved | Owner=%s | Target=%s | Reason=LeftRadius"),
                 *GetNameSafe(OwnerCharacter.Get()),
                 *GetNameSafe(OldTarget.Get()));
             PingSys->UnregisterSignalBlock(OldTarget.Get());
@@ -225,13 +216,11 @@ void UWTBRVexornTrigger::TickSuppression()
         if (!NewTarget.IsValid()) continue;
         if (!TrackedSuppressed.Contains(NewTarget))
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Vexorn Test] TargetDetected | Owner=%s | Target=%s | Radius=%.1f"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] TargetDetected | Owner=%s | Target=%s | Radius=%.1f"),
                 *GetNameSafe(OwnerCharacter.Get()),
                 *GetNameSafe(NewTarget.Get()),
                 Radius);
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Vexorn Test] SignalBlockApplied | Owner=%s | Target=%s"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] SignalBlockApplied | Owner=%s | Target=%s"),
                 *GetNameSafe(OwnerCharacter.Get()),
                 *GetNameSafe(NewTarget.Get()));
             PingSys->RegisterSignalBlock(NewTarget.Get());
@@ -245,18 +234,18 @@ void UWTBRVexornTrigger::RemoveSuppressionFromAll()
 {
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=OwnerInvalid | Function=RemoveSuppressionFromAll"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=OwnerInvalid | Function=RemoveSuppressionFromAll"));
         return;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=NoAuthority | Function=RemoveSuppressionFromAll"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=NoAuthority | Function=RemoveSuppressionFromAll"));
         return;
     }
     UWorld* World = GetWorld();
     if (!IsValid(World))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=WorldInvalid | Function=RemoveSuppressionFromAll"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=WorldInvalid | Function=RemoveSuppressionFromAll"));
         return;
     }
 
@@ -264,7 +253,7 @@ void UWTBRVexornTrigger::RemoveSuppressionFromAll()
         World->GetSubsystem<UWTBRActionPingSubsystem>();
     if (!IsValid(PingSys))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Vexorn Test] Fail | Reason=PingSubsystemInvalid | Function=RemoveSuppressionFromAll"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] Fail | Reason=PingSubsystemInvalid | Function=RemoveSuppressionFromAll"));
         return;
     }
 
@@ -272,15 +261,13 @@ void UWTBRVexornTrigger::RemoveSuppressionFromAll()
     {
         if (Target.IsValid())
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Vexorn Test] SignalBlockRemoved | Owner=%s | Target=%s | Reason=CleanupAll"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] SignalBlockRemoved | Owner=%s | Target=%s | Reason=CleanupAll"),
                 *GetNameSafe(OwnerCharacter.Get()),
                 *GetNameSafe(Target.Get()));
             PingSys->UnregisterSignalBlock(Target.Get());
         }
     }
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Vexorn Test] CleanupComplete | Owner=%s | RemovedCount=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vexorn Test] CleanupComplete | Owner=%s | RemovedCount=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         TrackedSuppressed.Num());
     TrackedSuppressed.Empty();

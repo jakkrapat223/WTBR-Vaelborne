@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
+#include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
 #include "GameFramework/Character.h"
@@ -14,8 +15,7 @@ void UWTBRVoltisLaunchTrigger::InitializeTrigger(
     UWTBRTriggerDataAsset* InDataAsset)
 {
     Super::InitializeTrigger(InOwnerCharacter, InDataAsset);
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] Initialize | Trigger=%s | TriggerClass=%s | Owner=%s | HasAuthority=%s | DataAsset=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Initialize | Trigger=%s | TriggerClass=%s | Owner=%s | HasAuthority=%s | DataAsset=%s"),
         *GetNameSafe(this),
         *GetNameSafe(GetClass()),
         *GetNameSafe(InOwnerCharacter),
@@ -24,16 +24,14 @@ void UWTBRVoltisLaunchTrigger::InitializeTrigger(
 
     if (!IsValid(InDataAsset))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=DataAssetInvalid | Function=Initialize | Trigger=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=DataAssetInvalid | Function=Initialize | Trigger=%s"),
             *GetNameSafe(this));
         return;
     }
 
     RemainingLaunches = InDataAsset->VoltisParams.MaxAirLaunches;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] Params | Trigger=%s | VaelCost=%.2f | Cooldown=None | VerticalForce=%.1f | HorizontalForce=%.1f | DirectionalHorizontalForce=%.1f | DirectionalVerticalForce=%.1f | MaxAirLaunches=%d | TrapRadius=%.1f | TrapDamage=%.1f | TrapLifetime=%.1f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Params | Trigger=%s | VaelCost=%.2f | Cooldown=None | VerticalForce=%.1f | HorizontalForce=%.1f | DirectionalHorizontalForce=%.1f | DirectionalVerticalForce=%.1f | MaxAirLaunches=%d | TrapRadius=%.1f | TrapDamage=%.1f | TrapLifetime=%.1f"),
         *GetNameSafe(this),
         InDataAsset->VaelCostPerUse,
         InDataAsset->VoltisParams.VerticalLaunchForce,
@@ -70,8 +68,7 @@ bool UWTBRVoltisLaunchTrigger::Activate_Implementation(
     const float CurrentVael = OwnerCharacter.IsValid() && IsValid(OwnerCharacter->VaelComponent)
         ? OwnerCharacter->VaelComponent->GetCurrentVael()
         : -1.0f;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] Activate Start | Trigger=%s | TriggerClass=%s | Owner=%s | HasAuthority=%s | DataAsset=%s | DualWield=%s | CurrentVael=%.2f | RemainingLaunches=%d | Staggered=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Activate Start | Trigger=%s | TriggerClass=%s | Owner=%s | HasAuthority=%s | DataAsset=%s | DualWield=%s | CurrentVael=%.2f | RemainingLaunches=%d | Staggered=%s"),
         *GetNameSafe(this),
         *GetNameSafe(GetClass()),
         *GetNameSafe(OwnerCharacter.Get()),
@@ -84,35 +81,31 @@ bool UWTBRVoltisLaunchTrigger::Activate_Implementation(
 
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Movement Test] Blocked | Reason=OwnerInvalid | Function=Activate"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=OwnerInvalid | Function=Activate"));
         return false;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=NoAuthority | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=NoAuthority | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
     if (!IsValid(DataAsset))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=DataAssetInvalid | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=DataAssetInvalid | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
     if (bIsStaggered)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=Staggered | Owner=%s | RemainingLaunches=%d"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=Staggered | Owner=%s | RemainingLaunches=%d"),
             *GetNameSafe(OwnerCharacter.Get()),
             RemainingLaunches);
         return false;
     }
     if (RemainingLaunches <= 0)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=NoRemainingLaunches | Owner=%s | RemainingLaunches=%d"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=NoRemainingLaunches | Owner=%s | RemainingLaunches=%d"),
             *GetNameSafe(OwnerCharacter.Get()),
             RemainingLaunches);
         return false;
@@ -120,8 +113,7 @@ bool UWTBRVoltisLaunchTrigger::Activate_Implementation(
 
     if (!Super::Activate_Implementation(InputValue, bIsDualWield))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=SuperActivateFalse | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=SuperActivateFalse | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
@@ -184,8 +176,7 @@ bool UWTBRVoltisLaunchTrigger::Activate_Implementation(
         LaunchDir = FVector(0.0f, 0.0f, VerticalForceUsed);
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] MovementStart | Owner=%s | ClientInputDir=%s | RawInputVec=%s | Velocity2D=%s | FinalHorizontalDir=%s | bDirectionalLaunch=%s | HorizontalForceUsed=%.1f | VerticalForceUsed=%.1f | LaunchDir=%s | DirectionSource=%s | DirectionalHorizontalForce=%.1f | DirectionalVerticalForce=%.1f | RemainingBefore=%d | VaelCost=%.2f | Cooldown=None"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] MovementStart | Owner=%s | ClientInputDir=%s | RawInputVec=%s | Velocity2D=%s | FinalHorizontalDir=%s | bDirectionalLaunch=%s | HorizontalForceUsed=%.1f | VerticalForceUsed=%.1f | LaunchDir=%s | DirectionSource=%s | DirectionalHorizontalForce=%.1f | DirectionalVerticalForce=%.1f | RemainingBefore=%d | VaelCost=%.2f | Cooldown=None"),
         *GetNameSafe(OwnerCharacter.Get()),
         *ClientInputDir.ToString(),
         *RawInputVec.ToString(),
@@ -211,8 +202,7 @@ bool UWTBRVoltisLaunchTrigger::Activate_Implementation(
             Vel.Z = 0.0f;
             Char->GetCharacterMovement()->Velocity = Vel;
         }
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=LaunchPathBlocked | Owner=%s | LaunchDir=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=LaunchPathBlocked | Owner=%s | LaunchDir=%s"),
             *GetNameSafe(OwnerCharacter.Get()),
             *LaunchDir.ToString());
         return false;
@@ -220,8 +210,7 @@ bool UWTBRVoltisLaunchTrigger::Activate_Implementation(
 
     PerformLaunch(bIsDualWield, LaunchDir);
     RemainingLaunches--;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] MovementApplied | Owner=%s | LaunchDir=%s | RemainingAfter=%d | DualWield=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] MovementApplied | Owner=%s | LaunchDir=%s | RemainingAfter=%d | DualWield=%s"),
         *GetNameSafe(OwnerCharacter.Get()),
         *LaunchDir.ToString(),
         RemainingLaunches,
@@ -235,8 +224,7 @@ void UWTBRVoltisLaunchTrigger::OnReleased_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] Release | Trigger=%s | Owner=%s | HasAuthority=%s | DualWield=%s | Behavior=None"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Release | Trigger=%s | Owner=%s | HasAuthority=%s | DualWield=%s | Behavior=None"),
         *GetNameSafe(this),
         *GetNameSafe(OwnerCharacter.Get()),
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"),
@@ -246,8 +234,7 @@ void UWTBRVoltisLaunchTrigger::OnReleased_Implementation(
 
 void UWTBRVoltisLaunchTrigger::Deactivate_Implementation()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] Cancel | Trigger=%s | Owner=%s | HasAuthority=%s | RemainingLaunches=%d | Staggered=%s | Behavior=None"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Cancel | Trigger=%s | Owner=%s | HasAuthority=%s | RemainingLaunches=%d | Staggered=%s | Behavior=None"),
         *GetNameSafe(this),
         *GetNameSafe(OwnerCharacter.Get()),
         OwnerCharacter.IsValid() && OwnerCharacter->HasAuthority() ? TEXT("true") : TEXT("false"),
@@ -260,8 +247,7 @@ bool UWTBRVoltisLaunchTrigger::HasCeilingNearby(const FVector& LaunchDir) const
 {
     if (!OwnerCharacter.IsValid() || !GetWorld())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=PathBlockCheckInvalid | Owner=%s | WorldValid=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=PathBlockCheckInvalid | Owner=%s | WorldValid=%s"),
             *GetNameSafe(OwnerCharacter.Get()),
             GetWorld() ? TEXT("true") : TEXT("false"));
         return false;
@@ -282,8 +268,7 @@ bool UWTBRVoltisLaunchTrigger::HasCeilingNearby(const FVector& LaunchDir) const
         bHit ? FColor::Red : FColor::Green, false, 0.5f, 0, 2.0f);
 #endif
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] PathBlockCheck | Owner=%s | Start=%s | End=%s | Hit=%s | HitActor=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] PathBlockCheck | Owner=%s | Start=%s | End=%s | Hit=%s | HitActor=%s"),
         *GetNameSafe(OwnerCharacter.Get()),
         *Start.ToString(),
         *End.ToString(),
@@ -297,27 +282,24 @@ void UWTBRVoltisLaunchTrigger::PerformLaunch(bool bIsDualWield, const FVector& L
 {
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Movement Test] Blocked | Reason=OwnerInvalid | Function=PerformLaunch"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=OwnerInvalid | Function=PerformLaunch"));
         return;
     }
     if (!IsValid(DataAsset))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=DataAssetInvalid | Function=PerformLaunch | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=DataAssetInvalid | Function=PerformLaunch | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return;
     }
     ACharacter* Char = Cast<ACharacter>(OwnerCharacter.Get());
     if (!IsValid(Char))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=OwnerNotCharacter | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=OwnerNotCharacter | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] LaunchCharacter | Owner=%s | LaunchDir=%s | DualWield=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] LaunchCharacter | Owner=%s | LaunchDir=%s | DualWield=%s"),
         *GetNameSafe(Char),
         *LaunchDir.ToString(),
         bIsDualWield ? TEXT("true") : TEXT("false"));
@@ -328,13 +310,12 @@ void UWTBRVoltisLaunchTrigger::OnCharacterLanded(const FHitResult& Hit)
 {
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Movement Test] Blocked | Reason=OwnerInvalid | Function=OnCharacterLanded"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=OwnerInvalid | Function=OnCharacterLanded"));
         return;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Movement Test] Blocked | Reason=NoAuthority | Function=OnCharacterLanded | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=NoAuthority | Function=OnCharacterLanded | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return;
     }
@@ -342,8 +323,7 @@ void UWTBRVoltisLaunchTrigger::OnCharacterLanded(const FHitResult& Hit)
     if (IsValid(DataAsset))
         RemainingLaunches = DataAsset->VoltisParams.MaxAirLaunches;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] MovementEnd | Owner=%s | HitActor=%s | ResetRemaining=%d | CeilingBounce=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] MovementEnd | Owner=%s | HitActor=%s | ResetRemaining=%d | CeilingBounce=%s"),
         *GetNameSafe(OwnerCharacter.Get()),
         *GetNameSafe(Hit.GetActor()),
         RemainingLaunches,
@@ -366,12 +346,11 @@ void UWTBRVoltisLaunchTrigger::StartStagger()
 {
     if (!GetWorld())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Movement Test] Blocked | Reason=WorldInvalid | Function=StartStagger"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=WorldInvalid | Function=StartStagger"));
         return;
     }
     bIsStaggered = true;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] StaggerStart | Owner=%s | Duration=%.3f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] StaggerStart | Owner=%s | Duration=%.3f"),
         *GetNameSafe(OwnerCharacter.Get()),
         STAGGER_DURATION);
     GetWorld()->GetTimerManager().SetTimer(
@@ -384,15 +363,13 @@ void UWTBRVoltisLaunchTrigger::StartStagger()
 void UWTBRVoltisLaunchTrigger::OnStaggerExpired()
 {
     bIsStaggered = false;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] StaggerEnd | Owner=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] StaggerEnd | Owner=%s"),
         *GetNameSafe(OwnerCharacter.Get()));
 }
 
 void UWTBRVoltisLaunchTrigger::OnRep_bIsStaggered()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Movement Test] ReplicationObserved | Trigger=%s | Owner=%s | bIsStaggered=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] ReplicationObserved | Trigger=%s | Owner=%s | bIsStaggered=%s"),
         *GetNameSafe(this),
         *GetNameSafe(OwnerCharacter.Get()),
         bIsStaggered ? TEXT("true") : TEXT("false"));

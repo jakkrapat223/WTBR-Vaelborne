@@ -1,6 +1,7 @@
 // Copyright Vaelborne: Dominion. All Rights Reserved.
 
 #include "Trigger/WTBRTriggerSetComponent.h"
+#include "WTBRValidationLog.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
 #include "Trigger/WTBRAegornTrigger.h"
 #include "Trigger/WTBRSerpveilTrigger.h"
@@ -166,8 +167,7 @@ void UWTBRTriggerSetComponent::CycleMainSlot()
     const int32 NewIndex = (ActiveMainIndex + 1) % MainSlotCount;
     ActiveMainIndex = NewIndex;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test34 CycleMainSlot] Owner=%s | Old=%d | New=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test34 CycleMainSlot] Owner=%s | Old=%d | New=%d"),
         *GetNameSafe(GetOwner()),
         OldIndex,
         NewIndex);
@@ -179,8 +179,7 @@ void UWTBRTriggerSetComponent::CycleMainSlot()
             InstantiateRuntimeTrigger(NewIndex);
             UpdateDualWieldState();
             OnActiveTriggerChanged.Broadcast((ETriggerSlot)NewIndex);
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Test34 CycleMainSlot Complete] Owner=%s | ActiveMainIndex=%d | Trigger=%s"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Test34 CycleMainSlot Complete] Owner=%s | ActiveMainIndex=%d | Trigger=%s"),
                 *GetNameSafe(GetOwner()),
                 ActiveMainIndex,
                 *GetNameSafe(GetActiveMainTrigger()));
@@ -196,8 +195,7 @@ void UWTBRTriggerSetComponent::CycleSubSlot()
     const int32 NewRelativeIndex = (OldAbsIndex - MainSlotCount + 1) % SubSlotCount;
     const int32 NewAbsIndex      = NewRelativeIndex + MainSlotCount;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test34 CycleSubSlot] Owner=%s | Old=%d | New=%d"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test34 CycleSubSlot] Owner=%s | Old=%d | New=%d"),
         *GetNameSafe(GetOwner()),
         OldAbsIndex,
         NewAbsIndex);
@@ -222,8 +220,7 @@ void UWTBRTriggerSetComponent::CycleSubSlot()
                 OnSubTriggerEquipped.Broadcast(RuntimeTriggers[NewAbsIndex]);
             }
             OnActiveTriggerChanged.Broadcast((ETriggerSlot)NewAbsIndex);
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Test34 CycleSubSlot Complete] Owner=%s | ActiveSubIndex=%d | Trigger=%s"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Test34 CycleSubSlot Complete] Owner=%s | ActiveSubIndex=%d | Trigger=%s"),
                 *GetNameSafe(GetOwner()),
                 ActiveSubIndex,
                 *GetNameSafe(GetActiveSubTrigger()));
@@ -387,8 +384,7 @@ void UWTBRTriggerSetComponent::RequestClientSlotDataAssetLoad(int32 SlotIndex, c
         OnActiveTriggerChanged.Broadcast((ETriggerSlot)SlotIndex);
 
         const UWTBRTriggerDataAsset* DataAsset = Slot.DataAsset.Get();
-        UE_LOG(LogTemp, Warning,
-            TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=%s | DataAssetLoaded=true | AsyncRequested=false | AsyncCompleted=true | RuntimeTriggerValid=%s | Name=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=%s | DataAssetLoaded=true | AsyncRequested=false | AsyncCompleted=true | RuntimeTriggerValid=%s | Name=%s"),
             *GetNameSafe(GetOwner()),
             HasServerAuthority() ? TEXT("true") : TEXT("false"),
             LocalText,
@@ -402,8 +398,7 @@ void UWTBRTriggerSetComponent::RequestClientSlotDataAssetLoad(int32 SlotIndex, c
 
     if (!bSoftPathValid)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=false | DataAssetLoaded=false | AsyncRequested=false | AsyncCompleted=false | RuntimeTriggerValid=%s | Name=None"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=false | DataAssetLoaded=false | AsyncRequested=false | AsyncCompleted=false | RuntimeTriggerValid=%s | Name=None"),
             *GetNameSafe(GetOwner()),
             HasServerAuthority() ? TEXT("true") : TEXT("false"),
             LocalText,
@@ -416,8 +411,7 @@ void UWTBRTriggerSetComponent::RequestClientSlotDataAssetLoad(int32 SlotIndex, c
 
     if (PendingSlotLoads.Contains(SlotIndex))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=true | DataAssetLoaded=false | AsyncRequested=false | AsyncCompleted=false | RuntimeTriggerValid=%s | Name=Pending"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=true | DataAssetLoaded=false | AsyncRequested=false | AsyncCompleted=false | RuntimeTriggerValid=%s | Name=Pending"),
             *GetNameSafe(GetOwner()),
             HasServerAuthority() ? TEXT("true") : TEXT("false"),
             LocalText,
@@ -454,8 +448,7 @@ void UWTBRTriggerSetComponent::RequestClientSlotDataAssetLoad(int32 SlotIndex, c
 
             PendingSlotLoads.Remove(SlotIndex);
 
-            UE_LOG(LogTemp, Warning,
-                TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=AsyncComplete | SoftPathValid=%s | DataAssetLoaded=%s | AsyncRequested=true | AsyncCompleted=true | RuntimeTriggerValid=%s | Name=%s"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=AsyncComplete | SoftPathValid=%s | DataAssetLoaded=%s | AsyncRequested=true | AsyncCompleted=true | RuntimeTriggerValid=%s | Name=%s"),
                 *GetNameSafe(GetOwner()),
                 HasServerAuthority() ? TEXT("true") : TEXT("false"),
                 LoadedLocalText,
@@ -473,8 +466,7 @@ void UWTBRTriggerSetComponent::RequestClientSlotDataAssetLoad(int32 SlotIndex, c
         PendingSlotLoads.Add(SlotIndex, Handle);
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=true | DataAssetLoaded=false | AsyncRequested=%s | AsyncCompleted=false | RuntimeTriggerValid=%s | Name=Loading"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[HUD Hint Test] SlotLoad | Owner=%s | Auth=%s | Local=%s | Slot=%d | Reason=%s | SoftPathValid=true | DataAssetLoaded=false | AsyncRequested=%s | AsyncCompleted=false | RuntimeTriggerValid=%s | Name=Loading"),
         *GetNameSafe(GetOwner()),
         HasServerAuthority() ? TEXT("true") : TEXT("false"),
         LocalText,
@@ -623,8 +615,7 @@ void UWTBRTriggerSetComponent::Server_TEMP_TEST46_PlaceAegornWall_Implementation
 
     UWTBRTriggerBase* Trigger = bIsMain ? GetActiveMainTrigger() : GetActiveSubTrigger();
     UWTBRAegornTrigger* AegornTrigger = Cast<UWTBRAegornTrigger>(Trigger);
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] TEMP_TEST46 Request | Owner=%s | Main=%s | Trigger=%s | IsAegorn=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] TEMP_TEST46 Request | Owner=%s | Main=%s | Trigger=%s | IsAegorn=%s"),
         *GetNameSafe(GetOwner()),
         bIsMain ? TEXT("true") : TEXT("false"),
         *GetNameSafe(Trigger),

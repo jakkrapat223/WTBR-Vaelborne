@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRAegornTrigger.h"
+#include "WTBRValidationLog.h"
 #include "Actors/WTBRAegornWallActor.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
@@ -88,14 +89,12 @@ bool UWTBRAegornTrigger::CancelShield()
 {
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Cancel Test] Blocked | Reason=InvalidOwner | Trigger=Aegorn"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] Blocked | Reason=InvalidOwner | Trigger=Aegorn"));
         return false;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Cancel Test] Blocked | Reason=NoAuthority | Trigger=Aegorn | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] Blocked | Reason=NoAuthority | Trigger=Aegorn | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
@@ -105,8 +104,7 @@ bool UWTBRAegornTrigger::CancelShield()
     }
 
     LowerShield();
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Cancel Test] AegornShieldCanceled | Owner=%s | ShieldActive=false"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] AegornShieldCanceled | Owner=%s | ShieldActive=false"),
         *GetNameSafe(OwnerCharacter.Get()));
     return true;
 }
@@ -182,8 +180,7 @@ void UWTBRAegornTrigger::PlaceWall()
     UWTBRVaelComponent* Vael = OwnerCharacter.IsValid() ? OwnerCharacter->VaelComponent : nullptr;
     const float CurrentVael = IsValid(Vael) ? Vael->GetCurrentVael() : -1.0f;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] PlaceWall Start | Owner=%s | Authority=%s | CurrentVael=%.2f | Cost=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] PlaceWall Start | Owner=%s | Authority=%s | CurrentVael=%.2f | Cost=%.2f"),
         *GetNameSafe(OwnerChar),
         bHasAuthority ? TEXT("true") : TEXT("false"),
         CurrentVael,
@@ -193,38 +190,33 @@ void UWTBRAegornTrigger::PlaceWall()
     if (!OwnerCharacter->HasAuthority()) return;
     if (!IsValid(DataAsset))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 AegornWall] PlaceWall Abort | Owner=%s | Reason=DataAsset invalid"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] PlaceWall Abort | Owner=%s | Reason=DataAsset invalid"),
             *GetNameSafe(OwnerCharacter.Get()));
         return;
     }
 
     if (!IsValid(Vael) || !Vael->TryConsumeVael(DataAsset->VaelCostPerUse))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 AegornWall] ConsumeFail | CurrentVael=%.2f | Cost=%.2f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] ConsumeFail | CurrentVael=%.2f | Cost=%.2f"),
             IsValid(Vael) ? Vael->GetCurrentVael() : -1.0f,
             DataAsset->VaelCostPerUse);
         return;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] ConsumeSuccess | NewVael=%.2f | Cost=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] ConsumeSuccess | NewVael=%.2f | Cost=%.2f"),
         Vael->GetCurrentVael(),
         DataAsset->VaelCostPerUse);
 
     if (WallActorClass.IsNull())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 AegornWall] SpawnFail | Class=null | Reason=WallActorClass null"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] SpawnFail | Class=null | Reason=WallActorClass null"));
         return;
     }
     TSubclassOf<AWTBRAegornWallActor> WallClass =
         WallActorClass.LoadSynchronous();
     if (!IsValid(WallClass))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 AegornWall] SpawnFail | Class=%s | Reason=Load failed"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] SpawnFail | Class=%s | Reason=Load failed"),
             *WallActorClass.ToString());
         return;
     }
@@ -233,8 +225,7 @@ void UWTBRAegornTrigger::PlaceWall()
         + OwnerCharacter->GetActorForwardVector() * 150.0f;
     const FRotator SpawnRot = OwnerCharacter->GetActorRotation();
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] SpawnAttempt | Class=%s | Location=%s | Rotation=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] SpawnAttempt | Class=%s | Location=%s | Rotation=%s"),
         *GetNameSafe(WallClass.Get()),
         *SpawnLoc.ToString(),
         *SpawnRot.ToString());
@@ -252,8 +243,7 @@ void UWTBRAegornTrigger::PlaceWall()
     if (IsValid(Wall))
     {
         Wall->InitializeWall(DataAsset->AegornParams.AegornWallHP);
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 AegornWall] SpawnSuccess | Wall=%s | Location=%s | Rotation=%s | WallHP=%.1f | MaxWallHP=%.1f | Replicates=%s | AlwaysRelevant=%s | OnlyRelevantToOwner=%s | NetCullDistanceSq=%.1f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] SpawnSuccess | Wall=%s | Location=%s | Rotation=%s | WallHP=%.1f | MaxWallHP=%.1f | Replicates=%s | AlwaysRelevant=%s | OnlyRelevantToOwner=%s | NetCullDistanceSq=%.1f"),
             *GetNameSafe(Wall),
             *Wall->GetActorLocation().ToString(),
             *Wall->GetActorRotation().ToString(),
@@ -268,8 +258,7 @@ void UWTBRAegornTrigger::PlaceWall()
     }
     else
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 AegornWall] SpawnFail | Class=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] SpawnFail | Class=%s"),
             *GetNameSafe(WallClass.Get()));
     }
 }

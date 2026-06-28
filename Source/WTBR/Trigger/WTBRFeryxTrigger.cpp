@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRFeryxTrigger.h"
+#include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 
 void UWTBRFeryxTrigger::PerformSingleSweep(TArray<FHitResult>& OutHits)
@@ -11,8 +12,7 @@ void UWTBRFeryxTrigger::PerformSingleSweep(TArray<FHitResult>& OutHits)
         UE_LOG(LogTemp, Warning,
             TEXT("[Feryx Sweep] Owner=%s | Auth=false | Dual=false | RawHits=0"),
             *GetNameSafe(OwnerCharacter.Get()));
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Feryx Test] Sweep | Owner=%s | Auth=false | Dual=false | RawHits=0 | Result=Rejected"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Feryx Test] Sweep | Owner=%s | Auth=false | Dual=false | RawHits=0 | Result=Rejected"),
             *GetNameSafe(OwnerCharacter.Get()));
         OnFeryxSwing(false, false);
         return;
@@ -23,8 +23,7 @@ void UWTBRFeryxTrigger::PerformSingleSweep(TArray<FHitResult>& OutHits)
         TEXT("[Feryx Sweep] Owner=%s | Auth=true | Dual=false | RawHits=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         OutHits.Num());
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Feryx Test] Sweep | Owner=%s | Auth=true | Dual=false | RawHits=%d | Result=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Feryx Test] Sweep | Owner=%s | Auth=true | Dual=false | RawHits=%d | Result=%s"),
         *GetNameSafe(OwnerCharacter.Get()),
         OutHits.Num(),
         OutHits.Num() > 0 ? TEXT("Hit") : TEXT("Miss"));
@@ -33,8 +32,7 @@ void UWTBRFeryxTrigger::PerformSingleSweep(TArray<FHitResult>& OutHits)
     {
         if (IsValid(DataAsset))
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Feryx Test] HitAttempt | Owner=%s | Target=%s | Damage=%.1f | Dual=false"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Feryx Test] HitAttempt | Owner=%s | Target=%s | Damage=%.1f | Dual=false"),
                 *GetNameSafe(OwnerCharacter.Get()),
                 *GetNameSafe(Hit.GetActor()),
                 DataAsset->BaseDamage);
@@ -52,8 +50,7 @@ void UWTBRFeryxTrigger::PerformDualSweep(TArray<FHitResult>& OutHits)
         UE_LOG(LogTemp, Warning,
             TEXT("[Feryx Sweep] Owner=%s | Auth=false | Dual=true | RawHits=0"),
             *GetNameSafe(OwnerCharacter.Get()));
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Feryx Test] Sweep | Owner=%s | Auth=false | Dual=true | RawHits=0 | Result=Rejected"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Feryx Test] Sweep | Owner=%s | Auth=false | Dual=true | RawHits=0 | Result=Rejected"),
             *GetNameSafe(OwnerCharacter.Get()));
         OnFeryxSwing(true, false);
         return;
@@ -64,8 +61,7 @@ void UWTBRFeryxTrigger::PerformDualSweep(TArray<FHitResult>& OutHits)
         TEXT("[Feryx Sweep] Owner=%s | Auth=true | Dual=true | RawHits=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         OutHits.Num());
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Feryx Test] Sweep | Owner=%s | Auth=true | Dual=true | RawHits=%d | Result=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Feryx Test] Sweep | Owner=%s | Auth=true | Dual=true | RawHits=%d | Result=%s"),
         *GetNameSafe(OwnerCharacter.Get()),
         OutHits.Num(),
         OutHits.Num() > 0 ? TEXT("Hit") : TEXT("Miss"));
@@ -76,8 +72,7 @@ void UWTBRFeryxTrigger::PerformDualSweep(TArray<FHitResult>& OutHits)
         {
             const float DualDmg = DataAsset->BaseDamage
                 * DataAsset->DualWieldStats.DamageMultiplier;
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Feryx Test] HitAttempt | Owner=%s | Target=%s | Damage=%.1f | Dual=true"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Feryx Test] HitAttempt | Owner=%s | Target=%s | Damage=%.1f | Dual=true"),
                 *GetNameSafe(OwnerCharacter.Get()),
                 *GetNameSafe(Hit.GetActor()),
                 DualDmg);

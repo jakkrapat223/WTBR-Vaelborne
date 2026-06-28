@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Actors/WTBRProjectileBase.h"
+#include "WTBRValidationLog.h"
 #include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/InterpToMovementComponent.h"
@@ -57,8 +58,7 @@ void AWTBRProjectileBase::BeginPlay()
         BoxCollision->SetGenerateOverlapEvents(true);
         BoxCollision->SetNotifyRigidBodyCollision(true);
 
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 ProjectileContact] CollisionConfig | Projectile=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | GenerateOverlap=%s | RespPawn=%d | RespWorldDynamic=%d | RespWorldStatic=%d | Extent=%s | Location=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 ProjectileContact] CollisionConfig | Projectile=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | GenerateOverlap=%s | RespPawn=%d | RespWorldDynamic=%d | RespWorldStatic=%d | Extent=%s | Location=%s"),
             *GetNameSafe(this),
             HasAuthority() ? TEXT("true") : TEXT("false"),
             static_cast<int32>(BoxCollision->GetCollisionEnabled()),
@@ -150,8 +150,7 @@ void AWTBRProjectileBase::Launch(FVector Direction, AActor* InInstigator)
     ProjectileMovement->Velocity = SafeDir * CachedSpeed;
     ProjectileMovement->Activate();
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test36 Projectile Launch] Projectile=%s | Dir=%s | Speed=%.2f | Velocity=%s | GravityScale=%.2f | UpdatedComponent=%s | Active=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test36 Projectile Launch] Projectile=%s | Dir=%s | Speed=%.2f | Velocity=%s | GravityScale=%.2f | UpdatedComponent=%s | Active=%s"),
         *GetNameSafe(this),
         *SafeDir.ToString(),
         CachedSpeed,
@@ -206,8 +205,7 @@ void AWTBRProjectileBase::OnOverlapBegin(
                 BoxCollision->GetCollisionObjectType()))
             : -1;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 ProjectileContact] Projectile=%s | ProjectileClass=%s | Other=%s | OtherClass=%s | OtherComp=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | OtherObjectType=%d | ResponseToOther=%d | OtherResponseToProjectile=%d | IsAegornWall=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 ProjectileContact] Projectile=%s | ProjectileClass=%s | Other=%s | OtherClass=%s | OtherComp=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | OtherObjectType=%d | ResponseToOther=%d | OtherResponseToProjectile=%d | IsAegornWall=%s"),
         *GetNameSafe(this),
         *GetNameSafe(GetClass()),
         *GetNameSafe(OtherActor),
@@ -220,11 +218,23 @@ void AWTBRProjectileBase::OnOverlapBegin(
         ProjectileResponseToOther,
         OtherResponseToProjectile,
         bIsAegornWall ? TEXT("true") : TEXT("false"));
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileOverlap | Projectile=%s | Attacker=%s | Target=%s | TargetClass=%s | HasAuthority=%s | Damage=%.1f | OwnerCategory=%d | CollisionEnabled=%d | ObjectType=%d | OtherObjectType=%d | ResponseToOther=%d | OtherResponseToProjectile=%d"),
+        *GetNameSafe(this),
+        *GetNameSafe(OwnerInstigator.Get()),
+        *GetNameSafe(OtherActor),
+        IsValid(OtherActor) ? *GetNameSafe(OtherActor->GetClass()) : TEXT("None"),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        BaseDamage,
+        static_cast<int32>(OwnerCategory),
+        ProjectileCollisionEnabled,
+        ProjectileObjectType,
+        OtherObjectType,
+        ProjectileResponseToOther,
+        OtherResponseToProjectile);
 
     if (OwnerCategory == ETriggerCategory::Gunner)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Acervyn Retest] HitAttempt | Projectile=%s | Other=%s | HasAuthority=%s | DamagedActors=%d | Damage=%.1f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitAttempt | Projectile=%s | Other=%s | HasAuthority=%s | DamagedActors=%d | Damage=%.1f"),
             *GetNameSafe(this),
             *GetNameSafe(OtherActor),
             HasAuthority() ? TEXT("true") : TEXT("false"),
@@ -234,10 +244,12 @@ void AWTBRProjectileBase::OnOverlapBegin(
 
     if (!HasAuthority())
     {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileRejected | Projectile=%s | Target=%s | Reason=NoAuthority"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor));
         if (OwnerCategory == ETriggerCategory::Gunner)
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Acervyn Retest] HitRejected | Reason=NoAuthority | Projectile=%s | Other=%s"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=NoAuthority | Projectile=%s | Other=%s"),
                 *GetNameSafe(this),
                 *GetNameSafe(OtherActor));
         }
@@ -245,20 +257,25 @@ void AWTBRProjectileBase::OnOverlapBegin(
     }
     if (!IsValid(OtherActor))
     {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileRejected | Projectile=%s | Target=%s | Reason=InvalidTarget"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor));
         if (OwnerCategory == ETriggerCategory::Gunner)
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Acervyn Retest] HitRejected | Reason=InvalidTarget | Projectile=%s"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=InvalidTarget | Projectile=%s"),
                 *GetNameSafe(this));
         }
         return;
     }
     if (OtherActor == OwnerInstigator)
     {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileRejected | Projectile=%s | Target=%s | Attacker=%s | Reason=SelfOwnerInstigator"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor),
+            *GetNameSafe(OwnerInstigator.Get()));
         if (OwnerCategory == ETriggerCategory::Gunner)
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Acervyn Retest] HitRejected | Reason=Self | Projectile=%s | Other=%s"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=Self | Projectile=%s | Other=%s"),
                 *GetNameSafe(this),
                 *GetNameSafe(OtherActor));
         }
@@ -273,10 +290,13 @@ void AWTBRProjectileBase::OnOverlapBegin(
 
     if (DamagedActors.Contains(OtherActor))
     {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileRejected | Projectile=%s | Target=%s | Reason=AlreadyHit | DamagedActors=%d"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor),
+            DamagedActors.Num());
         if (OwnerCategory == ETriggerCategory::Gunner)
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Acervyn Retest] HitRejected | Reason=AlreadyHit | Projectile=%s | Other=%s | DamagedActors=%d"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitRejected | Reason=AlreadyHit | Projectile=%s | Other=%s | DamagedActors=%d"),
                 *GetNameSafe(this),
                 *GetNameSafe(OtherActor),
                 DamagedActors.Num());
@@ -306,8 +326,7 @@ void AWTBRProjectileBase::OnOverlapBegin(
 
         if (OwnerCategory == ETriggerCategory::Gunner)
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Acervyn Retest] HitAccepted | Projectile=%s | Target=%s | Impact=%s | Damage=%.1f"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] HitAccepted | Projectile=%s | Target=%s | Impact=%s | Damage=%.1f"),
                 *GetNameSafe(this),
                 *GetNameSafe(HitChar),
                 *ImpactPoint.ToString(),
@@ -320,12 +339,24 @@ void AWTBRProjectileBase::OnOverlapBegin(
         if (IsValid(HitChar->HealthComponent))
         {
             const float OldHP = HitChar->HealthComponent->GetCurrentHP();
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileDamageApply | Projectile=%s | Attacker=%s | Target=%s | OldHP=%.1f | Damage=%.1f | ApplyDamageCalled=true"),
+                *GetNameSafe(this),
+                *GetNameSafe(OwnerInstigator.Get()),
+                *GetNameSafe(HitChar),
+                OldHP,
+                BaseDamage);
             HitChar->HealthComponent->ApplyDamage(BaseDamage, OwnerInstigator.Get());
             const float NewHP = HitChar->HealthComponent->GetCurrentHP();
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileDamageResult | Projectile=%s | Attacker=%s | Target=%s | OldHP=%.1f | Damage=%.1f | NewHP=%.1f"),
+                *GetNameSafe(this),
+                *GetNameSafe(OwnerInstigator.Get()),
+                *GetNameSafe(HitChar),
+                OldHP,
+                BaseDamage,
+                NewHP);
             if (OwnerCategory == ETriggerCategory::Gunner)
             {
-                UE_LOG(LogTemp, Warning,
-                    TEXT("[Acervyn Retest] DamageApplied | Projectile=%s | Target=%s | Damage=%.1f | OldHP=%.1f | NewHP=%.1f | DamagedActors=%d"),
+                WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] DamageApplied | Projectile=%s | Target=%s | Damage=%.1f | OldHP=%.1f | NewHP=%.1f | DamagedActors=%d"),
                     *GetNameSafe(this),
                     *GetNameSafe(HitChar),
                     BaseDamage,
@@ -335,13 +366,18 @@ void AWTBRProjectileBase::OnOverlapBegin(
             }
             if (OwnerCategory == ETriggerCategory::SniperBullet)
             {
-                UE_LOG(LogTemp, Warning,
-                    TEXT("[Fulgris Test] DamageApplied | Target=%s | Damage=%.1f | OldHP=%.1f | NewHP=%.1f"),
+                WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] DamageApplied | Target=%s | Damage=%.1f | OldHP=%.1f | NewHP=%.1f"),
                     *GetNameSafe(HitChar),
                     BaseDamage,
                     OldHP,
                     NewHP);
             }
+        }
+        else
+        {
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileRejected | Projectile=%s | Target=%s | Reason=HealthComponentInvalid"),
+                *GetNameSafe(this),
+                *GetNameSafe(HitChar));
         }
 
         if (KnockbackForce > 0.0f)
@@ -394,8 +430,7 @@ void AWTBRProjectileBase::OnProjectileHit(
                 BoxCollision->GetCollisionObjectType()))
             : -1;
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 ProjectileContact] Hit | Projectile=%s | ProjectileClass=%s | Other=%s | OtherClass=%s | OtherComp=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | OtherObjectType=%d | ResponseToOther=%d | OtherResponseToProjectile=%d | IsAegornWall=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 ProjectileContact] Hit | Projectile=%s | ProjectileClass=%s | Other=%s | OtherClass=%s | OtherComp=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | OtherObjectType=%d | ResponseToOther=%d | OtherResponseToProjectile=%d | IsAegornWall=%s"),
         *GetNameSafe(this),
         *GetNameSafe(GetClass()),
         *GetNameSafe(OtherActor),
@@ -421,12 +456,20 @@ void AWTBRProjectileBase::OnProjectileHit(
 
     if (AWTBRProjectileBase* OtherBullet = Cast<AWTBRProjectileBase>(OtherActor))
     {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileRejected | Projectile=%s | Target=%s | Reason=BulletClash"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherBullet));
         OnBulletClash(OtherBullet);
         return;
     }
 
     if (bExplodeOnImpact)
     {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileExplosion | Projectile=%s | Target=%s | Damage=%.1f | Radius=%.1f"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor),
+            BaseDamage,
+            ExplosionRadius);
         TriggerExplosion();
         return;
     }

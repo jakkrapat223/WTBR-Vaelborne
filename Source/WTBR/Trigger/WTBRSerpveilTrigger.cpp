@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRSerpveilTrigger.h"
+#include "WTBRValidationLog.h"
 #include "Actors/WTBRProjectileBase.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Subsystem/WTBRActionPingSubsystem.h"
@@ -31,8 +32,7 @@ void UWTBRSerpveilTrigger::OnTriggerActivated_Implementation(
 
     const UWTBRVaelComponent* VaelComp = OwnerCharacter->VaelComponent;
     const float CurrentVael = IsValid(VaelComp) ? VaelComp->GetCurrentVael() : -1.0f;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Serpveil SpamTest] Pressed | Owner=%s | Main=%s | Time=%.3f | CurrentVael=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] Pressed | Owner=%s | Main=%s | Time=%.3f | CurrentVael=%.2f"),
         *GetNameSafe(OwnerCharacter.Get()),
         bIsMain ? TEXT("true") : TEXT("false"),
         ChargeStartTime,
@@ -66,8 +66,7 @@ void UWTBRSerpveilTrigger::OnTriggerDeactivated_Implementation(
 
     if (!bIsCharging)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Cancel Test] Resolved | Reason=NoRemainingAction | Trigger=Serpveil | Owner=%s | Main=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] Resolved | Reason=NoRemainingAction | Trigger=Serpveil | Owner=%s | Main=%s"),
             *GetNameSafe(OwnerCharacter.Get()),
             bIsMain ? TEXT("true") : TEXT("false"));
         if (OwnerCharacter->IsLocallyControlled())
@@ -98,8 +97,7 @@ void UWTBRSerpveilTrigger::OnTriggerDeactivated_Implementation(
     FRotator EyeRot;
     OwnerCharacter->GetActorEyesViewPoint(EyeLoc, EyeRot);
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Serpveil SpamTest] Released | Owner=%s | Main=%s | Time=%.3f | Elapsed=%.3f | ChargeFrac=%.3f | FinalRange=%.1f | CurrentVael=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] Released | Owner=%s | Main=%s | Time=%.3f | Elapsed=%.3f | ChargeFrac=%.3f | FinalRange=%.1f | CurrentVael=%.2f"),
         *GetNameSafe(OwnerCharacter.Get()),
         bIsMain ? TEXT("true") : TEXT("false"),
         CurrentTime,
@@ -128,14 +126,12 @@ bool UWTBRSerpveilTrigger::CancelCharge()
 {
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Cancel Test] Blocked | Reason=InvalidOwner | Trigger=Serpveil"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] Blocked | Reason=InvalidOwner | Trigger=Serpveil"));
         return false;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Cancel Test] Blocked | Reason=NoAuthority | Trigger=Serpveil | Owner=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] Blocked | Reason=NoAuthority | Trigger=Serpveil | Owner=%s"),
             *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
@@ -151,8 +147,7 @@ bool UWTBRSerpveilTrigger::CancelCharge()
     bIsCharging = false;
     StopChargeTracking();
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Cancel Test] SerpveilChargeCanceled | Owner=%s | Main=%s | Elapsed=%.3f | NoFire=true | NoVaelConsume=true"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] SerpveilChargeCanceled | Owner=%s | Main=%s | Elapsed=%.3f | NoFire=true | NoVaelConsume=true"),
         *GetNameSafe(OwnerCharacter.Get()),
         bCachedIsMain ? TEXT("true") : TEXT("false"),
         Elapsed);
@@ -170,8 +165,7 @@ void UWTBRSerpveilTrigger::ExecuteServerFire(
     const float StartingVael = IsValid(StartingVaelComp)
         ? StartingVaelComp->GetCurrentVael()
         : -1.0f;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Serpveil SpamTest] ExecuteServerFire Start | Owner=%s | Shape=%d | ChargedRange=%.1f | CurrentVael=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] ExecuteServerFire Start | Owner=%s | Shape=%d | ChargedRange=%.1f | CurrentVael=%.2f"),
         *GetNameSafe(OwnerCharacter.Get()),
         (int32)Shape,
         ChargedRange,
@@ -220,8 +214,7 @@ void UWTBRSerpveilTrigger::ExecuteServerFire(
     const float TimeSinceLastFire = CurrentTime - LastSerpveilFireTime;
     if (TimeSinceLastFire < SerpveilCooldown)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil Cooldown] Blocked | Owner=%s | Time=%.3f | LastFire=%.3f | TimeSinceLastFire=%.3f | Cooldown=%.3f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil Cooldown] Blocked | Owner=%s | Time=%.3f | LastFire=%.3f | TimeSinceLastFire=%.3f | Cooldown=%.3f"),
             *GetNameSafe(OwnerCharacter.Get()),
             CurrentTime,
             LastSerpveilFireTime,
@@ -262,8 +255,7 @@ void UWTBRSerpveilTrigger::ExecuteServerFire(
     {
         const float RangeFraction = (ValidatedRange - Params.SerpveilMinRange) / RangeSpan;
         const float VaelToConsume = RangeFraction * Params.SerpveilVaelPerSecond;
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil SpamTest] ConsumeCheck | ValidatedRange=%.1f | RangeFraction=%.3f | VaelToConsume=%.3f | CurrentVael=%.2f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] ConsumeCheck | ValidatedRange=%.1f | RangeFraction=%.3f | VaelToConsume=%.3f | CurrentVael=%.2f"),
             ValidatedRange,
             RangeFraction,
             VaelToConsume,
@@ -271,8 +263,7 @@ void UWTBRSerpveilTrigger::ExecuteServerFire(
 
         if (!VaelComp->TryConsumeVael(VaelToConsume))
         {
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Serpveil SpamTest] ConsumeFail | VaelToConsume=%.3f | CurrentVael=%.2f"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] ConsumeFail | VaelToConsume=%.3f | CurrentVael=%.2f"),
                 VaelToConsume,
                 VaelComp->GetCurrentVael());
 
@@ -285,8 +276,7 @@ void UWTBRSerpveilTrigger::ExecuteServerFire(
             return;
         }
 
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil SpamTest] ConsumeSuccess | VaelToConsume=%.3f | NewVael=%.2f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] ConsumeSuccess | VaelToConsume=%.3f | NewVael=%.2f"),
             VaelToConsume,
             VaelComp->GetCurrentVael());
     }
@@ -308,8 +298,7 @@ void UWTBRSerpveilTrigger::ExecuteServerFire(
     }
 
     const FTransform SpawnTF(Direction, SpawnOrigin);
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Serpveil SpamTest] SpawnAttempt | Points=%d | ProjectileClass=%s | Speed=%.1f | Damage=%.1f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] SpawnAttempt | Points=%d | ProjectileClass=%s | Speed=%.1f | Damage=%.1f"),
         Points.Num(),
         *GetNameSafe(Params.SerpveilProjectileClass),
         Params.SerpveilSpeed,
@@ -332,8 +321,7 @@ void UWTBRSerpveilTrigger::ExecuteServerFire(
     Proj->FinishSpawning(SpawnTF);
     Proj->InitializePathMovement(Points, Params.SerpveilSpeed, OwnerCharacter.Get());
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Serpveil SpamTest] SpawnSuccess | Projectile=%s | Points=%d | Range=%.1f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] SpawnSuccess | Projectile=%s | Points=%d | Range=%.1f"),
         *GetNameSafe(Proj),
         Points.Num(),
         ValidatedRange);

@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Actors/WTBRAegornWallActor.h"
+#include "WTBRValidationLog.h"
 #include "Actors/WTBRProjectileBase.h"
 #include "WTBRCharacter.h"
 #include "Components/BoxComponent.h"
@@ -53,8 +54,7 @@ void AWTBRAegornWallActor::BeginPlay()
             WallCollision->SetBoxExtent(WallExtent);
         }
 
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 AegornWall] CollisionConfig | Wall=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | GenerateOverlap=%s | RespWorldDynamic=%d | RespWorldStatic=%d | RespPawn=%d | Extent=%s | Location=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] CollisionConfig | Wall=%s | HasAuthority=%s | CollisionEnabled=%d | ObjectType=%d | GenerateOverlap=%s | RespWorldDynamic=%d | RespWorldStatic=%d | RespPawn=%d | Extent=%s | Location=%s"),
             *GetNameSafe(this),
             HasAuthority() ? TEXT("true") : TEXT("false"),
             static_cast<int32>(WallCollision->GetCollisionEnabled()),
@@ -88,8 +88,7 @@ void AWTBRAegornWallActor::InitializeWall(float InMaxHP)
     ensure(HasAuthority());
     MaxWallHP = InMaxHP;
     WallHP    = InMaxHP;
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] InitializeWall | Wall=%s | HasAuthority=%s | WallHP=%.1f | MaxWallHP=%.1f | Replicates=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] InitializeWall | Wall=%s | HasAuthority=%s | WallHP=%.1f | MaxWallHP=%.1f | Replicates=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
         WallHP,
@@ -104,21 +103,18 @@ void AWTBRAegornWallActor::TakeDamageFromProjectile(float DamageAmount)
 
     const float OldHP = WallHP;
     WallHP = FMath::Max(0.0f, WallHP - DamageAmount);
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] WallDamage | OldHP=%.1f | Damage=%.1f | NewHP=%.1f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] WallDamage | OldHP=%.1f | Damage=%.1f | NewHP=%.1f"),
         OldHP,
         DamageAmount,
         WallHP);
 
     OnWallDamaged(WallHP, DamageAmount);
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] OnWallDamaged Fired | Wall=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] OnWallDamaged Fired | Wall=%s"),
         *GetNameSafe(this));
 
     if (WallHP <= 0.0f)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 AegornWall] WallDestroyed | Wall=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] WallDestroyed | Wall=%s"),
             *GetNameSafe(this));
         DestroyWall();
     }
@@ -142,8 +138,7 @@ void AWTBRAegornWallActor::OnWallHit(
         return;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] Hit | Wall=%s | Other=%s | OtherClass=%s | HasAuthority=%s | Source=Hit"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] Hit | Wall=%s | Other=%s | OtherClass=%s | HasAuthority=%s | Source=Hit"),
         *GetNameSafe(this),
         *GetNameSafe(OtherActor),
         IsValid(OtherActor) ? *GetNameSafe(OtherActor->GetClass()) : TEXT("None"),
@@ -178,8 +173,7 @@ void AWTBRAegornWallActor::OnWallOverlap(
         return;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] Hit | Wall=%s | Other=%s | OtherClass=%s | HasAuthority=%s | Source=Overlap"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] Hit | Wall=%s | Other=%s | OtherClass=%s | HasAuthority=%s | Source=Overlap"),
         *GetNameSafe(this),
         *GetNameSafe(OtherActor),
         IsValid(OtherActor) ? *GetNameSafe(OtherActor->GetClass()) : TEXT("None"),
@@ -197,8 +191,7 @@ bool AWTBRAegornWallActor::HandleProjectileContact(AActor* OtherActor, const TCH
     if (AWTBRProjectileBase* Projectile = Cast<AWTBRProjectileBase>(OtherActor))
     {
         const float ProjectileDamage = Projectile->BaseDamage;
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 AegornWall] ProjectileDetected | Method=Cast | Projectile=%s | Damage=%.1f | Source=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] ProjectileDetected | Method=Cast | Projectile=%s | Damage=%.1f | Source=%s"),
             *GetNameSafe(Projectile),
             ProjectileDamage,
             Source);
@@ -212,8 +205,7 @@ bool AWTBRAegornWallActor::HandleProjectileContact(AActor* OtherActor, const TCH
     if (OtherActor->ActorHasTag(TEXT("WTBRProjectile")))
     {
         const float ProjectileDamage = 50.0f;
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Test46 AegornWall] ProjectileDetected | Method=Tag | Projectile=%s | Damage=%.1f | Source=%s"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] ProjectileDetected | Method=Tag | Projectile=%s | Damage=%.1f | Source=%s"),
             *GetNameSafe(OtherActor),
             ProjectileDamage,
             Source);
@@ -224,8 +216,7 @@ bool AWTBRAegornWallActor::HandleProjectileContact(AActor* OtherActor, const TCH
         return true;
     }
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] ProjectileRejected | Other=%s | Source=%s | HasWTBRProjectileTag=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] ProjectileRejected | Other=%s | Source=%s | HasWTBRProjectileTag=%s"),
         *GetNameSafe(OtherActor),
         Source,
         OtherActor->ActorHasTag(TEXT("WTBRProjectile")) ? TEXT("true") : TEXT("false"));
@@ -234,8 +225,7 @@ bool AWTBRAegornWallActor::HandleProjectileContact(AActor* OtherActor, const TCH
 
 void AWTBRAegornWallActor::DestroyWall()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] DestroyWall | Wall=%s | HasAuthority=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] DestroyWall | Wall=%s | HasAuthority=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"));
     OnWallDestroyed.Broadcast();
@@ -245,13 +235,11 @@ void AWTBRAegornWallActor::DestroyWall()
 
 void AWTBRAegornWallActor::OnRep_WallHP()
 {
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] OnRep_WallHP | Wall=%s | WallHP=%.1f | MaxWallHP=%.1f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] OnRep_WallHP | Wall=%s | WallHP=%.1f | MaxWallHP=%.1f"),
         *GetNameSafe(this),
         WallHP,
         MaxWallHP);
     OnWallDamaged(WallHP, 0.0f);
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Test46 AegornWall] OnWallDamaged Fired | Wall=%s | Source=OnRep_WallHP"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] OnWallDamaged Fired | Wall=%s | Source=OnRep_WallHP"),
         *GetNameSafe(this));
 }

@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "Trigger/WTBRSniperTrigger.h"
+#include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRVaelComponent.h"
 #include "Actors/WTBRProjectileBase.h"
@@ -28,23 +29,23 @@ AWTBRProjectileBase* UWTBRSniperTrigger::FireSniper(
 {
     if (!OwnerCharacter.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=OwnerInvalid"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=OwnerInvalid"));
         return nullptr;
     }
     if (!OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=NoAuthority"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=NoAuthority"));
         return nullptr;
     }
     if (!IsValid(ProjClass))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=ProjectileClassNull"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=ProjectileClassNull"));
         return nullptr;
     }
     UWorld* World = GetWorld();
     if (!IsValid(World))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=WorldInvalid"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=WorldInvalid"));
         return nullptr;
     }
 
@@ -52,8 +53,7 @@ AWTBRProjectileBase* UWTBRSniperTrigger::FireSniper(
     FVector Loc = GetMuzzleLocation(Dir);
     const FRotator SpawnRot = Dir.Rotation();
 
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Fulgris Test] ProjectileSpawnAttempt | Class=%s | Location=%s | Rotation=%s | Speed=%.1f | Damage=%.1f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] ProjectileSpawnAttempt | Class=%s | Location=%s | Rotation=%s | Speed=%.1f | Damage=%.1f"),
         *GetNameSafe(ProjClass.Get()),
         *Loc.ToString(),
         *SpawnRot.ToString(),
@@ -67,7 +67,7 @@ AWTBRProjectileBase* UWTBRSniperTrigger::FireSniper(
         ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
     if (!IsValid(Proj))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Fulgris Test] Fail | Reason=SpawnFailed"));
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=SpawnFailed"));
         return nullptr;
     }
 
@@ -80,8 +80,7 @@ AWTBRProjectileBase* UWTBRSniperTrigger::FireSniper(
         0.0f);
     Proj->bCanPenetrate = bCanPenetrate;
     UGameplayStatics::FinishSpawningActor(Proj, FTransform(SpawnRot, Loc));
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Fulgris Test] ProjectileSpawnSuccess | Projectile=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] ProjectileSpawnSuccess | Projectile=%s"),
         *GetNameSafe(Proj));
     Proj->Launch(Dir, OwnerCharacter.Get());
     OnSniperFired(Dir);
