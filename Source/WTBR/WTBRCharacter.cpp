@@ -253,7 +253,7 @@ void AWTBRCharacter::Look(const FInputActionValue& Value)
 void AWTBRCharacter::FireMain(const FInputActionValue& Value)
 {
     const FVector ClientMoveInputDir = GetClientMoveInputDirectionForTrigger();
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=true | Pressed=true | ClientMoveInputDir=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
@@ -265,7 +265,7 @@ void AWTBRCharacter::FireMain(const FInputActionValue& Value)
 
 void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
 {
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=true | Pressed=false"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
@@ -277,7 +277,7 @@ void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
 void AWTBRCharacter::FireSub(const FInputActionValue& Value)
 {
     const FVector ClientMoveInputDir = GetClientMoveInputDirectionForTrigger();
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=false | Pressed=true | ClientMoveInputDir=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
@@ -289,7 +289,7 @@ void AWTBRCharacter::FireSub(const FInputActionValue& Value)
 
 void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
 {
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Trigger Input] Owner=%s | Auth=%s | Local=%s | Main=false | Pressed=false"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
@@ -321,11 +321,7 @@ void AWTBRCharacter::SwitchTrigger(const FInputActionValue& Value)
 
 void AWTBRCharacter::SwitchMainTrigger(const FInputActionValue& Value)
 {
-    UE_LOG(LogTemp, Log, TEXT("WTBR SwitchMain input pressed"));
-    if (GEngine)
-    {
-        GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Cyan, TEXT("Switch Main Trigger"));
-    }
+    WTBR_VALIDATION_LOG(Verbose, TEXT("WTBR SwitchMain input pressed"));
     Server_CycleTrigger(true);
 }
 
@@ -436,7 +432,7 @@ FVector AWTBRCharacter::SanitizeClientMoveInputDirection(FVector ClientMoveInput
 void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir)
 {
     const FVector SafeClientMoveInputDir = SanitizeClientMoveInputDirection(ClientMoveInputDir);
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=%s | Pressed=%s | ClientMoveInputDir=%s | SafeClientMoveInputDir=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
@@ -489,7 +485,7 @@ void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FV
     {
         Trigger->OnTriggerActivated(this, bIsMain);
         const bool bActivated = Trigger->Activate(TriggerInputValue, bIsDualWield);
-        UE_LOG(LogTemp, Log, TEXT("Trigger Activate result: %d"), bActivated);
+        WTBR_VALIDATION_LOG(Verbose, TEXT("Trigger Activate result: %d"), bActivated);
     }
     else
     {
@@ -992,7 +988,7 @@ void AWTBRCharacter::OnRep_bIsStaggered()
 
 void AWTBRCharacter::Server_ActivateMainTrigger_Implementation(bool bIsDualWield)
 {
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=true | Pressed=true | LegacyActivate=true"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"));
@@ -1001,7 +997,7 @@ void AWTBRCharacter::Server_ActivateMainTrigger_Implementation(bool bIsDualWield
 
 void AWTBRCharacter::Server_ReleaseMainTrigger_Implementation(bool bIsDualWield)
 {
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=true | Pressed=false | LegacyActivate=true"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"));
@@ -1010,7 +1006,7 @@ void AWTBRCharacter::Server_ReleaseMainTrigger_Implementation(bool bIsDualWield)
 
 void AWTBRCharacter::Server_ActivateSubTrigger_Implementation(bool bIsDualWield)
 {
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=false | Pressed=true | LegacyActivate=true"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"));
@@ -1019,7 +1015,7 @@ void AWTBRCharacter::Server_ActivateSubTrigger_Implementation(bool bIsDualWield)
 
 void AWTBRCharacter::Server_ReleaseSubTrigger_Implementation(bool bIsDualWield)
 {
-    UE_LOG(LogTemp, Warning,
+    WTBR_VALIDATION_LOG(Verbose,
         TEXT("[Server Trigger RPC] Owner=%s | Auth=%s | Main=false | Pressed=false | LegacyActivate=true"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"));
