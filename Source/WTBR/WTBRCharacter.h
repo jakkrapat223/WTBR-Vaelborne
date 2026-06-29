@@ -111,6 +111,12 @@ public:
     UTexture2D* GetSubTriggerHUDIcon() const;
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    int32 GetActiveMainTriggerSlotIndex() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    int32 GetActiveSubTriggerSlotIndex() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     FText GetSwitchMainHintText() const;
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")

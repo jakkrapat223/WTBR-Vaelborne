@@ -890,6 +890,20 @@ UTexture2D* AWTBRCharacter::GetSubTriggerHUDIcon() const
     return SubDataAsset->HUDIcon.LoadSynchronous();
 }
 
+int32 AWTBRCharacter::GetActiveMainTriggerSlotIndex() const
+{
+    return IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveMainIndex()
+        : INDEX_NONE;
+}
+
+int32 AWTBRCharacter::GetActiveSubTriggerSlotIndex() const
+{
+    return IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveSubIndex()
+        : INDEX_NONE;
+}
+
 FText AWTBRCharacter::GetSwitchMainHintText() const
 {
     return FText::FromString(TEXT("Q Switch Main"));
