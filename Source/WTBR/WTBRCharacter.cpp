@@ -21,8 +21,23 @@
 #include "Components/WTBRInputGestureComponent.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRAcervynTrigger.h"
 #include "Trigger/WTBRAegornTrigger.h"
+#include "Trigger/WTBRArcvenTrigger.h"
+#include "Trigger/WTBRFeryxTrigger.h"
+#include "Trigger/WTBRFulgrisTrigger.h"
+#include "Trigger/WTBRFulgrixTrigger.h"
+#include "Trigger/WTBRLacernTrigger.h"
+#include "Trigger/WTBRMantornTrigger.h"
+#include "Trigger/WTBRNexilTrigger.h"
+#include "Trigger/WTBRPiercexTrigger.h"
 #include "Trigger/WTBRSerpveilTrigger.h"
+#include "Trigger/WTBRSolvarnTrigger.h"
+#include "Trigger/WTBRSoluxTrigger.h"
+#include "Trigger/WTBRTelornTrigger.h"
+#include "Trigger/WTBRVenyxTrigger.h"
+#include "Trigger/WTBRVexornTrigger.h"
+#include "Trigger/WTBRVoltisLaunchTrigger.h"
 
 namespace
 {
@@ -57,6 +72,30 @@ namespace
         }
 
         return GetHUDTriggerDataAssetName(DataAsset);
+    }
+
+    bool IsKnownPerUseVaelTriggerForHUD(const UWTBRTriggerBase* Trigger)
+    {
+        return IsValid(Trigger)
+            && (Trigger->IsA<UWTBRArcvenTrigger>()
+                || Trigger->IsA<UWTBRAcervynTrigger>()
+                || Trigger->IsA<UWTBRFulgrisTrigger>()
+                || Trigger->IsA<UWTBRFulgrixTrigger>()
+                || Trigger->IsA<UWTBRPiercexTrigger>()
+                || Trigger->IsA<UWTBRSoluxTrigger>()
+                || Trigger->IsA<UWTBRTelornTrigger>()
+                || Trigger->IsA<UWTBRVenyxTrigger>());
+    }
+
+    bool IsKnownZeroVaelTriggerForHUD(const UWTBRTriggerBase* Trigger)
+    {
+        return IsValid(Trigger)
+            && (Trigger->IsA<UWTBRFeryxTrigger>()
+                || Trigger->IsA<UWTBRLacernTrigger>()
+                || Trigger->IsA<UWTBRMantornTrigger>()
+                || Trigger->IsA<UWTBRNexilTrigger>()
+                || Trigger->IsA<UWTBRVexornTrigger>()
+                || Trigger->IsA<UWTBRVoltisLaunchTrigger>());
     }
 }
 
@@ -902,6 +941,122 @@ int32 AWTBRCharacter::GetActiveSubTriggerSlotIndex() const
     return IsValid(TriggerSetComponent)
         ? TriggerSetComponent->GetActiveSubIndex()
         : INDEX_NONE;
+}
+
+FWTBRHUDTriggerVaelAffordability AWTBRCharacter::GetActiveMainTriggerVaelAffordabilityForHUD() const
+{
+    return GetActiveTriggerVaelAffordabilityForHUD(true);
+}
+
+FWTBRHUDTriggerVaelAffordability AWTBRCharacter::GetActiveSubTriggerVaelAffordabilityForHUD() const
+{
+    return GetActiveTriggerVaelAffordabilityForHUD(false);
+}
+
+bool AWTBRCharacter::CanAffordActiveMainTriggerForHUD() const
+{
+    return GetActiveMainTriggerVaelAffordabilityForHUD().bCanAfford;
+}
+
+bool AWTBRCharacter::CanAffordActiveSubTriggerForHUD() const
+{
+    return GetActiveSubTriggerVaelAffordabilityForHUD().bCanAfford;
+}
+
+float AWTBRCharacter::GetActiveMainTriggerBaseVaelCostForHUD() const
+{
+    return GetActiveMainTriggerVaelAffordabilityForHUD().BaseVaelCost;
+}
+
+float AWTBRCharacter::GetActiveSubTriggerBaseVaelCostForHUD() const
+{
+    return GetActiveSubTriggerVaelAffordabilityForHUD().BaseVaelCost;
+}
+
+float AWTBRCharacter::GetActiveMainTriggerEffectiveVaelCostForHUD() const
+{
+    return GetActiveMainTriggerVaelAffordabilityForHUD().EffectiveVaelCost;
+}
+
+float AWTBRCharacter::GetActiveSubTriggerEffectiveVaelCostForHUD() const
+{
+    return GetActiveSubTriggerVaelAffordabilityForHUD().EffectiveVaelCost;
+}
+
+FWTBRHUDTriggerVaelAffordability AWTBRCharacter::GetActiveTriggerVaelAffordabilityForHUD(bool bIsMain) const
+{
+    FWTBRHUDTriggerVaelAffordability Result;
+
+    const UWTBRTriggerBase* Trigger = nullptr;
+    const UWTBRTriggerDataAsset* DataAsset = nullptr;
+    if (IsValid(TriggerSetComponent))
+    {
+        Trigger = bIsMain
+            ? TriggerSetComponent->GetActiveMainTrigger()
+            : TriggerSetComponent->GetActiveSubTrigger();
+        DataAsset = bIsMain
+            ? TriggerSetComponent->GetActiveMainDataAsset()
+            : TriggerSetComponent->GetActiveSubDataAsset();
+    }
+
+    if (IsValid(VaelComponent))
+    {
+        Result.CurrentVael = VaelComponent->GetCurrentVael();
+    }
+
+    if (!IsValid(Trigger) || !IsValid(DataAsset))
+    {
+        Result.bCanAfford = false;
+        return Result;
+    }
+
+    if (Trigger->IsA<UWTBRSerpveilTrigger>())
+    {
+        Result.bUsesChargeOrVariableCost = true;
+        Result.BaseVaelCost = DataAsset->SerpveilParams.SerpveilVaelPerSecond;
+        return Result;
+    }
+
+    if (Trigger->IsA<UWTBRAegornTrigger>())
+    {
+        Result.bUsesDrain = true;
+        Result.BaseVaelCost = DataAsset->VaelCostPerUse;
+        return Result;
+    }
+
+    if (DataAsset->Category == ETriggerCategory::BlackTrigger)
+    {
+        Result.bUsesDrain = Trigger->IsA<UWTBRSolvarnTrigger>();
+        return Result;
+    }
+
+    if (IsKnownZeroVaelTriggerForHUD(Trigger))
+    {
+        Result.bIsCostKnownForHUD = true;
+        Result.bHasVaelCost = false;
+        Result.bCanAfford = true;
+        return Result;
+    }
+
+    if (!IsKnownPerUseVaelTriggerForHUD(Trigger))
+    {
+        return Result;
+    }
+
+    Result.bIsCostKnownForHUD = true;
+    Result.BaseVaelCost = FMath::Max(0.0f, DataAsset->VaelCostPerUse);
+    Result.bHasVaelCost = Result.BaseVaelCost > 0.0f;
+
+    const float CostMultiplier = IsValid(VaelComponent)
+        ? VaelComponent->GetVaelCostMultiplier()
+        : 1.0f;
+    Result.EffectiveVaelCost = FMath::Max(0.0f, Result.BaseVaelCost * CostMultiplier);
+    Result.bCanAfford = !Result.bHasVaelCost
+        || (IsValid(VaelComponent)
+            && !VaelComponent->IsOverheated()
+            && Result.CurrentVael >= Result.EffectiveVaelCost);
+
+    return Result;
 }
 
 FText AWTBRCharacter::GetSwitchMainHintText() const

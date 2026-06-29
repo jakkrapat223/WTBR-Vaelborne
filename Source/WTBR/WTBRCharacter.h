@@ -21,6 +21,36 @@ class UTexture2D;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRHUDHintsChanged);
 
+USTRUCT(BlueprintType)
+struct FWTBRHUDTriggerVaelAffordability
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD")
+    bool bIsCostKnownForHUD = false;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD")
+    bool bHasVaelCost = false;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD")
+    bool bCanAfford = true;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD")
+    float BaseVaelCost = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD")
+    float EffectiveVaelCost = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD")
+    float CurrentVael = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD")
+    bool bUsesDrain = false;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD")
+    bool bUsesChargeOrVariableCost = false;
+};
+
 UCLASS(config=Game)
 class AWTBRCharacter : public ACharacter
 {
@@ -115,6 +145,30 @@ public:
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     int32 GetActiveSubTriggerSlotIndex() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    FWTBRHUDTriggerVaelAffordability GetActiveMainTriggerVaelAffordabilityForHUD() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    FWTBRHUDTriggerVaelAffordability GetActiveSubTriggerVaelAffordabilityForHUD() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    bool CanAffordActiveMainTriggerForHUD() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    bool CanAffordActiveSubTriggerForHUD() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    float GetActiveMainTriggerBaseVaelCostForHUD() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    float GetActiveSubTriggerBaseVaelCostForHUD() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    float GetActiveMainTriggerEffectiveVaelCostForHUD() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    float GetActiveSubTriggerEffectiveVaelCostForHUD() const;
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     FText GetSwitchMainHintText() const;
@@ -244,6 +298,7 @@ private:
     void AddDefaultMappingContext();
     void ApplyInputActionFallbacks();
     void ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir = FVector::ZeroVector);
+    FWTBRHUDTriggerVaelAffordability GetActiveTriggerVaelAffordabilityForHUD(bool bIsMain) const;
     FVector GetClientMoveInputDirectionForTrigger() const;
     static FVector SanitizeClientMoveInputDirection(FVector ClientMoveInputDir);
 
