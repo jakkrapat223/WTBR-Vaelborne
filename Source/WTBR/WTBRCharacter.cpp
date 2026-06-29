@@ -629,7 +629,7 @@ void AWTBRCharacter::Server_DebugConsumeVaelFailTest_Implementation()
         bBeforeCooldown ? TEXT("true") : TEXT("false"),
         VaelComponent->IsDesperationOnCooldown() ? TEXT("true") : TEXT("false"));
 
-    if (GEngine)
+    if (GEngine && WTBRShouldLogValidation())
     {
         GEngine->AddOnScreenDebugMessage(
             -1,
@@ -674,7 +674,7 @@ void AWTBRCharacter::Server_DebugStartBelowThresholdTest_Implementation()
         bBeforeCooldown ? TEXT("true") : TEXT("false"),
         VaelComponent->IsDesperationOnCooldown() ? TEXT("true") : TEXT("false"));
 
-    if (GEngine)
+    if (GEngine && WTBRShouldLogValidation())
     {
         GEngine->AddOnScreenDebugMessage(
             -1,
@@ -719,7 +719,7 @@ void AWTBRCharacter::Server_DebugRefillVaelNoDesperationReset_Implementation()
         bBeforeCooldown ? TEXT("true") : TEXT("false"),
         VaelComponent->IsDesperationOnCooldown() ? TEXT("true") : TEXT("false"));
 
-    if (GEngine)
+    if (GEngine && WTBRShouldLogValidation())
     {
         GEngine->AddOnScreenDebugMessage(
             -1,
@@ -772,7 +772,7 @@ void AWTBRCharacter::Server_DebugResetDesperationStateTest_Implementation()
         VaelComponent->DebugIsDesperationActiveTimerActive() ? TEXT("true") : TEXT("false"),
         VaelComponent->DebugIsDesperationCooldownTimerActive() ? TEXT("true") : TEXT("false"));
 
-    if (GEngine)
+    if (GEngine && WTBRShouldLogValidation())
     {
         GEngine->AddOnScreenDebugMessage(
             -1,

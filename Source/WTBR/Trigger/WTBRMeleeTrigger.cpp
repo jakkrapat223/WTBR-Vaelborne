@@ -13,7 +13,7 @@ bool UWTBRMeleeTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
     bool bIsDualWield)
 {
-    if (GEngine)
+    if (GEngine && WTBRShouldLogValidation())
         GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Cyan, TEXT("[Feryx] Activate called"));
 
     if (!OwnerCharacter.IsValid()) return false;
@@ -67,9 +67,9 @@ void UWTBRMeleeTrigger::PerformSingleSweep(TArray<FHitResult>& OutHits)
         P.CapsuleRadius, P.CapsuleHalfHeight,
         OutHits);
 
-    UE_LOG(LogTemp, Log, TEXT("WTBR Feryx SingleSweep: %d raw hit(s) at ForwardOffset %.0f"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("WTBR Feryx SingleSweep: %d raw hit(s) at ForwardOffset %.0f"),
         OutHits.Num(), P.ForwardOffset);
-    if (GEngine)
+    if (GEngine && WTBRShouldLogValidation())
     {
         GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Yellow,
             FString::Printf(TEXT("[Feryx] Sweep: %d hit(s)"), OutHits.Num()));

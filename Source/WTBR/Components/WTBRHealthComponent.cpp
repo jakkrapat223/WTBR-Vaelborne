@@ -129,7 +129,7 @@ void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstiga
     UE_LOG(LogTemp, Log, TEXT("WTBR ApplyDamage: %.0f → HP %.0f→%.0f on %s"),
         DamageAmount, CurrentHP, FMath::Max(0.f, CurrentHP - DamageAmount),
         *GetOwner()->GetName());
-    if (GEngine)
+    if (GEngine && WTBRShouldLogValidation())
     {
         GEngine->AddOnScreenDebugMessage(-1, 4.f, FColor::Red,
             FString::Printf(TEXT("[HP] %.0f → %.0f  (-%0.f)"),
