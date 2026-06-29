@@ -862,6 +862,24 @@ FText AWTBRCharacter::GetSubTriggerNameText() const
     return GetHUDTriggerNameWithFallback(SubTrigger, SubDataAsset);
 }
 
+UTexture2D* AWTBRCharacter::GetMainTriggerHUDIcon() const
+{
+    const UWTBRTriggerDataAsset* MainDataAsset = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveMainDataAsset()
+        : nullptr;
+
+    return IsValid(MainDataAsset) ? MainDataAsset->HUDIcon.Get() : nullptr;
+}
+
+UTexture2D* AWTBRCharacter::GetSubTriggerHUDIcon() const
+{
+    const UWTBRTriggerDataAsset* SubDataAsset = IsValid(TriggerSetComponent)
+        ? TriggerSetComponent->GetActiveSubDataAsset()
+        : nullptr;
+
+    return IsValid(SubDataAsset) ? SubDataAsset->HUDIcon.Get() : nullptr;
+}
+
 FText AWTBRCharacter::GetSwitchMainHintText() const
 {
     return FText::FromString(TEXT("Q Switch Main"));

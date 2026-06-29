@@ -17,6 +17,7 @@ class UWTBRStaminaComponent;
 class UWTBRVaelComponent;
 class UWTBRMovementExtComponent;
 class UWTBRInputGestureComponent;
+class UTexture2D;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRHUDHintsChanged);
 
@@ -102,6 +103,12 @@ public:
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     FText GetSubTriggerNameText() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    UTexture2D* GetMainTriggerHUDIcon() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    UTexture2D* GetSubTriggerHUDIcon() const;
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     FText GetSwitchMainHintText() const;
