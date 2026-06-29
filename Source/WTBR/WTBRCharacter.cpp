@@ -868,7 +868,12 @@ UTexture2D* AWTBRCharacter::GetMainTriggerHUDIcon() const
         ? TriggerSetComponent->GetActiveMainDataAsset()
         : nullptr;
 
-    return IsValid(MainDataAsset) ? MainDataAsset->HUDIcon.Get() : nullptr;
+    if (!IsValid(MainDataAsset) || MainDataAsset->HUDIcon.IsNull())
+    {
+        return nullptr;
+    }
+
+    return MainDataAsset->HUDIcon.LoadSynchronous();
 }
 
 UTexture2D* AWTBRCharacter::GetSubTriggerHUDIcon() const
@@ -877,7 +882,12 @@ UTexture2D* AWTBRCharacter::GetSubTriggerHUDIcon() const
         ? TriggerSetComponent->GetActiveSubDataAsset()
         : nullptr;
 
-    return IsValid(SubDataAsset) ? SubDataAsset->HUDIcon.Get() : nullptr;
+    if (!IsValid(SubDataAsset) || SubDataAsset->HUDIcon.IsNull())
+    {
+        return nullptr;
+    }
+
+    return SubDataAsset->HUDIcon.LoadSynchronous();
 }
 
 FText AWTBRCharacter::GetSwitchMainHintText() const
