@@ -7,6 +7,7 @@
 
 class USkeletalMesh;
 class UAnimMontage;
+class UTexture2D;
 class AWTBRProjectileBase;
 class AWTBRSolvarnField;
 class AWTBRKaldrixZone;
@@ -854,6 +855,9 @@ public:
     // One-line description shown in loadout/tooltip UI. Localization-ready.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Identity")
     FText FunctionalDescription;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger|Identity")
+    TSoftObjectPtr<UTexture2D> HUDIcon;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Identity")
     ETriggerCategory Category = ETriggerCategory::None;
