@@ -192,6 +192,7 @@ private:
 
     bool IsValidSlotIndex(int32 Index) const { return TriggerSlots.IsValidIndex(Index); }
     bool HasServerAuthority() const;
+    bool CanMutateTriggerLoadout() const;
 
     // Fires OnUnequipped on OldIdx trigger then OnEquipped on NewIdx trigger (both delegates + virtual call)
     void NotifySubSlotChanged(int32 OldAbsIdx, int32 NewAbsIdx);

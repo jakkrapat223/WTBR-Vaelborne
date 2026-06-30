@@ -6,6 +6,7 @@
 #include "Trigger/WTBRAegornTrigger.h"
 #include "Trigger/WTBRSerpveilTrigger.h"
 #include "WTBRCharacter.h"
+#include "WTBRGameState.h"
 #include "Actors/WTBRProjectileBase.h"
 #include "Components/WTBRVaelComponent.h"
 #include "Engine/StreamableManager.h"
@@ -78,6 +79,13 @@ void UWTBRTriggerSetComponent::InstallTrigger(ETriggerSlot Slot, UWTBRTriggerBas
 {
     if (!HasServerAuthority())
     {
+        return;
+    }
+
+    if (!CanMutateTriggerLoadout())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR trigger install rejected by match phase/rules for owner %s"),
+            *GetNameSafe(GetOwner()));
         return;
     }
 
@@ -567,9 +575,48 @@ bool UWTBRTriggerSetComponent::HasServerAuthority() const
     return Owner && Owner->HasAuthority();
 }
 
+bool UWTBRTriggerSetComponent::CanMutateTriggerLoadout() const
+{
+    if (!HasServerAuthority())
+    {
+        return false;
+    }
+
+    const UWorld* World = GetWorld();
+    if (!World)
+    {
+        return false;
+    }
+
+    const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!WTBRGameState)
+    {
+        return false;
+    }
+
+    if (WTBRGameState->IsLoadoutSetupAllowedPhase())
+    {
+        return true;
+    }
+
+    if (WTBRGameState->IsInMatch())
+    {
+        return WTBRGameState->AllowsTriggerSwapDuringMatch();
+    }
+
+    return false;
+}
+
 void UWTBRTriggerSetComponent::Server_SetTriggerLoadout_Implementation(
     const TArray<TSoftObjectPtr<UWTBRTriggerDataAsset>>& InLoadout)
 {
+    if (!CanMutateTriggerLoadout())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR trigger loadout mutation rejected by match phase/rules for owner %s"),
+            *GetNameSafe(GetOwner()));
+        return;
+    }
+
     for (int32 i = 0; i < TotalSlotCount && i < InLoadout.Num(); ++i)
     {
         TriggerSlots[i].DataAsset = InLoadout[i];
