@@ -190,6 +190,7 @@ private:
     void ResolveDeathRewards(AActor* FinalDamageInstigator);
     void ResolveDownReward(AActor* DownInstigator);
     void GrantVaelReward(AWTBRCharacter* RecipientCharacter, float Amount) const;
+    void SpawnDroppedTriggersForEliminatedCharacter();
     void ClearDamageHistory(const TCHAR* Source);
     void EnterDownedState(AActor* DownInstigator);
     void EnterEliminatedState(AActor* FinalDamageInstigator);

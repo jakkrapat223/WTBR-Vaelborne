@@ -47,6 +47,23 @@ struct FWTBRTriggerSlot
     bool IsLoaded() const { return DataAsset.IsValid() && !DataAsset.IsNull(); }
 };
 
+USTRUCT(BlueprintType)
+struct FWTBRInstalledTriggerSlotSnapshot
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Trigger Set")
+    int32 SlotIndex = INDEX_NONE;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Trigger Set")
+    TSoftObjectPtr<UWTBRTriggerDataAsset> DataAsset;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Trigger Set")
+    ETriggerCategory CachedCategory = ETriggerCategory::None;
+
+    bool IsValid() const { return SlotIndex != INDEX_NONE && !DataAsset.IsNull(); }
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDualWieldStateChanged, EWTBRDualWieldState, NewState, ETriggerCategory, ActiveCategory);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnActiveTriggerChanged, ETriggerSlot, NewSlot);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSubTriggerEquipped, UWTBRTriggerBase*, Trigger);
@@ -116,6 +133,8 @@ public:
 
     UFUNCTION(BlueprintPure, Category="TriggerSet")
     EWTBRDualWieldState GetDualWieldState() const { return CurrentDualWieldState; }
+
+    void GetInstalledTriggerSlotSnapshots(TArray<FWTBRInstalledTriggerSlotSnapshot>& OutSnapshots) const;
 
     // Loadout assignment — called from PlayerController after character spawn
     UFUNCTION(Server, Reliable)

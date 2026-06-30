@@ -5,6 +5,8 @@
 #include "Data/WTBRCoreStatsDataAsset.h"
 #include "Net/UnrealNetwork.h"
 #include "WTBRCharacter.h"
+#include "WTBRGameState.h"
+#include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Components/WTBRVaelComponent.h"
 #include "Engine/Engine.h"
@@ -330,6 +332,7 @@ void UWTBRHealthComponent::EnterEliminatedState(AActor* FinalDamageInstigator)
     CurrentDownedHP = 0.0f;
     SetInvulnerable(false);
     ResolveDeathRewards(FinalDamageInstigator);
+    SpawnDroppedTriggersForEliminatedCharacter();
     SetCombatState(EWTBRCombatState::Eliminated);
 }
 
@@ -629,6 +632,84 @@ void UWTBRHealthComponent::GrantVaelReward(AWTBRCharacter* RecipientCharacter, f
     if (!IsValid(VaelComponent)) return;
 
     VaelComponent->GrantVael(Amount);
+}
+
+void UWTBRHealthComponent::SpawnDroppedTriggersForEliminatedCharacter()
+{
+    AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(VictimCharacter) || !VictimCharacter->HasAuthority())
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!IsValid(WTBRGameState)
+        || !WTBRGameState->IsInMatch()
+        || !WTBRGameState->AllowsCorpseLoot()
+        || !WTBRGameState->AllowsTriggerPickup())
+    {
+        return;
+    }
+
+    UWTBRTriggerSetComponent* TriggerSetComponent = VictimCharacter->TriggerSetComponent;
+    if (!IsValid(TriggerSetComponent))
+    {
+        return;
+    }
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> InstalledTriggers;
+    TriggerSetComponent->GetInstalledTriggerSlotSnapshots(InstalledTriggers);
+    if (InstalledTriggers.Num() == 0)
+    {
+        return;
+    }
+
+    const FVector BaseLocation = VictimCharacter->GetActorLocation();
+    const FRotator SpawnRotation = FRotator::ZeroRotator;
+
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.Owner = VictimCharacter;
+    SpawnParams.Instigator = VictimCharacter;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+    for (int32 DropIndex = 0; DropIndex < InstalledTriggers.Num(); ++DropIndex)
+    {
+        const FWTBRInstalledTriggerSlotSnapshot& Snapshot = InstalledTriggers[DropIndex];
+        if (!Snapshot.IsValid())
+        {
+            continue;
+        }
+
+        const float AngleRadians = (2.0f * PI * DropIndex) / FMath::Max(1, InstalledTriggers.Num());
+        const FVector Offset(FMath::Cos(AngleRadians) * 80.0f, FMath::Sin(AngleRadians) * 80.0f, 20.0f);
+        const FVector SpawnLocation = BaseLocation + Offset;
+
+        AWTBRDroppedTriggerActor* DroppedTrigger = World->SpawnActor<AWTBRDroppedTriggerActor>(
+            AWTBRDroppedTriggerActor::StaticClass(),
+            SpawnLocation,
+            SpawnRotation,
+            SpawnParams);
+
+        if (!IsValid(DroppedTrigger))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot drop failed for %s slot %d"),
+                *GetNameSafe(VictimCharacter),
+                Snapshot.SlotIndex);
+            continue;
+        }
+
+        DroppedTrigger->InitializeDroppedTrigger(Snapshot.DataAsset, Snapshot.SlotIndex, Snapshot.CachedCategory);
+        UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot dropped trigger for %s slot %d asset %s"),
+            *GetNameSafe(VictimCharacter),
+            Snapshot.SlotIndex,
+            *Snapshot.DataAsset.ToSoftObjectPath().ToString());
+    }
 }
 
 void UWTBRHealthComponent::DestroyLimb(EWTBRLimbType Limb)

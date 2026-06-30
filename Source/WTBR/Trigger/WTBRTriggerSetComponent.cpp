@@ -273,6 +273,26 @@ UWTBRTriggerDataAsset* UWTBRTriggerSetComponent::GetActiveSubDataAsset() const
         : nullptr;
 }
 
+void UWTBRTriggerSetComponent::GetInstalledTriggerSlotSnapshots(TArray<FWTBRInstalledTriggerSlotSnapshot>& OutSnapshots) const
+{
+    OutSnapshots.Reset();
+
+    for (int32 SlotIndex = 0; SlotIndex < TriggerSlots.Num(); ++SlotIndex)
+    {
+        const FWTBRTriggerSlot& Slot = TriggerSlots[SlotIndex];
+        if (Slot.IsEmpty())
+        {
+            continue;
+        }
+
+        FWTBRInstalledTriggerSlotSnapshot Snapshot;
+        Snapshot.SlotIndex = SlotIndex;
+        Snapshot.DataAsset = Slot.DataAsset;
+        Snapshot.CachedCategory = Slot.CachedCategory;
+        OutSnapshots.Add(Snapshot);
+    }
+}
+
 void UWTBRTriggerSetComponent::UpdateDualWieldState()
 {
     const UWTBRTriggerBase* Main = GetActiveMainTrigger();
