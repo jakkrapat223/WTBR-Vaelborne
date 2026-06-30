@@ -21,6 +21,22 @@ void AWTBRGameState::SetCurrentMatchRules(const FWTBRMatchModeRules& NewRules)
     BroadcastMatchModeRulesChanged();
 }
 
+void AWTBRGameState::SetCurrentMatchPhase(EWTBRMatchPhase NewPhase)
+{
+    if (!HasAuthority())
+    {
+        return;
+    }
+
+    if (CurrentMatchPhase == NewPhase)
+    {
+        return;
+    }
+
+    CurrentMatchPhase = NewPhase;
+    BroadcastMatchPhaseChanged();
+}
+
 void AWTBRGameState::OnRep_CurrentMatchMode()
 {
     BroadcastMatchModeRulesChanged();
@@ -32,9 +48,19 @@ void AWTBRGameState::OnRep_CurrentMatchRules()
     BroadcastMatchModeRulesChanged();
 }
 
+void AWTBRGameState::OnRep_CurrentMatchPhase()
+{
+    BroadcastMatchPhaseChanged();
+}
+
 void AWTBRGameState::BroadcastMatchModeRulesChanged()
 {
     OnMatchModeRulesChanged.Broadcast(CurrentMatchMode, CurrentMatchRules);
+}
+
+void AWTBRGameState::BroadcastMatchPhaseChanged()
+{
+    OnMatchPhaseChanged.Broadcast(CurrentMatchPhase);
 }
 
 void AWTBRGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -43,4 +69,5 @@ void AWTBRGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
 
     DOREPLIFETIME(AWTBRGameState, CurrentMatchMode);
     DOREPLIFETIME(AWTBRGameState, CurrentMatchRules);
+    DOREPLIFETIME(AWTBRGameState, CurrentMatchPhase);
 }

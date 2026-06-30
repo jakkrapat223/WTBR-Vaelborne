@@ -34,6 +34,7 @@ void AWTBRGameMode::BeginPlay()
 	}
 
 	WTBRGameState->SetCurrentMatchRules(ResolveDefaultMatchRules());
+	WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::LoadoutSetup);
 }
 
 FWTBRMatchModeRules AWTBRGameMode::ResolveDefaultMatchRules() const
