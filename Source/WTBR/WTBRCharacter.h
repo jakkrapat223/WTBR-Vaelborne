@@ -232,6 +232,15 @@ public:
     UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Debug")
     void Server_DebugResetDesperationStateTest();
 
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterPrintMatchState() const;
+
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterPrintTriggerLoadoutGate() const;
+
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterSetMatchPhase(const FString& PhaseName);
+
     UPROPERTY(ReplicatedUsing = OnRep_bIsStaggered, BlueprintReadOnly,
         Category = "WTBR | Character | Stagger")
     bool bIsStaggered = false;

@@ -19,6 +19,7 @@
 #include "Components/WTBRVaelComponent.h"
 #include "Components/WTBRMovementExtComponent.h"
 #include "Components/WTBRInputGestureComponent.h"
+#include "WTBRGameState.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerBase.h"
 #include "Trigger/WTBRAcervynTrigger.h"
@@ -41,6 +42,49 @@
 
 namespace
 {
+    bool TryParseWTBRDebugMatchPhase(const FString& PhaseName, EWTBRMatchPhase& OutPhase)
+    {
+        const FString NormalizedPhase = PhaseName.TrimStartAndEnd().Replace(TEXT(" "), TEXT("")).Replace(TEXT("_"), TEXT(""));
+
+        if (NormalizedPhase.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+        {
+            OutPhase = EWTBRMatchPhase::None;
+            return true;
+        }
+        if (NormalizedPhase.Equals(TEXT("Lobby"), ESearchCase::IgnoreCase))
+        {
+            OutPhase = EWTBRMatchPhase::Lobby;
+            return true;
+        }
+        if (NormalizedPhase.Equals(TEXT("PreMatch"), ESearchCase::IgnoreCase))
+        {
+            OutPhase = EWTBRMatchPhase::PreMatch;
+            return true;
+        }
+        if (NormalizedPhase.Equals(TEXT("LoadoutSetup"), ESearchCase::IgnoreCase))
+        {
+            OutPhase = EWTBRMatchPhase::LoadoutSetup;
+            return true;
+        }
+        if (NormalizedPhase.Equals(TEXT("Countdown"), ESearchCase::IgnoreCase))
+        {
+            OutPhase = EWTBRMatchPhase::Countdown;
+            return true;
+        }
+        if (NormalizedPhase.Equals(TEXT("InMatch"), ESearchCase::IgnoreCase))
+        {
+            OutPhase = EWTBRMatchPhase::InMatch;
+            return true;
+        }
+        if (NormalizedPhase.Equals(TEXT("PostMatch"), ESearchCase::IgnoreCase))
+        {
+            OutPhase = EWTBRMatchPhase::PostMatch;
+            return true;
+        }
+
+        return false;
+    }
+
     FText GetHUDTriggerName(const UWTBRTriggerBase* Trigger)
     {
         if (!IsValid(Trigger))
@@ -378,6 +422,95 @@ void AWTBRCharacter::DebugConsumeVaelFailTest()
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
 
     Server_DebugConsumeVaelFailTest();
+}
+
+void AWTBRCharacter::WTBRDebugCharacterPrintMatchState() const
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPrintMatchState is disabled in Shipping builds."));
+#else
+    const UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPrintMatchState rejected: World is missing."));
+        return;
+    }
+
+    const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!IsValid(WTBRGameState))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPrintMatchState rejected: WTBRGameState is missing."));
+        return;
+    }
+
+    const FWTBRMatchModeRules Rules = WTBRGameState->GetCurrentMatchRules();
+    UE_LOG(LogTemp, Log,
+        TEXT("WTBRDebugCharacterPrintMatchState: Character=%s Mode=%s Phase=%s bEnablePassiveVaelRegen=%s VaelRegenPerSecond=%.2f bAllowTriggerSwapDuringMatch=%s"),
+        *GetNameSafe(this),
+        *UEnum::GetValueAsString(WTBRGameState->GetCurrentMatchMode()),
+        *UEnum::GetValueAsString(WTBRGameState->GetCurrentMatchPhase()),
+        Rules.bEnablePassiveVaelRegen ? TEXT("true") : TEXT("false"),
+        Rules.VaelRegenPerSecond,
+        Rules.bAllowTriggerSwapDuringMatch ? TEXT("true") : TEXT("false"));
+#endif
+}
+
+void AWTBRCharacter::WTBRDebugCharacterPrintTriggerLoadoutGate() const
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPrintTriggerLoadoutGate is disabled in Shipping builds."));
+#else
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPrintTriggerLoadoutGate rejected: TriggerSetComponent is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterPrintTriggerLoadoutGate: checking character %s component %s."),
+        *GetNameSafe(this),
+        *GetNameSafe(TriggerSetComponent));
+    TriggerSetComponent->DebugPrintTriggerLoadoutMutationGate();
+#endif
+}
+
+void AWTBRCharacter::WTBRDebugCharacterSetMatchPhase(const FString& PhaseName)
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSetMatchPhase is disabled in Shipping builds."));
+#else
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSetMatchPhase rejected: character does not have authority. Use standalone/listen-server/server authority for validation."));
+        return;
+    }
+
+    EWTBRMatchPhase ParsedPhase = EWTBRMatchPhase::None;
+    if (!TryParseWTBRDebugMatchPhase(PhaseName, ParsedPhase))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSetMatchPhase rejected: unknown phase '%s'. Valid phases: None, Lobby, PreMatch, LoadoutSetup, Countdown, InMatch, PostMatch."), *PhaseName);
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSetMatchPhase rejected: World is missing."));
+        return;
+    }
+
+    AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!IsValid(WTBRGameState))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSetMatchPhase rejected: WTBRGameState is missing."));
+        return;
+    }
+
+    WTBRGameState->SetCurrentMatchPhase(ParsedPhase);
+    UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterSetMatchPhase: phase set to %s by character %s."),
+        *UEnum::GetValueAsString(ParsedPhase),
+        *GetNameSafe(this));
+#endif
 }
 
 // ─── Server RPC Implementations ──────────────────────────────────────────────
