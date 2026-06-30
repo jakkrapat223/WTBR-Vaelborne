@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Data/WTBRMatchModeRulesDataAsset.h"
 #include "GameFramework/GameModeBase.h"
+#include "WTBRGameState.h"
 #include "WTBRGameMode.generated.h"
 
 UCLASS(minimalapi)
@@ -14,6 +15,12 @@ class AWTBRGameMode : public AGameModeBase
 
 public:
 	AWTBRGameMode();
+
+	UFUNCTION(Exec)
+	void WTBRDebugSetMatchPhase(const FString& PhaseName);
+
+	UFUNCTION(Exec)
+	void WTBRDebugPrintMatchState() const;
 
 protected:
 	virtual void BeginPlay() override;
@@ -30,6 +37,7 @@ protected:
 private:
 	FWTBRMatchModeRules ResolveDefaultMatchRules() const;
 	static FWTBRMatchModeRules MakeDefaultRulesForMode(EWTBRMatchMode MatchMode);
+	static bool TryParseDebugMatchPhase(const FString& PhaseName, EWTBRMatchPhase& OutPhase);
 };
 
 

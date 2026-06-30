@@ -37,6 +37,65 @@ void AWTBRGameMode::BeginPlay()
 	WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::LoadoutSetup);
 }
 
+void AWTBRGameMode::WTBRDebugSetMatchPhase(const FString& PhaseName)
+{
+#if UE_BUILD_SHIPPING
+	UE_LOG(LogTemp, Warning, TEXT("WTBRDebugSetMatchPhase is disabled in Shipping builds."));
+#else
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRDebugSetMatchPhase rejected: GameMode does not have authority."));
+		return;
+	}
+
+	EWTBRMatchPhase ParsedPhase = EWTBRMatchPhase::None;
+	if (!TryParseDebugMatchPhase(PhaseName, ParsedPhase))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRDebugSetMatchPhase rejected: unknown phase '%s'. Valid phases: None, Lobby, PreMatch, LoadoutSetup, Countdown, InMatch, PostMatch."), *PhaseName);
+		return;
+	}
+
+	AWTBRGameState* WTBRGameState = GetGameState<AWTBRGameState>();
+	if (!IsValid(WTBRGameState))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRDebugSetMatchPhase rejected: WTBRGameState is missing."));
+		return;
+	}
+
+	WTBRGameState->SetCurrentMatchPhase(ParsedPhase);
+	UE_LOG(LogTemp, Log, TEXT("WTBRDebugSetMatchPhase: phase set to %s."), *UEnum::GetValueAsString(ParsedPhase));
+#endif
+}
+
+void AWTBRGameMode::WTBRDebugPrintMatchState() const
+{
+#if UE_BUILD_SHIPPING
+	UE_LOG(LogTemp, Warning, TEXT("WTBRDebugPrintMatchState is disabled in Shipping builds."));
+#else
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRDebugPrintMatchState rejected: GameMode does not have authority."));
+		return;
+	}
+
+	const AWTBRGameState* WTBRGameState = GetGameState<AWTBRGameState>();
+	if (!IsValid(WTBRGameState))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRDebugPrintMatchState rejected: WTBRGameState is missing."));
+		return;
+	}
+
+	const FWTBRMatchModeRules Rules = WTBRGameState->GetCurrentMatchRules();
+	UE_LOG(LogTemp, Log,
+		TEXT("WTBRDebugPrintMatchState: Mode=%s Phase=%s bEnablePassiveVaelRegen=%s VaelRegenPerSecond=%.2f bAllowTriggerSwapDuringMatch=%s"),
+		*UEnum::GetValueAsString(WTBRGameState->GetCurrentMatchMode()),
+		*UEnum::GetValueAsString(WTBRGameState->GetCurrentMatchPhase()),
+		Rules.bEnablePassiveVaelRegen ? TEXT("true") : TEXT("false"),
+		Rules.VaelRegenPerSecond,
+		Rules.bAllowTriggerSwapDuringMatch ? TEXT("true") : TEXT("false"));
+#endif
+}
+
 FWTBRMatchModeRules AWTBRGameMode::ResolveDefaultMatchRules() const
 {
 	for (const UWTBRMatchModeRulesDataAsset* RulesAsset : MatchModeRuleAssets)
@@ -55,6 +114,49 @@ FWTBRMatchModeRules AWTBRGameMode::ResolveDefaultMatchRules() const
 	}
 
 	return MakeDefaultRulesForMode(DefaultMatchMode);
+}
+
+bool AWTBRGameMode::TryParseDebugMatchPhase(const FString& PhaseName, EWTBRMatchPhase& OutPhase)
+{
+	const FString NormalizedPhase = PhaseName.TrimStartAndEnd().Replace(TEXT(" "), TEXT("")).Replace(TEXT("_"), TEXT(""));
+
+	if (NormalizedPhase.Equals(TEXT("None"), ESearchCase::IgnoreCase))
+	{
+		OutPhase = EWTBRMatchPhase::None;
+		return true;
+	}
+	if (NormalizedPhase.Equals(TEXT("Lobby"), ESearchCase::IgnoreCase))
+	{
+		OutPhase = EWTBRMatchPhase::Lobby;
+		return true;
+	}
+	if (NormalizedPhase.Equals(TEXT("PreMatch"), ESearchCase::IgnoreCase))
+	{
+		OutPhase = EWTBRMatchPhase::PreMatch;
+		return true;
+	}
+	if (NormalizedPhase.Equals(TEXT("LoadoutSetup"), ESearchCase::IgnoreCase))
+	{
+		OutPhase = EWTBRMatchPhase::LoadoutSetup;
+		return true;
+	}
+	if (NormalizedPhase.Equals(TEXT("Countdown"), ESearchCase::IgnoreCase))
+	{
+		OutPhase = EWTBRMatchPhase::Countdown;
+		return true;
+	}
+	if (NormalizedPhase.Equals(TEXT("InMatch"), ESearchCase::IgnoreCase))
+	{
+		OutPhase = EWTBRMatchPhase::InMatch;
+		return true;
+	}
+	if (NormalizedPhase.Equals(TEXT("PostMatch"), ESearchCase::IgnoreCase))
+	{
+		OutPhase = EWTBRMatchPhase::PostMatch;
+		return true;
+	}
+
+	return false;
 }
 
 FWTBRMatchModeRules AWTBRGameMode::MakeDefaultRulesForMode(EWTBRMatchMode MatchMode)
