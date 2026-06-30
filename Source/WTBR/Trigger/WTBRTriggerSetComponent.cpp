@@ -607,6 +607,70 @@ bool UWTBRTriggerSetComponent::CanMutateTriggerLoadout() const
     return false;
 }
 
+void UWTBRTriggerSetComponent::DebugPrintTriggerLoadoutMutationGate() const
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("DebugPrintTriggerLoadoutMutationGate is disabled in Shipping builds."));
+#else
+    const bool bFinalDecision = CanMutateTriggerLoadout();
+
+    const TCHAR* Reason = TEXT("BlockedByPhase");
+    EWTBRMatchMode MatchMode = EWTBRMatchMode::None;
+    EWTBRMatchPhase MatchPhase = EWTBRMatchPhase::None;
+    bool bLoadoutSetupAllowedPhase = false;
+    bool bInMatch = false;
+    bool bAllowsTriggerSwapDuringMatch = false;
+
+    if (!HasServerAuthority())
+    {
+        Reason = TEXT("NoAuthority");
+    }
+    else if (const UWorld* World = GetWorld())
+    {
+        if (const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>())
+        {
+            MatchMode = WTBRGameState->GetCurrentMatchMode();
+            MatchPhase = WTBRGameState->GetCurrentMatchPhase();
+            bLoadoutSetupAllowedPhase = WTBRGameState->IsLoadoutSetupAllowedPhase();
+            bInMatch = WTBRGameState->IsInMatch();
+            bAllowsTriggerSwapDuringMatch = WTBRGameState->AllowsTriggerSwapDuringMatch();
+
+            if (bLoadoutSetupAllowedPhase)
+            {
+                Reason = TEXT("LoadoutSetupAllowedPhase");
+            }
+            else if (bInMatch && bAllowsTriggerSwapDuringMatch)
+            {
+                Reason = TEXT("InMatchRuleAllowsTriggerSwap");
+            }
+            else if (bInMatch)
+            {
+                Reason = TEXT("InMatchRuleBlocksTriggerSwap");
+            }
+        }
+        else
+        {
+            Reason = TEXT("MissingGameState");
+        }
+    }
+    else
+    {
+        Reason = TEXT("MissingWorld");
+    }
+
+    UE_LOG(LogTemp, Log,
+        TEXT("WTBRDebugPrintTriggerLoadoutGate: Owner=%s Mode=%s Phase=%s IsLoadoutSetupAllowedPhase=%s IsInMatch=%s AllowsTriggerSwapDuringMatch=%s Decision=%s Reason=%s"),
+        *GetNameSafe(GetOwner()),
+        *UEnum::GetValueAsString(MatchMode),
+        *UEnum::GetValueAsString(MatchPhase),
+        bLoadoutSetupAllowedPhase ? TEXT("true") : TEXT("false"),
+        bInMatch ? TEXT("true") : TEXT("false"),
+        bAllowsTriggerSwapDuringMatch ? TEXT("true") : TEXT("false"),
+        bFinalDecision ? TEXT("ALLOW") : TEXT("BLOCK"),
+        Reason);
+#endif
+}
+
 void UWTBRTriggerSetComponent::Server_SetTriggerLoadout_Implementation(
     const TArray<TSoftObjectPtr<UWTBRTriggerDataAsset>>& InLoadout)
 {

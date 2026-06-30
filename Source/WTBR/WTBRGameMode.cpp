@@ -3,6 +3,8 @@
 #include "WTBRGameMode.h"
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
+#include "GameFramework/PlayerController.h"
+#include "Trigger/WTBRTriggerSetComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
 AWTBRGameMode::AWTBRGameMode()
@@ -93,6 +95,53 @@ void AWTBRGameMode::WTBRDebugPrintMatchState() const
 		Rules.bEnablePassiveVaelRegen ? TEXT("true") : TEXT("false"),
 		Rules.VaelRegenPerSecond,
 		Rules.bAllowTriggerSwapDuringMatch ? TEXT("true") : TEXT("false"));
+#endif
+}
+
+void AWTBRGameMode::WTBRDebugPrintTriggerLoadoutGate() const
+{
+#if UE_BUILD_SHIPPING
+	UE_LOG(LogTemp, Warning, TEXT("WTBRDebugPrintTriggerLoadoutGate is disabled in Shipping builds."));
+#else
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRDebugPrintTriggerLoadoutGate rejected: GameMode does not have authority."));
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRDebugPrintTriggerLoadoutGate rejected: World is missing."));
+		return;
+	}
+
+	APlayerController* PlayerController = World->GetFirstPlayerController();
+	if (!IsValid(PlayerController))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRDebugPrintTriggerLoadoutGate rejected: player 0 controller is missing."));
+		return;
+	}
+
+	AWTBRCharacter* WTBRCharacter = Cast<AWTBRCharacter>(PlayerController->GetPawn());
+	if (!IsValid(WTBRCharacter))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRDebugPrintTriggerLoadoutGate rejected: player 0 pawn is not AWTBRCharacter. Pawn=%s"),
+			*GetNameSafe(PlayerController->GetPawn()));
+		return;
+	}
+
+	if (!IsValid(WTBRCharacter->TriggerSetComponent))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRDebugPrintTriggerLoadoutGate rejected: TriggerSetComponent is missing for pawn %s."),
+			*GetNameSafe(WTBRCharacter));
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("WTBRDebugPrintTriggerLoadoutGate: checking player 0 pawn %s component %s."),
+		*GetNameSafe(WTBRCharacter),
+		*GetNameSafe(WTBRCharacter->TriggerSetComponent));
+	WTBRCharacter->TriggerSetComponent->DebugPrintTriggerLoadoutMutationGate();
 #endif
 }
 

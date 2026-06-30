@@ -22,6 +22,9 @@ public:
 	UFUNCTION(Exec)
 	void WTBRDebugPrintMatchState() const;
 
+	UFUNCTION(Exec)
+	void WTBRDebugPrintTriggerLoadoutGate() const;
+
 protected:
 	virtual void BeginPlay() override;
 

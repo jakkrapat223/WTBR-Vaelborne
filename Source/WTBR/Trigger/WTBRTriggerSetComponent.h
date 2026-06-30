@@ -121,6 +121,8 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_SetTriggerLoadout(const TArray<TSoftObjectPtr<UWTBRTriggerDataAsset>>& InLoadout);
 
+    void DebugPrintTriggerLoadoutMutationGate() const;
+
     // Serpveil: client sends charged params, server validates Vael and fires
     UFUNCTION(Server, Reliable)
     void Server_FireSerpveil(EWTBRSerpveilShape Shape, FRotator Direction, float ChargedRange, bool bIsMain);
