@@ -19,6 +19,7 @@ class UWTBRMovementExtComponent;
 class UWTBRInputGestureComponent;
 class UTexture2D;
 class AWTBRDroppedTriggerActor;
+class AWTBRCorpseLootContainerActor;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRHUDHintsChanged);
 
@@ -245,6 +246,9 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_RequestPickupDroppedTrigger(AWTBRDroppedTriggerActor* DroppedTrigger, int32 TargetSlotIndex);
 
+    UFUNCTION(Server, Reliable)
+    void Server_RequestPickupCorpseLootEntry(AWTBRCorpseLootContainerActor* LootContainer, int32 LootEntryIndex, int32 TargetSlotIndex);
+
     UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
     AWTBRDroppedTriggerActor* FindAimedDroppedTriggerForPickup() const;
 
@@ -256,6 +260,12 @@ public:
 
     UFUNCTION(Exec)
     void WTBRDebugCharacterPickupNearestDroppedTrigger(int32 TargetSlotIndex);
+
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterSpawnCorpseLootContainer();
+
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterLootNearestCorpseContainer(int32 LootEntryIndex, int32 TargetSlotIndex);
 
     UFUNCTION(Exec)
     void WTBRDebugCharacterPickupAimedDroppedTriggerActiveMain();

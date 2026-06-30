@@ -20,6 +20,7 @@
 #include "Components/WTBRVaelComponent.h"
 #include "Components/WTBRMovementExtComponent.h"
 #include "Components/WTBRInputGestureComponent.h"
+#include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "WTBRGameState.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
@@ -566,6 +567,129 @@ void AWTBRCharacter::WTBRDebugCharacterPickupNearestDroppedTrigger(int32 TargetS
 #endif
 }
 
+void AWTBRCharacter::WTBRDebugCharacterSpawnCorpseLootContainer()
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSpawnCorpseLootContainer is disabled in Shipping builds."));
+#else
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSpawnCorpseLootContainer rejected: character %s does not have authority."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSpawnCorpseLootContainer rejected: World is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!IsValid(WTBRGameState)
+        || !WTBRGameState->IsInMatch()
+        || !WTBRGameState->AllowsCorpseLoot()
+        || !WTBRGameState->AllowsTriggerPickup())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSpawnCorpseLootContainer rejected by match phase/rules for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSpawnCorpseLootContainer rejected: TriggerSetComponent is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> InstalledTriggers;
+    TriggerSetComponent->GetInstalledTriggerSlotSnapshots(InstalledTriggers);
+    if (InstalledTriggers.Num() == 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSpawnCorpseLootContainer rejected: character %s has no installed triggers."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.Owner = this;
+    SpawnParams.Instigator = this;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+    const FVector SpawnLocation = GetActorLocation() + (GetActorForwardVector() * 120.0f) + FVector(0.0f, 0.0f, 20.0f);
+    AWTBRCorpseLootContainerActor* LootContainer = World->SpawnActor<AWTBRCorpseLootContainerActor>(
+        AWTBRCorpseLootContainerActor::StaticClass(),
+        SpawnLocation,
+        FRotator::ZeroRotator,
+        SpawnParams);
+
+    if (!IsValid(LootContainer))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterSpawnCorpseLootContainer rejected: failed to spawn container for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    LootContainer->InitializeCorpseLootContainer(InstalledTriggers);
+    UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterSpawnCorpseLootContainer: spawned %s for character %s with %d entries."),
+        *GetNameSafe(LootContainer),
+        *GetNameSafe(this),
+        LootContainer->GetLootEntryCount());
+#endif
+}
+
+void AWTBRCharacter::WTBRDebugCharacterLootNearestCorpseContainer(int32 LootEntryIndex, int32 TargetSlotIndex)
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterLootNearestCorpseContainer is disabled in Shipping builds."));
+#else
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterLootNearestCorpseContainer rejected: World is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    AWTBRCorpseLootContainerActor* NearestContainer = nullptr;
+    float NearestDistanceSq = FMath::Square(WTBRDroppedTriggerPickupRange);
+
+    for (TActorIterator<AWTBRCorpseLootContainerActor> It(World); It; ++It)
+    {
+        AWTBRCorpseLootContainerActor* Candidate = *It;
+        if (!IsValid(Candidate) || Candidate->GetLootEntryCount() == 0 || Candidate->AreAllEntriesConsumed())
+        {
+            continue;
+        }
+
+        const float CandidateDistanceSq = FVector::DistSquared(GetActorLocation(), Candidate->GetActorLocation());
+        if (CandidateDistanceSq <= NearestDistanceSq)
+        {
+            NearestContainer = Candidate;
+            NearestDistanceSq = CandidateDistanceSq;
+        }
+    }
+
+    if (!IsValid(NearestContainer))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterLootNearestCorpseContainer rejected: no corpse loot container within %.0f units for character %s."),
+            WTBRDroppedTriggerPickupRange,
+            *GetNameSafe(this));
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterLootNearestCorpseContainer: requesting container %s entry %d into slot %d for character %s."),
+        *GetNameSafe(NearestContainer),
+        LootEntryIndex,
+        TargetSlotIndex,
+        *GetNameSafe(this));
+    Server_RequestPickupCorpseLootEntry(NearestContainer, LootEntryIndex, TargetSlotIndex);
+#endif
+}
+
 AWTBRDroppedTriggerActor* AWTBRCharacter::FindAimedDroppedTriggerForPickup() const
 {
     UWorld* World = GetWorld();
@@ -873,6 +997,135 @@ void AWTBRCharacter::Server_RequestPickupDroppedTrigger_Implementation(AWTBRDrop
         *GetNameSafe(DroppedTrigger),
         TargetSlotIndex);
     DroppedTrigger->Destroy();
+}
+
+void AWTBRCharacter::Server_RequestPickupCorpseLootEntry_Implementation(
+    AWTBRCorpseLootContainerActor* LootContainer,
+    int32 LootEntryIndex,
+    int32 TargetSlotIndex)
+{
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: character %s has no authority"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(HealthComponent) || !HealthComponent->IsAlive())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: character %s is not alive"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: World is missing for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!IsValid(WTBRGameState)
+        || !WTBRGameState->IsInMatch()
+        || !WTBRGameState->AllowsCorpseLoot()
+        || !WTBRGameState->AllowsTriggerPickup()
+        || !WTBRGameState->AllowsTriggerSwapDuringMatch())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected by match phase/rules for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: TriggerSetComponent is missing for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(LootContainer))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: invalid container for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (LootContainer->GetLootEntryCount() == 0 || LootContainer->AreAllEntriesConsumed())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: container %s is empty or fully consumed"),
+            *GetNameSafe(LootContainer));
+        return;
+    }
+
+    if (LootEntryIndex < 0 || LootEntryIndex >= LootContainer->GetLootEntryCount())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: invalid entry index %d for container %s"),
+            LootEntryIndex,
+            *GetNameSafe(LootContainer));
+        return;
+    }
+
+    if (LootContainer->IsEntryConsumed(LootEntryIndex))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: entry %d in container %s is already consumed"),
+            LootEntryIndex,
+            *GetNameSafe(LootContainer));
+        return;
+    }
+
+    const TSoftObjectPtr<UWTBRTriggerDataAsset> EntryDataAsset = LootContainer->GetEntryTriggerDataAsset(LootEntryIndex);
+    if (EntryDataAsset.IsNull())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: entry %d in container %s has invalid DataAsset"),
+            LootEntryIndex,
+            *GetNameSafe(LootContainer));
+        return;
+    }
+
+    const float DistanceSq = FVector::DistSquared(GetActorLocation(), LootContainer->GetActorLocation());
+    const float MaxDistanceSq = FMath::Square(WTBRDroppedTriggerPickupRange);
+    if (DistanceSq > MaxDistanceSq)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: character %s is too far from %s (Distance=%.1f Max=%.1f)"),
+            *GetNameSafe(this),
+            *GetNameSafe(LootContainer),
+            FMath::Sqrt(DistanceSq),
+            WTBRDroppedTriggerPickupRange);
+        return;
+    }
+
+    if (!LootContainer->TryMarkEntryConsumed(LootEntryIndex))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: failed to consume entry %d in container %s"),
+            LootEntryIndex,
+            *GetNameSafe(LootContainer));
+        return;
+    }
+
+    if (!TriggerSetComponent->ReplaceTriggerSlotFromDataAsset(TargetSlotIndex, EntryDataAsset))
+    {
+        LootContainer->ClearEntryConsumedForFailedPickup(LootEntryIndex);
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: replacement failed for character %s entry %d slot %d"),
+            *GetNameSafe(this),
+            LootEntryIndex,
+            TargetSlotIndex);
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot pickup succeeded: character %s consumed container %s entry %d into slot %d"),
+        *GetNameSafe(this),
+        *GetNameSafe(LootContainer),
+        LootEntryIndex,
+        TargetSlotIndex);
+
+    if (LootContainer->AreAllEntriesConsumed())
+    {
+        UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot container empty/destroyed: %s"),
+            *GetNameSafe(LootContainer));
+        LootContainer->Destroy();
+    }
 }
 
 void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir)
