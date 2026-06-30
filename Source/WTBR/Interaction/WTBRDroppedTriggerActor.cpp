@@ -30,6 +30,27 @@ void AWTBRDroppedTriggerActor::InitializeDroppedTrigger(
 	CachedCategory = InCachedCategory;
 }
 
+bool AWTBRDroppedTriggerActor::TryMarkConsumed()
+{
+	if (!HasAuthority() || bConsumed)
+	{
+		return false;
+	}
+
+	bConsumed = true;
+	return true;
+}
+
+void AWTBRDroppedTriggerActor::ClearConsumedForFailedPickup()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	bConsumed = false;
+}
+
 void AWTBRDroppedTriggerActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -37,4 +58,5 @@ void AWTBRDroppedTriggerActor::GetLifetimeReplicatedProps(TArray<FLifetimeProper
 	DOREPLIFETIME(AWTBRDroppedTriggerActor, DroppedTriggerDataAsset);
 	DOREPLIFETIME(AWTBRDroppedTriggerActor, SourceSlotIndex);
 	DOREPLIFETIME(AWTBRDroppedTriggerActor, CachedCategory);
+	DOREPLIFETIME(AWTBRDroppedTriggerActor, bConsumed);
 }

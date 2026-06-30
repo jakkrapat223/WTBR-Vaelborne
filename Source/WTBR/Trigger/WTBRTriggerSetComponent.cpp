@@ -293,6 +293,166 @@ void UWTBRTriggerSetComponent::GetInstalledTriggerSlotSnapshots(TArray<FWTBRInst
     }
 }
 
+bool UWTBRTriggerSetComponent::ReplaceTriggerSlotFromDataAsset(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> NewDataAsset)
+{
+    if (!HasServerAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR trigger pickup replacement rejected: owner %s has no authority"),
+            *GetNameSafe(GetOwner()));
+        return false;
+    }
+
+    if (!CanMutateTriggerLoadout())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR trigger pickup replacement rejected by match phase/rules for owner %s"),
+            *GetNameSafe(GetOwner()));
+        return false;
+    }
+
+    if (!IsValidSlotIndex(SlotIndex) || !RuntimeTriggers.IsValidIndex(SlotIndex))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR trigger pickup replacement rejected: invalid slot %d for owner %s"),
+            SlotIndex,
+            *GetNameSafe(GetOwner()));
+        return false;
+    }
+
+    if (NewDataAsset.IsNull())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR trigger pickup replacement rejected: null DataAsset for owner %s slot %d"),
+            *GetNameSafe(GetOwner()),
+            SlotIndex);
+        return false;
+    }
+
+    UWTBRTriggerDataAsset* LoadedDataAsset = NewDataAsset.LoadSynchronous();
+    if (!IsValid(LoadedDataAsset))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR trigger pickup replacement rejected: failed to load DataAsset for owner %s slot %d"),
+            *GetNameSafe(GetOwner()),
+            SlotIndex);
+        return false;
+    }
+
+    if (!LoadedDataAsset->TriggerClass)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR trigger pickup replacement rejected: DataAsset %s has no TriggerClass"),
+            *GetNameSafe(LoadedDataAsset));
+        return false;
+    }
+
+    if (!IsDataAssetCompatibleWithSlot(SlotIndex, LoadedDataAsset))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR trigger pickup replacement rejected: DataAsset %s is incompatible with slot %d"),
+            *GetNameSafe(LoadedDataAsset),
+            SlotIndex);
+        return false;
+    }
+
+    CleanupRuntimeTriggerForReplacement(SlotIndex);
+
+    TriggerSlots[SlotIndex].DataAsset = NewDataAsset;
+    TriggerSlots[SlotIndex].CachedCategory = ETriggerCategory::None;
+    RuntimeTriggers[SlotIndex] = nullptr;
+
+    InitializeLoadedSlot(SlotIndex);
+    UpdateDualWieldState();
+
+    if (SlotIndex == ActiveSubIndex && RuntimeTriggers.IsValidIndex(SlotIndex) && RuntimeTriggers[SlotIndex])
+    {
+        RuntimeTriggers[SlotIndex]->OnEquipped();
+        OnSubTriggerEquipped.Broadcast(RuntimeTriggers[SlotIndex]);
+    }
+
+    if (SlotIndex == ActiveMainIndex || SlotIndex == ActiveSubIndex)
+    {
+        OnActiveTriggerChanged.Broadcast((ETriggerSlot)SlotIndex);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR trigger pickup replacement succeeded: owner %s slot %d DataAsset %s"),
+        *GetNameSafe(GetOwner()),
+        SlotIndex,
+        *GetNameSafe(LoadedDataAsset));
+    return true;
+}
+
+bool UWTBRTriggerSetComponent::IsDataAssetCompatibleWithSlot(int32 SlotIndex, const UWTBRTriggerDataAsset* DataAsset) const
+{
+    if (!IsValidSlotIndex(SlotIndex) || !IsValid(DataAsset))
+    {
+        return false;
+    }
+
+    switch (DataAsset->SlotConstraint)
+    {
+        case ETriggerSlotConstraint::MainOnly:
+            return SlotIndex >= 0 && SlotIndex < MainSlotCount;
+
+        case ETriggerSlotConstraint::SubOnly:
+            return SlotIndex >= MainSlotCount && SlotIndex < TotalSlotCount;
+
+        case ETriggerSlotConstraint::Any:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+void UWTBRTriggerSetComponent::CleanupRuntimeTriggerForReplacement(int32 SlotIndex)
+{
+    if (!HasServerAuthority() || !IsValidSlotIndex(SlotIndex) || !RuntimeTriggers.IsValidIndex(SlotIndex))
+    {
+        return;
+    }
+
+    if (TSharedPtr<FStreamableHandle>* ExistingHandle = PendingSlotLoads.Find(SlotIndex))
+    {
+        if (ExistingHandle->IsValid())
+        {
+            (*ExistingHandle)->CancelHandle();
+        }
+        PendingSlotLoads.Remove(SlotIndex);
+    }
+
+    const bool bReplacingActiveMain = SlotIndex == ActiveMainIndex;
+    const bool bReplacingActiveSub = SlotIndex == ActiveSubIndex;
+
+    if (bReplacingActiveMain && CurrentMergeState != EWTBRCompositeBulletType::None)
+    {
+        CancelMerge();
+    }
+
+    UWTBRTriggerBase* OldTrigger = RuntimeTriggers[SlotIndex];
+    if (!IsValid(OldTrigger))
+    {
+        return;
+    }
+
+    if (bReplacingActiveMain || bReplacingActiveSub)
+    {
+        OldTrigger->OnTriggerDeactivated(GetOwner(), bReplacingActiveMain);
+    }
+
+    if (UWTBRSerpveilTrigger* SerpveilTrigger = Cast<UWTBRSerpveilTrigger>(OldTrigger))
+    {
+        SerpveilTrigger->CancelCharge();
+    }
+
+    if (UWTBRAegornTrigger* AegornTrigger = Cast<UWTBRAegornTrigger>(OldTrigger))
+    {
+        AegornTrigger->CancelShield();
+    }
+
+    if (bReplacingActiveSub)
+    {
+        OldTrigger->OnUnequipped();
+        OnSubTriggerUnequipped.Broadcast(OldTrigger);
+    }
+
+    OldTrigger->Deactivate();
+}
+
 void UWTBRTriggerSetComponent::UpdateDualWieldState()
 {
     const UWTBRTriggerBase* Main = GetActiveMainTrigger();

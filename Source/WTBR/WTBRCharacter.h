@@ -18,6 +18,7 @@ class UWTBRVaelComponent;
 class UWTBRMovementExtComponent;
 class UWTBRInputGestureComponent;
 class UTexture2D;
+class AWTBRDroppedTriggerActor;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRHUDHintsChanged);
 
@@ -240,6 +241,12 @@ public:
 
     UFUNCTION(Exec)
     void WTBRDebugCharacterSetMatchPhase(const FString& PhaseName);
+
+    UFUNCTION(Server, Reliable)
+    void Server_RequestPickupDroppedTrigger(AWTBRDroppedTriggerActor* DroppedTrigger, int32 TargetSlotIndex);
+
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterPickupNearestDroppedTrigger(int32 TargetSlotIndex);
 
     UPROPERTY(ReplicatedUsing = OnRep_bIsStaggered, BlueprintReadOnly,
         Category = "WTBR | Character | Stagger")

@@ -12,6 +12,7 @@
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "Engine/Engine.h"
+#include "EngineUtils.h"
 #include "Net/UnrealNetwork.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Components/WTBRHealthComponent.h"
@@ -19,6 +20,7 @@
 #include "Components/WTBRVaelComponent.h"
 #include "Components/WTBRMovementExtComponent.h"
 #include "Components/WTBRInputGestureComponent.h"
+#include "Interaction/WTBRDroppedTriggerActor.h"
 #include "WTBRGameState.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerBase.h"
@@ -42,6 +44,8 @@
 
 namespace
 {
+    constexpr float WTBRDroppedTriggerPickupRange = 300.0f;
+
     bool TryParseWTBRDebugMatchPhase(const FString& PhaseName, EWTBRMatchPhase& OutPhase)
     {
         const FString NormalizedPhase = PhaseName.TrimStartAndEnd().Replace(TEXT(" "), TEXT("")).Replace(TEXT("_"), TEXT(""));
@@ -515,6 +519,53 @@ void AWTBRCharacter::WTBRDebugCharacterSetMatchPhase(const FString& PhaseName)
 
 // ─── Server RPC Implementations ──────────────────────────────────────────────
 
+void AWTBRCharacter::WTBRDebugCharacterPickupNearestDroppedTrigger(int32 TargetSlotIndex)
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPickupNearestDroppedTrigger is disabled in Shipping builds."));
+#else
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPickupNearestDroppedTrigger rejected: World is missing."));
+        return;
+    }
+
+    AWTBRDroppedTriggerActor* NearestDroppedTrigger = nullptr;
+    float NearestDistanceSq = FMath::Square(WTBRDroppedTriggerPickupRange);
+
+    for (TActorIterator<AWTBRDroppedTriggerActor> It(World); It; ++It)
+    {
+        AWTBRDroppedTriggerActor* Candidate = *It;
+        if (!IsValid(Candidate) || Candidate->IsConsumed() || Candidate->GetDroppedTriggerDataAsset().IsNull())
+        {
+            continue;
+        }
+
+        const float CandidateDistanceSq = FVector::DistSquared(GetActorLocation(), Candidate->GetActorLocation());
+        if (CandidateDistanceSq <= NearestDistanceSq)
+        {
+            NearestDroppedTrigger = Candidate;
+            NearestDistanceSq = CandidateDistanceSq;
+        }
+    }
+
+    if (!IsValid(NearestDroppedTrigger))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPickupNearestDroppedTrigger rejected: no dropped trigger within %.0f units for character %s."),
+            WTBRDroppedTriggerPickupRange,
+            *GetNameSafe(this));
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterPickupNearestDroppedTrigger: requesting pickup of %s into slot %d for character %s."),
+        *GetNameSafe(NearestDroppedTrigger),
+        TargetSlotIndex,
+        *GetNameSafe(this));
+    Server_RequestPickupDroppedTrigger(NearestDroppedTrigger, TargetSlotIndex);
+#endif
+}
+
 void AWTBRCharacter::AddDefaultMappingContext()
 {
     if (!IsValid(DefaultMappingContext) || !IsLocallyControlled())
@@ -599,6 +650,98 @@ FVector AWTBRCharacter::SanitizeClientMoveInputDirection(FVector ClientMoveInput
 
     ClientMoveInputDir = ClientMoveInputDir.GetClampedToMaxSize2D(1.0f);
     return ClientMoveInputDir.GetSafeNormal2D();
+}
+
+void AWTBRCharacter::Server_RequestPickupDroppedTrigger_Implementation(AWTBRDroppedTriggerActor* DroppedTrigger, int32 TargetSlotIndex)
+{
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR dropped trigger pickup rejected: character %s has no authority"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(HealthComponent) || !HealthComponent->IsAlive())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR dropped trigger pickup rejected: character %s is not alive"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR dropped trigger pickup rejected: TriggerSetComponent is missing for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(DroppedTrigger) || DroppedTrigger->IsConsumed())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR dropped trigger pickup rejected: dropped actor is invalid or already consumed for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const TSoftObjectPtr<UWTBRTriggerDataAsset> DroppedDataAsset = DroppedTrigger->GetDroppedTriggerDataAsset();
+    if (DroppedDataAsset.IsNull())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR dropped trigger pickup rejected: dropped actor %s has no DataAsset"),
+            *GetNameSafe(DroppedTrigger));
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR dropped trigger pickup rejected: World is missing for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!IsValid(WTBRGameState)
+        || !WTBRGameState->IsInMatch()
+        || !WTBRGameState->AllowsTriggerPickup()
+        || !WTBRGameState->AllowsTriggerSwapDuringMatch())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR dropped trigger pickup rejected by match phase/rules for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const float DistanceSq = FVector::DistSquared(GetActorLocation(), DroppedTrigger->GetActorLocation());
+    const float MaxDistanceSq = FMath::Square(WTBRDroppedTriggerPickupRange);
+    if (DistanceSq > MaxDistanceSq)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR dropped trigger pickup rejected: character %s is too far from %s (Distance=%.1f Max=%.1f)"),
+            *GetNameSafe(this),
+            *GetNameSafe(DroppedTrigger),
+            FMath::Sqrt(DistanceSq),
+            WTBRDroppedTriggerPickupRange);
+        return;
+    }
+
+    if (!DroppedTrigger->TryMarkConsumed())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR dropped trigger pickup rejected: dropped actor %s was already consumed"),
+            *GetNameSafe(DroppedTrigger));
+        return;
+    }
+
+    if (!TriggerSetComponent->ReplaceTriggerSlotFromDataAsset(TargetSlotIndex, DroppedDataAsset))
+    {
+        DroppedTrigger->ClearConsumedForFailedPickup();
+        UE_LOG(LogTemp, Warning, TEXT("WTBR dropped trigger pickup rejected: replacement failed for character %s slot %d"),
+            *GetNameSafe(this),
+            TargetSlotIndex);
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR dropped trigger pickup succeeded: character %s consumed %s into slot %d"),
+        *GetNameSafe(this),
+        *GetNameSafe(DroppedTrigger),
+        TargetSlotIndex);
+    DroppedTrigger->Destroy();
 }
 
 void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir)

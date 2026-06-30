@@ -136,6 +136,8 @@ public:
 
     void GetInstalledTriggerSlotSnapshots(TArray<FWTBRInstalledTriggerSlotSnapshot>& OutSnapshots) const;
 
+    bool ReplaceTriggerSlotFromDataAsset(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> NewDataAsset);
+
     // Loadout assignment — called from PlayerController after character spawn
     UFUNCTION(Server, Reliable)
     void Server_SetTriggerLoadout(const TArray<TSoftObjectPtr<UWTBRTriggerDataAsset>>& InLoadout);
@@ -214,6 +216,8 @@ private:
     bool IsValidSlotIndex(int32 Index) const { return TriggerSlots.IsValidIndex(Index); }
     bool HasServerAuthority() const;
     bool CanMutateTriggerLoadout() const;
+    bool IsDataAssetCompatibleWithSlot(int32 SlotIndex, const UWTBRTriggerDataAsset* DataAsset) const;
+    void CleanupRuntimeTriggerForReplacement(int32 SlotIndex);
 
     // Fires OnUnequipped on OldIdx trigger then OnEquipped on NewIdx trigger (both delegates + virtual call)
     void NotifySubSlotChanged(int32 OldAbsIdx, int32 NewAbsIdx);

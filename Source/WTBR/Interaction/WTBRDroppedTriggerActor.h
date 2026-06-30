@@ -28,6 +28,12 @@ public:
 
 	ETriggerCategory GetCachedCategory() const { return CachedCategory; }
 
+	bool IsConsumed() const { return bConsumed; }
+
+	bool TryMarkConsumed();
+
+	void ClearConsumedForFailedPickup();
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="WTBR | Dropped Trigger")
 	TObjectPtr<USceneComponent> RootSceneComponent;
@@ -40,6 +46,9 @@ protected:
 
 	UPROPERTY(Replicated, BlueprintReadOnly, Category="WTBR | Dropped Trigger")
 	ETriggerCategory CachedCategory = ETriggerCategory::None;
+
+	UPROPERTY(Replicated, BlueprintReadOnly, Category="WTBR | Dropped Trigger")
+	bool bConsumed = false;
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };
