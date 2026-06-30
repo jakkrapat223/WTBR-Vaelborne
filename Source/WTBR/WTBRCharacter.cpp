@@ -566,6 +566,137 @@ void AWTBRCharacter::WTBRDebugCharacterPickupNearestDroppedTrigger(int32 TargetS
 #endif
 }
 
+AWTBRDroppedTriggerActor* AWTBRCharacter::FindAimedDroppedTriggerForPickup() const
+{
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR aimed dropped trigger pickup rejected: World is missing for character %s."),
+            *GetNameSafe(this));
+        return nullptr;
+    }
+
+    FVector ViewLocation = FVector::ZeroVector;
+    FRotator ViewRotation = FRotator::ZeroRotator;
+    if (Controller)
+    {
+        Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
+    }
+    else
+    {
+        GetActorEyesViewPoint(ViewLocation, ViewRotation);
+    }
+
+    const FVector TraceStart = ViewLocation;
+    const FVector TraceEnd = TraceStart + (ViewRotation.Vector() * WTBRDroppedTriggerPickupRange);
+
+    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(WTBRFindAimedDroppedTriggerForPickup), false, this);
+    QueryParams.AddIgnoredActor(this);
+
+    TArray<FHitResult> HitResults;
+    World->SweepMultiByChannel(
+        HitResults,
+        TraceStart,
+        TraceEnd,
+        FQuat::Identity,
+        ECC_Visibility,
+        FCollisionShape::MakeSphere(24.0f),
+        QueryParams);
+
+    AWTBRDroppedTriggerActor* BestDroppedTrigger = nullptr;
+    float BestDistanceSq = FMath::Square(WTBRDroppedTriggerPickupRange);
+
+    for (const FHitResult& Hit : HitResults)
+    {
+        AWTBRDroppedTriggerActor* Candidate = Cast<AWTBRDroppedTriggerActor>(Hit.GetActor());
+        if (!IsValid(Candidate) || Candidate->IsConsumed() || Candidate->GetDroppedTriggerDataAsset().IsNull())
+        {
+            continue;
+        }
+
+        const float CandidateDistanceSq = FVector::DistSquared(GetActorLocation(), Candidate->GetActorLocation());
+        if (CandidateDistanceSq <= BestDistanceSq)
+        {
+            BestDroppedTrigger = Candidate;
+            BestDistanceSq = CandidateDistanceSq;
+        }
+    }
+
+    if (!IsValid(BestDroppedTrigger))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR aimed dropped trigger pickup rejected: no aimed dropped trigger within %.0f units for character %s."),
+            WTBRDroppedTriggerPickupRange,
+            *GetNameSafe(this));
+        return nullptr;
+    }
+
+    return BestDroppedTrigger;
+}
+
+void AWTBRCharacter::RequestPickupAimedDroppedTriggerIntoActiveMainSlot()
+{
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR aimed dropped trigger pickup rejected: TriggerSetComponent is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    AWTBRDroppedTriggerActor* AimedDroppedTrigger = FindAimedDroppedTriggerForPickup();
+    if (!IsValid(AimedDroppedTrigger))
+    {
+        return;
+    }
+
+    const int32 TargetSlotIndex = TriggerSetComponent->GetActiveMainIndex();
+    UE_LOG(LogTemp, Log, TEXT("WTBR aimed dropped trigger pickup: requesting pickup of %s into active main slot %d for character %s."),
+        *GetNameSafe(AimedDroppedTrigger),
+        TargetSlotIndex,
+        *GetNameSafe(this));
+    Server_RequestPickupDroppedTrigger(AimedDroppedTrigger, TargetSlotIndex);
+}
+
+void AWTBRCharacter::RequestPickupAimedDroppedTriggerIntoActiveSubSlot()
+{
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR aimed dropped trigger pickup rejected: TriggerSetComponent is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    AWTBRDroppedTriggerActor* AimedDroppedTrigger = FindAimedDroppedTriggerForPickup();
+    if (!IsValid(AimedDroppedTrigger))
+    {
+        return;
+    }
+
+    const int32 TargetSlotIndex = TriggerSetComponent->GetActiveSubIndex();
+    UE_LOG(LogTemp, Log, TEXT("WTBR aimed dropped trigger pickup: requesting pickup of %s into active sub slot %d for character %s."),
+        *GetNameSafe(AimedDroppedTrigger),
+        TargetSlotIndex,
+        *GetNameSafe(this));
+    Server_RequestPickupDroppedTrigger(AimedDroppedTrigger, TargetSlotIndex);
+}
+
+void AWTBRCharacter::WTBRDebugCharacterPickupAimedDroppedTriggerActiveMain()
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPickupAimedDroppedTriggerActiveMain is disabled in Shipping builds."));
+#else
+    RequestPickupAimedDroppedTriggerIntoActiveMainSlot();
+#endif
+}
+
+void AWTBRCharacter::WTBRDebugCharacterPickupAimedDroppedTriggerActiveSub()
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPickupAimedDroppedTriggerActiveSub is disabled in Shipping builds."));
+#else
+    RequestPickupAimedDroppedTriggerIntoActiveSubSlot();
+#endif
+}
+
 void AWTBRCharacter::AddDefaultMappingContext()
 {
     if (!IsValid(DefaultMappingContext) || !IsLocallyControlled())

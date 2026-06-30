@@ -245,8 +245,23 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_RequestPickupDroppedTrigger(AWTBRDroppedTriggerActor* DroppedTrigger, int32 TargetSlotIndex);
 
+    UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
+    AWTBRDroppedTriggerActor* FindAimedDroppedTriggerForPickup() const;
+
+    UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
+    void RequestPickupAimedDroppedTriggerIntoActiveMainSlot();
+
+    UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
+    void RequestPickupAimedDroppedTriggerIntoActiveSubSlot();
+
     UFUNCTION(Exec)
     void WTBRDebugCharacterPickupNearestDroppedTrigger(int32 TargetSlotIndex);
+
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterPickupAimedDroppedTriggerActiveMain();
+
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterPickupAimedDroppedTriggerActiveSub();
 
     UPROPERTY(ReplicatedUsing = OnRep_bIsStaggered, BlueprintReadOnly,
         Category = "WTBR | Character | Stagger")
