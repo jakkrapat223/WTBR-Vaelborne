@@ -6,6 +6,8 @@
 #include "Net/UnrealNetwork.h"
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
+#include "HAL/IConsoleManager.h"
+#include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Components/WTBRVaelComponent.h"
@@ -18,6 +20,12 @@ static const float LIMB_DRAIN_TICK_INTERVAL = 0.5f;
 
 namespace
 {
+static TAutoConsoleVariable<int32> CVarWTBRUseCorpseLootContainerOnDeath(
+    TEXT("WTBR.UseCorpseLootContainerOnDeath"),
+    0,
+    TEXT("0 = legacy dropped-trigger death loot path, 1 = corpse loot container death loot path."),
+    ECVF_Default);
+
 void LogTest32HealthCoreStats(const UWTBRHealthComponent* Component, const UWTBRCoreStatsDataAsset* Stats, const TCHAR* Requester)
 {
     if (Stats)
@@ -636,6 +644,19 @@ void UWTBRHealthComponent::GrantVaelReward(AWTBRCharacter* RecipientCharacter, f
 
 void UWTBRHealthComponent::SpawnDroppedTriggersForEliminatedCharacter()
 {
+    if (CVarWTBRUseCorpseLootContainerOnDeath.GetValueOnGameThread() == 1)
+    {
+        UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot death spawn: corpse loot container path selected."));
+        SpawnCorpseLootContainer_Internal();
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot death spawn: legacy dropped trigger path selected."));
+    SpawnLegacyDroppedTriggers_Internal();
+}
+
+void UWTBRHealthComponent::SpawnLegacyDroppedTriggers_Internal()
+{
     AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
     if (!IsValid(VictimCharacter) || !VictimCharacter->HasAuthority())
     {
@@ -678,6 +699,7 @@ void UWTBRHealthComponent::SpawnDroppedTriggersForEliminatedCharacter()
     SpawnParams.Instigator = VictimCharacter;
     SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
+    int32 SpawnedDroppedTriggerCount = 0;
     for (int32 DropIndex = 0; DropIndex < InstalledTriggers.Num(); ++DropIndex)
     {
         const FWTBRInstalledTriggerSlotSnapshot& Snapshot = InstalledTriggers[DropIndex];
@@ -705,11 +727,79 @@ void UWTBRHealthComponent::SpawnDroppedTriggersForEliminatedCharacter()
         }
 
         DroppedTrigger->InitializeDroppedTrigger(Snapshot.DataAsset, Snapshot.SlotIndex, Snapshot.CachedCategory);
+        ++SpawnedDroppedTriggerCount;
         UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot dropped trigger for %s slot %d asset %s"),
             *GetNameSafe(VictimCharacter),
             Snapshot.SlotIndex,
             *Snapshot.DataAsset.ToSoftObjectPath().ToString());
     }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot legacy dropped trigger path completed for %s: SpawnedDroppedTriggers=%d"),
+        *GetNameSafe(VictimCharacter),
+        SpawnedDroppedTriggerCount);
+}
+
+void UWTBRHealthComponent::SpawnCorpseLootContainer_Internal()
+{
+    AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(VictimCharacter) || !VictimCharacter->HasAuthority())
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!IsValid(WTBRGameState)
+        || !WTBRGameState->IsInMatch()
+        || !WTBRGameState->AllowsCorpseLoot()
+        || !WTBRGameState->AllowsTriggerPickup())
+    {
+        return;
+    }
+
+    UWTBRTriggerSetComponent* TriggerSetComponent = VictimCharacter->TriggerSetComponent;
+    if (!IsValid(TriggerSetComponent))
+    {
+        return;
+    }
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> InstalledTriggers;
+    TriggerSetComponent->GetInstalledTriggerSlotSnapshots(InstalledTriggers);
+    if (InstalledTriggers.Num() == 0)
+    {
+        UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot container path skipped for %s: no installed trigger entries."),
+            *GetNameSafe(VictimCharacter));
+        return;
+    }
+
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.Owner = VictimCharacter;
+    SpawnParams.Instigator = VictimCharacter;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+    AWTBRCorpseLootContainerActor* LootContainer = World->SpawnActor<AWTBRCorpseLootContainerActor>(
+        AWTBRCorpseLootContainerActor::StaticClass(),
+        VictimCharacter->GetActorLocation(),
+        FRotator::ZeroRotator,
+        SpawnParams);
+
+    if (!IsValid(LootContainer))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot container path failed for %s: container spawn returned invalid actor."),
+            *GetNameSafe(VictimCharacter));
+        return;
+    }
+
+    LootContainer->InitializeCorpseLootContainer(InstalledTriggers);
+    UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot container path completed for %s: Container=%s Entries=%d"),
+        *GetNameSafe(VictimCharacter),
+        *GetNameSafe(LootContainer),
+        LootContainer->GetLootEntryCount());
 }
 
 void UWTBRHealthComponent::DestroyLimb(EWTBRLimbType Limb)

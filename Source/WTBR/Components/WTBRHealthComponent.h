@@ -191,6 +191,8 @@ private:
     void ResolveDownReward(AActor* DownInstigator);
     void GrantVaelReward(AWTBRCharacter* RecipientCharacter, float Amount) const;
     void SpawnDroppedTriggersForEliminatedCharacter();
+    void SpawnLegacyDroppedTriggers_Internal();
+    void SpawnCorpseLootContainer_Internal();
     void ClearDamageHistory(const TCHAR* Source);
     void EnterDownedState(AActor* DownInstigator);
     void EnterEliminatedState(AActor* FinalDamageInstigator);
