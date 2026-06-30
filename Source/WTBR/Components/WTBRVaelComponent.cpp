@@ -1,11 +1,15 @@
 // Copyright Vaelborne: Dominion. All Rights Reserved.
 
 #include "Components/WTBRVaelComponent.h"
+#include "WTBRGameState.h"
 #include "WTBRValidationLog.h"
+#include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
 
 namespace
 {
+constexpr float PASSIVE_REGEN_TICK_INTERVAL = 1.0f;
+
 void LogTest32VaelCoreStats(const UWTBRVaelComponent* Component, const UWTBRCoreStatsDataAsset* Stats, const TCHAR* Requester)
 {
     if (Stats)
@@ -59,7 +63,14 @@ void UWTBRVaelComponent::BeginPlay()
     if (GetOwner() && GetOwner()->HasAuthority())
     {
         CurrentVael = LoadedMaxVael;
+        StartPassiveRegenTimer();
     }
+}
+
+void UWTBRVaelComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    StopPassiveRegenTimer();
+    Super::EndPlay(EndPlayReason);
 }
 
 float UWTBRVaelComponent::GetMaxVael() const
@@ -155,6 +166,46 @@ bool UWTBRVaelComponent::GrantVael(float Amount)
     }
 
     return CurrentVael > PreviousVael;
+}
+
+void UWTBRVaelComponent::StartPassiveRegenTimer()
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
+
+    UWorld* World = GetWorld();
+    if (!World) return;
+
+    World->GetTimerManager().SetTimer(
+        PassiveRegenTimerHandle,
+        this,
+        &UWTBRVaelComponent::ApplyPassiveRegenTick,
+        PASSIVE_REGEN_TICK_INTERVAL,
+        true);
+}
+
+void UWTBRVaelComponent::StopPassiveRegenTimer()
+{
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(PassiveRegenTimerHandle);
+    }
+}
+
+void UWTBRVaelComponent::ApplyPassiveRegenTick()
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
+
+    UWorld* World = GetWorld();
+    if (!World) return;
+
+    const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!IsValid(WTBRGameState)) return;
+    if (!WTBRGameState->IsPassiveVaelRegenEnabled()) return;
+
+    const float RegenPerSecond = WTBRGameState->GetVaelRegenPerSecond();
+    if (RegenPerSecond <= 0.0f) return;
+
+    GrantVael(RegenPerSecond * PASSIVE_REGEN_TICK_INTERVAL);
 }
 
 void UWTBRVaelComponent::ResetDesperationState()

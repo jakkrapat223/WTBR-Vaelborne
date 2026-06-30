@@ -91,6 +91,7 @@ public:
 
 protected:
     virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
     UPROPERTY(ReplicatedUsing=OnRep_CurrentVael)
@@ -107,6 +108,7 @@ private:
 
     FTimerHandle DesperationActiveTimerHandle;
     FTimerHandle DesperationCooldownTimerHandle;
+    FTimerHandle PassiveRegenTimerHandle;
 
     const UWTBRCoreStatsDataAsset* GetStats() const
     {
@@ -140,6 +142,9 @@ private:
     void EndDesperationCooldown();
     void SetDesperationActive(bool bNewActive);
     void SetDesperationOnCooldown(bool bNewOnCooldown);
+    void StartPassiveRegenTimer();
+    void StopPassiveRegenTimer();
+    void ApplyPassiveRegenTick();
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };
