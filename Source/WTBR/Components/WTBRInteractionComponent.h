@@ -19,6 +19,9 @@ public:
     UFUNCTION(BlueprintCallable, Category="WTBR|Interaction")
     AWTBRCorpseLootContainerActor* GetFocusedCorpseLootContainer() const;
 
+    UFUNCTION(BlueprintCallable, Category="WTBR|Interaction")
+    FText GetFocusedInteractionPromptText() const;
+
 private:
     UPROPERTY(EditDefaultsOnly, Category="WTBR|Interaction")
     float InteractionTraceDistance = 300.0f;

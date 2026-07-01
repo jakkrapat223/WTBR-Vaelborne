@@ -53,3 +53,20 @@ AWTBRCorpseLootContainerActor* UWTBRInteractionComponent::GetFocusedCorpseLootCo
 
     return bHit ? Cast<AWTBRCorpseLootContainerActor>(Hit.GetActor()) : nullptr;
 }
+
+FText UWTBRInteractionComponent::GetFocusedInteractionPromptText() const
+{
+    const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(OwnerCharacter))
+    {
+        return FText::GetEmpty();
+    }
+
+    const AWTBRCorpseLootContainerActor* FocusedContainer = GetFocusedCorpseLootContainer();
+    if (!IsValid(FocusedContainer) || !FocusedContainer->CanBeInteractedWithBy(OwnerCharacter))
+    {
+        return FText::GetEmpty();
+    }
+
+    return FocusedContainer->GetInteractionPromptText();
+}
