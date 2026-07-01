@@ -3,6 +3,8 @@
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 
 #include "Components/SceneComponent.h"
+#include "Components/SphereComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "Net/UnrealNetwork.h"
 
@@ -21,8 +23,21 @@ AWTBRCorpseLootContainerActor::AWTBRCorpseLootContainerActor()
     bReplicates = true;
     SetReplicateMovement(true);
 
-    RootSceneComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootSceneComponent"));
-    SetRootComponent(RootSceneComponent);
+    SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
+    SetRootComponent(SceneRoot);
+
+    VisualMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("VisualMesh"));
+    VisualMesh->SetupAttachment(SceneRoot);
+    VisualMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+    InteractionCollision = CreateDefaultSubobject<USphereComponent>(TEXT("InteractionCollision"));
+    InteractionCollision->SetupAttachment(SceneRoot);
+    InteractionCollision->InitSphereRadius(InteractionRadius);
+    InteractionCollision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+    InteractionCollision->SetCollisionObjectType(ECC_WorldDynamic);
+    InteractionCollision->SetCollisionResponseToAllChannels(ECR_Ignore);
+    InteractionCollision->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+    InteractionCollision->SetGenerateOverlapEvents(false);
 }
 
 void AWTBRCorpseLootContainerActor::InitializeCorpseLootContainer(

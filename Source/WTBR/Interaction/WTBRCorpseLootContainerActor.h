@@ -8,6 +8,8 @@
 #include "WTBRCorpseLootContainerActor.generated.h"
 
 class USceneComponent;
+class USphereComponent;
+class UStaticMeshComponent;
 class UWTBRTriggerDataAsset;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRCorpseLootEntriesChanged);
@@ -68,7 +70,16 @@ public:
 
 protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="WTBR | Corpse Loot")
-    TObjectPtr<USceneComponent> RootSceneComponent;
+    TObjectPtr<USceneComponent> SceneRoot;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="WTBR | Corpse Loot")
+    TObjectPtr<UStaticMeshComponent> VisualMesh;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="WTBR | Corpse Loot")
+    TObjectPtr<USphereComponent> InteractionCollision;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Corpse Loot", meta=(ClampMin="0.0"))
+    float InteractionRadius = 160.0f;
 
     UPROPERTY(ReplicatedUsing=OnRep_LootEntries, BlueprintReadOnly, Category="WTBR | Corpse Loot")
     TArray<FWTBRCorpseLootEntry> LootEntries;
