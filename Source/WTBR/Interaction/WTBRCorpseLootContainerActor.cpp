@@ -3,7 +3,17 @@
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 
 #include "Components/SceneComponent.h"
+#include "HAL/IConsoleManager.h"
 #include "Net/UnrealNetwork.h"
+
+namespace
+{
+static TAutoConsoleVariable<float> CVarWTBRCorpseLootContainerLifetimeSeconds(
+    TEXT("WTBR.CorpseLootContainerLifetimeSeconds"),
+    0.0f,
+    TEXT("<= 0.0 = disabled, > 0.0 = authority corpse loot containers auto-destroy after this many seconds."),
+    ECVF_Default);
+}
 
 AWTBRCorpseLootContainerActor::AWTBRCorpseLootContainerActor()
 {
@@ -42,6 +52,12 @@ void AWTBRCorpseLootContainerActor::InitializeCorpseLootContainer(
     UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot container initialized: Container=%s Entries=%d"),
         *GetNameSafe(this),
         LootEntries.Num());
+
+    const float LifetimeSeconds = CVarWTBRCorpseLootContainerLifetimeSeconds.GetValueOnGameThread();
+    if (LootEntries.Num() > 0 && LifetimeSeconds > 0.0f)
+    {
+        SetLifeSpan(LifetimeSeconds);
+    }
 
     NotifyLootEntriesChanged();
 }
