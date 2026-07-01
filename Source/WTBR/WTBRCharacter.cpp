@@ -689,6 +689,43 @@ void AWTBRCharacter::WTBRDebugCharacterPrintFocusedInteractionPrompt() const
 #endif
 }
 
+void AWTBRCharacter::WTBRDebugCharacterLootFocusedCorpseContainer(int32 LootEntryIndex, int32 TargetSlotIndex)
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterLootFocusedCorpseContainer is disabled in Shipping builds."));
+#else
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterLootFocusedCorpseContainer rejected: World is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(InteractionComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterLootFocusedCorpseContainer rejected: InteractionComponent is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    AWTBRCorpseLootContainerActor* FocusedContainer = InteractionComponent->GetFocusedCorpseLootContainer();
+    if (!IsValid(FocusedContainer))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterLootFocusedCorpseContainer rejected: no focused corpse loot container for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterLootFocusedCorpseContainer: requesting container %s entry %d into slot %d for character %s."),
+        *GetNameSafe(FocusedContainer),
+        LootEntryIndex,
+        TargetSlotIndex,
+        *GetNameSafe(this));
+    Server_RequestPickupCorpseLootEntry(FocusedContainer, LootEntryIndex, TargetSlotIndex);
+#endif
+}
+
 void AWTBRCharacter::WTBRDebugCharacterLootNearestCorpseContainer(int32 LootEntryIndex, int32 TargetSlotIndex)
 {
 #if UE_BUILD_SHIPPING

@@ -272,6 +272,9 @@ public:
     void WTBRDebugCharacterPrintFocusedInteractionPrompt() const;
 
     UFUNCTION(Exec)
+    void WTBRDebugCharacterLootFocusedCorpseContainer(int32 LootEntryIndex, int32 TargetSlotIndex);
+
+    UFUNCTION(Exec)
     void WTBRDebugCharacterLootNearestCorpseContainer(int32 LootEntryIndex, int32 TargetSlotIndex);
 
     UFUNCTION(Exec)
