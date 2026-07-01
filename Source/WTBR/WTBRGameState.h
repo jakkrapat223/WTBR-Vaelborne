@@ -86,6 +86,9 @@ public:
     UFUNCTION(BlueprintPure, Category="WTBR | Match Mode | Loot")
     bool AllowsTriggerPickup() const { return CurrentMatchRules.bAllowTriggerPickup; }
 
+    UFUNCTION(BlueprintPure, Category="WTBR | Match Mode | Loot")
+    bool UsesCorpseLootContainerOnDeath() const { return CurrentMatchRules.bUseCorpseLootContainerOnDeath; }
+
     UFUNCTION(BlueprintPure, Category="WTBR | Match Mode | Loadout")
     bool AllowsTriggerSwapDuringMatch() const { return CurrentMatchRules.bAllowTriggerSwapDuringMatch; }
 

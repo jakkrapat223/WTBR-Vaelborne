@@ -23,7 +23,7 @@ namespace
 static TAutoConsoleVariable<int32> CVarWTBRUseCorpseLootContainerOnDeath(
     TEXT("WTBR.UseCorpseLootContainerOnDeath"),
     0,
-    TEXT("0 = legacy dropped-trigger death loot path, 1 = corpse loot container death loot path."),
+    TEXT("-1 = use MatchModeRules, 0 = legacy dropped-trigger death loot path, 1 = corpse loot container death loot path."),
     ECVF_Default);
 
 void LogTest32HealthCoreStats(const UWTBRHealthComponent* Component, const UWTBRCoreStatsDataAsset* Stats, const TCHAR* Requester)
@@ -644,7 +644,17 @@ void UWTBRHealthComponent::GrantVaelReward(AWTBRCharacter* RecipientCharacter, f
 
 void UWTBRHealthComponent::SpawnDroppedTriggersForEliminatedCharacter()
 {
-    if (CVarWTBRUseCorpseLootContainerOnDeath.GetValueOnGameThread() == 1)
+    const int32 CorpseLootContainerMode = CVarWTBRUseCorpseLootContainerOnDeath.GetValueOnGameThread();
+    bool bUseCorpseLootContainer = CorpseLootContainerMode == 1;
+
+    if (CorpseLootContainerMode == -1)
+    {
+        const UWorld* World = GetWorld();
+        const AWTBRGameState* WTBRGameState = World ? World->GetGameState<AWTBRGameState>() : nullptr;
+        bUseCorpseLootContainer = IsValid(WTBRGameState) && WTBRGameState->UsesCorpseLootContainerOnDeath();
+    }
+
+    if (bUseCorpseLootContainer)
     {
         UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot death spawn: corpse loot container path selected."));
         SpawnCorpseLootContainer_Internal();

@@ -218,6 +218,7 @@ FWTBRMatchModeRules AWTBRGameMode::MakeDefaultRulesForMode(EWTBRMatchMode MatchM
 	Rules.VaelRegenPerSecond = 0.0f;
 	Rules.bAllowCorpseLoot = false;
 	Rules.bAllowTriggerPickup = false;
+	Rules.bUseCorpseLootContainerOnDeath = false;
 	Rules.bAllowTriggerSwapDuringMatch = false;
 	Rules.bAllowLoadoutEditDuringMatch = false;
 	Rules.bUseTeams = true;
