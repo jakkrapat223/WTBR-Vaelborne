@@ -42,6 +42,8 @@ void AWTBRCorpseLootContainerActor::InitializeCorpseLootContainer(
     UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot container initialized: Container=%s Entries=%d"),
         *GetNameSafe(this),
         LootEntries.Num());
+
+    NotifyLootEntriesChanged();
 }
 
 bool AWTBRCorpseLootContainerActor::IsEntryValidForPickup(int32 LootEntryIndex) const
@@ -62,6 +64,7 @@ bool AWTBRCorpseLootContainerActor::TryMarkEntryConsumed(int32 LootEntryIndex)
     }
 
     LootEntries[LootEntryIndex].bConsumed = true;
+    NotifyLootEntriesChanged();
     return true;
 }
 
@@ -73,6 +76,7 @@ void AWTBRCorpseLootContainerActor::ClearEntryConsumedForFailedPickup(int32 Loot
     }
 
     LootEntries[LootEntryIndex].bConsumed = false;
+    NotifyLootEntriesChanged();
 }
 
 bool AWTBRCorpseLootContainerActor::AreAllEntriesConsumed() const
@@ -98,6 +102,48 @@ TSoftObjectPtr<UWTBRTriggerDataAsset> AWTBRCorpseLootContainerActor::GetEntryTri
     return LootEntries.IsValidIndex(LootEntryIndex)
         ? LootEntries[LootEntryIndex].TriggerDataAsset
         : TSoftObjectPtr<UWTBRTriggerDataAsset>();
+}
+
+bool AWTBRCorpseLootContainerActor::HasAvailableLootEntries() const
+{
+    for (const FWTBRCorpseLootEntry& Entry : LootEntries)
+    {
+        if (Entry.IsValidForPickup())
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool AWTBRCorpseLootContainerActor::CanBeInteractedWithBy(const AActor* InteractingActor) const
+{
+    return IsValid(InteractingActor)
+        && InteractingActor != this
+        && HasAvailableLootEntries();
+}
+
+FText AWTBRCorpseLootContainerActor::GetInteractionPromptText() const
+{
+    return HasAvailableLootEntries()
+        ? NSLOCTEXT("WTBR", "CorpseLootContainerPrompt_OpenTriggerCache", "Open Trigger Cache")
+        : FText::GetEmpty();
+}
+
+void AWTBRCorpseLootContainerActor::GetLootEntriesForUIReadOnly(TArray<FWTBRCorpseLootEntry>& OutLootEntries) const
+{
+    OutLootEntries = LootEntries;
+}
+
+void AWTBRCorpseLootContainerActor::OnRep_LootEntries()
+{
+    NotifyLootEntriesChanged();
+}
+
+void AWTBRCorpseLootContainerActor::NotifyLootEntriesChanged()
+{
+    OnCorpseLootEntriesChanged.Broadcast();
 }
 
 void AWTBRCorpseLootContainerActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
