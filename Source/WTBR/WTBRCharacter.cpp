@@ -20,6 +20,7 @@
 #include "Components/WTBRVaelComponent.h"
 #include "Components/WTBRMovementExtComponent.h"
 #include "Components/WTBRInputGestureComponent.h"
+#include "Components/WTBRInteractionComponent.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "WTBRGameMode.h"
@@ -179,6 +180,7 @@ AWTBRCharacter::AWTBRCharacter()
     VaelComponent         = CreateDefaultSubobject<UWTBRVaelComponent>(TEXT("VaelComponent"));
     MovementExtComponent  = CreateDefaultSubobject<UWTBRMovementExtComponent>(TEXT("MovementExtComponent"));
     InputGestureComponent = CreateDefaultSubobject<UWTBRInputGestureComponent>(TEXT("InputGestureComponent"));
+    InteractionComponent  = CreateDefaultSubobject<UWTBRInteractionComponent>(TEXT("InteractionComponent"));
     TriggerSetComponent   = CreateDefaultSubobject<UWTBRTriggerSetComponent>(TEXT("TriggerSetComponent"));
 
     static ConstructorHelpers::FObjectFinder<UInputMappingContext> DefaultMappingContextAsset(

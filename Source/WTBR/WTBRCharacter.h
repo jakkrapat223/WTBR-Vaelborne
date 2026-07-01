@@ -17,6 +17,7 @@ class UWTBRStaminaComponent;
 class UWTBRVaelComponent;
 class UWTBRMovementExtComponent;
 class UWTBRInputGestureComponent;
+class UWTBRInteractionComponent;
 class UTexture2D;
 class AWTBRDroppedTriggerActor;
 class AWTBRCorpseLootContainerActor;
@@ -114,6 +115,9 @@ public:
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
     TObjectPtr<UWTBRInputGestureComponent> InputGestureComponent;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
+    TObjectPtr<UWTBRInteractionComponent> InteractionComponent;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
     TObjectPtr<UWTBRTriggerSetComponent> TriggerSetComponent;
