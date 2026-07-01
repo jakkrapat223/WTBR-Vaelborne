@@ -650,6 +650,45 @@ void AWTBRCharacter::WTBRDebugCharacterSpawnCorpseLootContainer()
 #endif
 }
 
+void AWTBRCharacter::WTBRDebugCharacterPrintFocusedInteractionPrompt() const
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPrintFocusedInteractionPrompt is disabled in Shipping builds."));
+#else
+    if (!IsValid(InteractionComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPrintFocusedInteractionPrompt rejected: InteractionComponent is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const AWTBRCorpseLootContainerActor* FocusedContainer = InteractionComponent->GetFocusedCorpseLootContainer();
+    const FText PromptText = InteractionComponent->GetFocusedInteractionPromptText();
+    const FString PromptString = PromptText.ToString();
+
+    if (IsValid(FocusedContainer))
+    {
+        UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterPrintFocusedInteractionPrompt: focused corpse loot container found: %s."),
+            *GetNameSafe(FocusedContainer));
+    }
+    else
+    {
+        UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterPrintFocusedInteractionPrompt: no focused corpse loot container found for character %s."),
+            *GetNameSafe(this));
+    }
+
+    if (!PromptText.IsEmpty())
+    {
+        UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterPrintFocusedInteractionPrompt: prompt='%s'."),
+            *PromptString);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterPrintFocusedInteractionPrompt: prompt is empty; container is missing, not eligible, or has no available prompt."));
+    }
+#endif
+}
+
 void AWTBRCharacter::WTBRDebugCharacterLootNearestCorpseContainer(int32 LootEntryIndex, int32 TargetSlotIndex)
 {
 #if UE_BUILD_SHIPPING
