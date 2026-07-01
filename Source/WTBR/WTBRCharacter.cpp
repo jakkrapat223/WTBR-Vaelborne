@@ -22,6 +22,7 @@
 #include "Components/WTBRInputGestureComponent.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
+#include "WTBRGameMode.h"
 #include "WTBRGameState.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerBase.h"
@@ -620,8 +621,14 @@ void AWTBRCharacter::WTBRDebugCharacterSpawnCorpseLootContainer()
     SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
     const FVector SpawnLocation = GetActorLocation() + (GetActorForwardVector() * 120.0f) + FVector(0.0f, 0.0f, 20.0f);
+    TSubclassOf<AWTBRCorpseLootContainerActor> SpawnClass = AWTBRCorpseLootContainerActor::StaticClass();
+    if (const AWTBRGameMode* WTBRGameMode = World->GetAuthGameMode<AWTBRGameMode>())
+    {
+        SpawnClass = WTBRGameMode->GetCorpseLootContainerClass();
+    }
+
     AWTBRCorpseLootContainerActor* LootContainer = World->SpawnActor<AWTBRCorpseLootContainerActor>(
-        AWTBRCorpseLootContainerActor::StaticClass(),
+        SpawnClass,
         SpawnLocation,
         FRotator::ZeroRotator,
         SpawnParams);
