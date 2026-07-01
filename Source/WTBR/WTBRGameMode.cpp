@@ -4,6 +4,7 @@
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
 #include "GameFramework/PlayerController.h"
+#include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -18,6 +19,13 @@ AWTBRGameMode::AWTBRGameMode()
 	{
 		DefaultPawnClass = PlayerPawnBPClass.Class;
 	}
+}
+
+TSubclassOf<AWTBRCorpseLootContainerActor> AWTBRGameMode::GetCorpseLootContainerClass() const
+{
+	return CorpseLootContainerClass
+		? CorpseLootContainerClass
+		: AWTBRCorpseLootContainerActor::StaticClass();
 }
 
 void AWTBRGameMode::BeginPlay()

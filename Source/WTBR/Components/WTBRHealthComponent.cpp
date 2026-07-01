@@ -5,6 +5,7 @@
 #include "Data/WTBRCoreStatsDataAsset.h"
 #include "Net/UnrealNetwork.h"
 #include "WTBRCharacter.h"
+#include "WTBRGameMode.h"
 #include "WTBRGameState.h"
 #include "HAL/IConsoleManager.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
@@ -792,8 +793,14 @@ void UWTBRHealthComponent::SpawnCorpseLootContainer_Internal()
     SpawnParams.Instigator = VictimCharacter;
     SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
+    TSubclassOf<AWTBRCorpseLootContainerActor> SpawnClass = AWTBRCorpseLootContainerActor::StaticClass();
+    if (const AWTBRGameMode* WTBRGameMode = World->GetAuthGameMode<AWTBRGameMode>())
+    {
+        SpawnClass = WTBRGameMode->GetCorpseLootContainerClass();
+    }
+
     AWTBRCorpseLootContainerActor* LootContainer = World->SpawnActor<AWTBRCorpseLootContainerActor>(
-        AWTBRCorpseLootContainerActor::StaticClass(),
+        SpawnClass,
         VictimCharacter->GetActorLocation(),
         FRotator::ZeroRotator,
         SpawnParams);

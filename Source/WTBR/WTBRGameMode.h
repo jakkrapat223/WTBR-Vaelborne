@@ -8,6 +8,8 @@
 #include "WTBRGameState.h"
 #include "WTBRGameMode.generated.h"
 
+class AWTBRCorpseLootContainerActor;
+
 UCLASS(minimalapi)
 class AWTBRGameMode : public AGameModeBase
 {
@@ -25,6 +27,8 @@ public:
 	UFUNCTION(Exec)
 	void WTBRDebugPrintTriggerLoadoutGate() const;
 
+	TSubclassOf<AWTBRCorpseLootContainerActor> GetCorpseLootContainerClass() const;
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -36,6 +40,9 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode")
 	TArray<TObjectPtr<UWTBRMatchModeRulesDataAsset>> MatchModeRuleAssets;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Corpse Loot")
+	TSubclassOf<AWTBRCorpseLootContainerActor> CorpseLootContainerClass;
 
 private:
 	FWTBRMatchModeRules ResolveDefaultMatchRules() const;
