@@ -209,8 +209,16 @@ void UWTBRNexilTrigger::Deactivate_Implementation()
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Deactivate Cleanup | Owner=%s | ActiveBefore=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         GetActiveWireCount());
-    for (auto& W : ActiveWires)
-        if (W.IsValid()) W->Destroy();
+    TArray<TWeakObjectPtr<AWTBRNexilWireActor>> WiresToDestroy = MoveTemp(ActiveWires);
     ActiveWires.Empty();
+
+    for (TWeakObjectPtr<AWTBRNexilWireActor>& Wire : WiresToDestroy)
+    {
+        if (Wire.IsValid())
+        {
+            Wire->Destroy();
+        }
+    }
+
     Super::Deactivate_Implementation();
 }
