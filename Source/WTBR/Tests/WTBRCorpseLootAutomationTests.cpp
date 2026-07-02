@@ -4,31 +4,101 @@
 
 #include "Misc/AutomationTest.h"
 #include "UObject/SoftObjectPath.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "GameFramework/Actor.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 
 // -----------------------------------------------------------------------------
-// Corpse Loot Automation Test Foundation (Phase 1)
+// Corpse Loot Automation Tests
 //
-// This file is the first automation-test seam for BR corpse loot logic.
-// It intentionally covers only pure, world-independent logic that can run
-// without spawning actors or standing up a UWorld.
+// This file covers both pure corpse loot struct/predicate contracts and limited
+// actor-level Corpse Loot Container behavior. Actor-level tests use a transient
+// UWorld fixture and remain code-only: no map, Blueprint, WBP, UMG, .uasset, or
+// production gameplay changes.
 //
-// Anything that requires authority / world / actor setup is documented below
-// as TODO and deferred to Phase 2 (see comment block near the end), so that we
-// do NOT add world/functional-test scaffolding or gameplay seams in this pass.
+// Full character RPC pickup, trigger replacement, focused trace, dedicated
+// server, and late-join behavior are intentionally outside this file's current
+// coverage and are tracked in the gap list near the end.
 //
 // Production behavior is unchanged by this file.
 // -----------------------------------------------------------------------------
 
 namespace
 {
+    // Minimal spawn-only world fixture. It does not initialize full gameplay or
+    // BeginPlay flow; do not reuse it for controller, focused trace, network,
+    // match rules, or begun-play gameplay tests without extending it deliberately.
+    class FWTBRTransientWorldFixture
+    {
+    public:
+        explicit FWTBRTransientWorldFixture(const TCHAR* WorldName)
+        {
+            World = UWorld::CreateWorld(EWorldType::Game, false, FName(WorldName));
+            if (World && GEngine)
+            {
+                GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+            }
+        }
+
+        ~FWTBRTransientWorldFixture()
+        {
+            if (World)
+            {
+                World->DestroyWorld(false);
+                if (GEngine)
+                {
+                    GEngine->DestroyWorldContext(World);
+                }
+                World = nullptr;
+            }
+        }
+
+        UWorld* GetWorld() const { return World; }
+
+    private:
+        UWorld* World = nullptr;
+    };
+
     // Builds a soft pointer that reports IsNull()==false WITHOUT loading anything.
     // Uses a deliberately non-existent path so no asset dependency is introduced.
+    TSoftObjectPtr<UWTBRTriggerDataAsset> MakeSoftTriggerRef(const TCHAR* AssetName)
+    {
+        const FString AssetPath = FString::Printf(
+            TEXT("/Game/WTBR/Automation/%s.%s"),
+            AssetName,
+            AssetName);
+
+        return TSoftObjectPtr<UWTBRTriggerDataAsset>(
+            FSoftObjectPath(AssetPath));
+    }
+
     TSoftObjectPtr<UWTBRTriggerDataAsset> MakeNonNullSoftTriggerRef()
     {
-        return TSoftObjectPtr<UWTBRTriggerDataAsset>(
-            FSoftObjectPath(TEXT("/Game/WTBR/Automation/NonExistentTrigger.NonExistentTrigger")));
+        return MakeSoftTriggerRef(TEXT("NonExistentTrigger"));
+    }
+
+    FWTBRInstalledTriggerSlotSnapshot MakeInstalledTriggerSnapshot(
+        int32 SlotIndex,
+        const TCHAR* AssetName,
+        ETriggerCategory CachedCategory = ETriggerCategory::None)
+    {
+        FWTBRInstalledTriggerSlotSnapshot Snapshot;
+        Snapshot.SlotIndex = SlotIndex;
+        Snapshot.DataAsset = MakeSoftTriggerRef(AssetName);
+        Snapshot.CachedCategory = CachedCategory;
+        return Snapshot;
+    }
+
+    AWTBRCorpseLootContainerActor* SpawnCorpseLootContainer(UWorld* World)
+    {
+        return World
+            ? World->SpawnActor<AWTBRCorpseLootContainerActor>(
+                AWTBRCorpseLootContainerActor::StaticClass(),
+                FVector::ZeroVector,
+                FRotator::ZeroRotator)
+            : nullptr;
     }
 }
 
@@ -153,33 +223,271 @@ bool FWTBRInstalledTriggerSlotSnapshotValidityTest::RunTest(const FString& /*Par
     return true;
 }
 
+/**
+ * Verifies that InitializeCorpseLootContainer only exposes valid snapshots as
+ * pickable entries while skipping null assets and INDEX_NONE slots.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCorpseLootContainerInitializationFiltersInvalidSnapshotsTest,
+    "WTBR.CorpseLoot.ContainerInitializationFiltersInvalidSnapshots",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCorpseLootContainerInitializationFiltersInvalidSnapshotsTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpseLoot_FilterInvalidSnapshots"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient test world is available"), World);
+    if (!World)
+    {
+        return false;
+    }
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse loot container spawns in transient world"), Container);
+    if (!Container)
+    {
+        return false;
+    }
+
+    FWTBRInstalledTriggerSlotSnapshot InvalidNullAsset;
+    InvalidNullAsset.SlotIndex = 1;
+
+    FWTBRInstalledTriggerSlotSnapshot InvalidSlot = MakeInstalledTriggerSnapshot(
+        INDEX_NONE,
+        TEXT("InvalidSlotTrigger"));
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("ValidTriggerA")));
+    Snapshots.Add(InvalidNullAsset);
+    Snapshots.Add(MakeInstalledTriggerSnapshot(3, TEXT("ValidTriggerB")));
+    Snapshots.Add(InvalidSlot);
+
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    TestEqual(TEXT("Only valid snapshots become loot entries"), Container->GetLootEntryCount(), 2);
+    TestTrue(TEXT("First valid entry is available for pickup"), Container->IsEntryValidForPickup(0));
+    TestTrue(TEXT("Second valid entry is available for pickup"), Container->IsEntryValidForPickup(1));
+    TestFalse(TEXT("Skipped invalid snapshot does not create an extra entry"), Container->IsEntryValidForPickup(2));
+    TestTrue(TEXT("Container reports available loot after valid initialization"), Container->HasAvailableLootEntries());
+
+    return true;
+}
+
+/**
+ * Verifies stable entry index/order behavior for initialized valid snapshots.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCorpseLootContainerEntryIndexPreservesSnapshotOrderTest,
+    "WTBR.CorpseLoot.ContainerEntryIndexPreservesSnapshotOrder",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCorpseLootContainerEntryIndexPreservesSnapshotOrderTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpseLoot_EntryOrder"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient test world is available"), World);
+    if (!World)
+    {
+        return false;
+    }
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse loot container spawns in transient world"), Container);
+    if (!Container)
+    {
+        return false;
+    }
+
+    const FString ExpectedFirstPath = MakeSoftTriggerRef(TEXT("OrderTriggerA")).ToSoftObjectPath().ToString();
+    const FString ExpectedSecondPath = MakeSoftTriggerRef(TEXT("OrderTriggerB")).ToSoftObjectPath().ToString();
+    const FString ExpectedThirdPath = MakeSoftTriggerRef(TEXT("OrderTriggerC")).ToSoftObjectPath().ToString();
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(4, TEXT("OrderTriggerA")));
+    Snapshots.Add(MakeInstalledTriggerSnapshot(2, TEXT("OrderTriggerB")));
+    Snapshots.Add(MakeInstalledTriggerSnapshot(7, TEXT("OrderTriggerC")));
+
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    TestEqual(TEXT("All valid snapshots become entries"), Container->GetLootEntryCount(), 3);
+    TestEqual(TEXT("Entry 0 keeps snapshot 0 asset"), Container->GetEntryTriggerDataAsset(0).ToSoftObjectPath().ToString(), ExpectedFirstPath);
+    TestEqual(TEXT("Entry 1 keeps snapshot 1 asset"), Container->GetEntryTriggerDataAsset(1).ToSoftObjectPath().ToString(), ExpectedSecondPath);
+    TestEqual(TEXT("Entry 2 keeps snapshot 2 asset"), Container->GetEntryTriggerDataAsset(2).ToSoftObjectPath().ToString(), ExpectedThirdPath);
+    TestTrue(TEXT("Entry 0 is valid for pickup"), Container->IsEntryValidForPickup(0));
+    TestTrue(TEXT("Entry 1 is valid for pickup"), Container->IsEntryValidForPickup(1));
+    TestTrue(TEXT("Entry 2 is valid for pickup"), Container->IsEntryValidForPickup(2));
+
+    return true;
+}
+
+/**
+ * Verifies direct actor consume semantics without exercising character pickup,
+ * trigger replacement, or destroy-on-last-pickup behavior.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCorpseLootContainerConsumeRejectsInvalidAndConsumedEntriesTest,
+    "WTBR.CorpseLoot.ContainerConsumeRejectsInvalidAndConsumedEntries",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCorpseLootContainerConsumeRejectsInvalidAndConsumedEntriesTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpseLoot_ConsumeRejects"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient test world is available"), World);
+    if (!World)
+    {
+        return false;
+    }
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse loot container spawns in transient world"), Container);
+    if (!Container)
+    {
+        return false;
+    }
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("ConsumeTrigger")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    TestFalse(TEXT("Negative entry index cannot be consumed"), Container->TryMarkEntryConsumed(-1));
+    TestFalse(TEXT("Out-of-range entry index cannot be consumed"), Container->TryMarkEntryConsumed(1));
+    TestFalse(TEXT("Entry starts unconsumed"), Container->IsEntryConsumed(0));
+    TestTrue(TEXT("Valid entry can be consumed"), Container->TryMarkEntryConsumed(0));
+    TestTrue(TEXT("Consumed state is visible"), Container->IsEntryConsumed(0));
+    TestFalse(TEXT("Consumed entry is no longer valid for pickup"), Container->IsEntryValidForPickup(0));
+    TestFalse(TEXT("Already-consumed entry cannot be consumed again"), Container->TryMarkEntryConsumed(0));
+
+    return true;
+}
+
+/**
+ * Verifies failed-replacement rollback behavior at the container actor boundary.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCorpseLootContainerConsumeRollbackRestoresAvailabilityTest,
+    "WTBR.CorpseLoot.ContainerConsumeRollbackRestoresAvailability",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCorpseLootContainerConsumeRollbackRestoresAvailabilityTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpseLoot_Rollback"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient test world is available"), World);
+    if (!World)
+    {
+        return false;
+    }
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse loot container spawns in transient world"), Container);
+    if (!Container)
+    {
+        return false;
+    }
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("RollbackTrigger")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    TestTrue(TEXT("Entry can be consumed before rollback"), Container->TryMarkEntryConsumed(0));
+    TestFalse(TEXT("Consumed entry is unavailable before rollback"), Container->IsEntryValidForPickup(0));
+
+    Container->ClearEntryConsumedForFailedPickup(0);
+
+    TestFalse(TEXT("Entry is no longer consumed after rollback"), Container->IsEntryConsumed(0));
+    TestTrue(TEXT("Rolled-back entry is available again"), Container->IsEntryValidForPickup(0));
+    TestTrue(TEXT("Rolled-back entry can be consumed again"), Container->TryMarkEntryConsumed(0));
+
+    return true;
+}
+
+/**
+ * Verifies availability, prompt text, and the safe container-local interaction
+ * predicate without depending on a character controller or trace setup.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCorpseLootContainerAvailabilityAndPromptTest,
+    "WTBR.CorpseLoot.ContainerAvailabilityAndPrompt",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCorpseLootContainerAvailabilityAndPromptTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpseLoot_AvailabilityPrompt"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient test world is available"), World);
+    if (!World)
+    {
+        return false;
+    }
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse loot container spawns in transient world"), Container);
+    if (!Container)
+    {
+        return false;
+    }
+
+    AActor* InteractingActor = World->SpawnActor<AActor>(
+        AActor::StaticClass(),
+        FVector(100.0f, 0.0f, 0.0f),
+        FRotator::ZeroRotator);
+    TestNotNull(TEXT("Plain actor can stand in for safe container-local interaction predicate"), InteractingActor);
+    if (!InteractingActor)
+    {
+        return false;
+    }
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("PromptTrigger")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    TestTrue(TEXT("Container has available loot before consumption"), Container->HasAvailableLootEntries());
+    TestEqual(
+        TEXT("Available container prompt is the expected prompt"),
+        Container->GetInteractionPromptText().ToString(),
+        FString(TEXT("Open Trigger Cache")));
+    TestTrue(TEXT("Different valid actor can interact while loot is available"), Container->CanBeInteractedWithBy(InteractingActor));
+    TestFalse(TEXT("Container cannot interact with itself"), Container->CanBeInteractedWithBy(Container));
+    TestFalse(TEXT("Null actor cannot interact"), Container->CanBeInteractedWithBy(nullptr));
+
+    TestTrue(TEXT("Entry can be consumed"), Container->TryMarkEntryConsumed(0));
+    TestFalse(TEXT("Container has no available loot after consuming only entry"), Container->HasAvailableLootEntries());
+    TestTrue(TEXT("Prompt is empty when no loot remains"), Container->GetInteractionPromptText().IsEmpty());
+    TestFalse(TEXT("Interactor is rejected when no loot remains"), Container->CanBeInteractedWithBy(InteractingActor));
+
+    Container->ClearEntryConsumedForFailedPickup(0);
+
+    TestTrue(TEXT("Container availability returns after rollback"), Container->HasAvailableLootEntries());
+    TestEqual(
+        TEXT("Prompt returns after rollback"),
+        Container->GetInteractionPromptText().ToString(),
+        FString(TEXT("Open Trigger Cache")));
+    TestTrue(TEXT("Interactor is accepted again after rollback"), Container->CanBeInteractedWithBy(InteractingActor));
+
+    return true;
+}
+
 // -----------------------------------------------------------------------------
-// Phase 2 TODO coverage (requires UWorld / authority / actor setup):
+// Remaining coverage gaps:
 //
-//  [ ] stable corpse loot entry index
-//        - InitializeCorpseLootContainer preserves order/index of installed
-//          trigger snapshots; GetEntryTriggerDataAsset(i) maps 1:1.
-//  [ ] consumed entry reject
-//        - TryMarkEntryConsumed on an already-consumed index returns false.
-//  [ ] invalid entry reject
-//        - IsEntryValidForPickup / TryMarkEntryConsumed reject out-of-range and
-//          null-asset indices.
-//  [ ] invalid slot reject
-//        - Server_RequestPickupCorpseLootEntry rejects invalid TargetSlotIndex
-//          (server-authoritative validation stays the real gate).
-//  [ ] rollback consumed flag on replacement failure
-//        - ClearEntryConsumedForFailedPickup restores bConsumed=false after a
-//          failed ReplaceTriggerSlotFromDataAsset.
-//  [ ] empty container destroy behavior
-//        - AreAllEntriesConsumed() -> container Destroy() path.
-//  [ ] CVar corpse container vs legacy path semantics
-//        - WTBR.UseCorpseLootContainerOnDeath (-1/0/1) selects the correct
-//          death-loot branch; MakeDefaultRulesForMode defaults unchanged.
-//
-// These need an automation world (FAutomationEditorCommonUtils / test world) and
-// possibly a small test-only spawn helper. Introducing that scaffolding — and any
-// production test seam it may require — is deferred to keep this pass code-only,
-// world-free, and non-invasive to gameplay classes.
+//  [ ] full AWTBRCharacter::Server_RequestPickupCorpseLootEntry path
+//        - Includes match-rule gates, alive/authority checks, distance checks,
+//          replacement, rollback, and final container cleanup in the real caller.
+//  [ ] invalid target slot through RPC
+//        - Server-authoritative TargetSlotIndex validation is exercised through
+//          ReplaceTriggerSlotFromDataAsset in the character pickup flow.
+//  [ ] ReplaceTriggerSlotFromDataAsset end-to-end
+//        - Requires trigger set/loadout state beyond the container actor seam.
+//  [ ] destroy-after-last-pickup through character flow
+//        - Container-level availability is covered here; actual Destroy() lives
+//          after successful character RPC pickup/replacement.
+//  [ ] focused trace end-to-end
+//        - Requires character/controller/viewpoint/collision setup.
+//  [ ] WTBR.CorpseLootContainerLifetimeSeconds CVar/lifetime behavior
+//        - Skipped here to avoid timing-sensitive world ticking.
+//  [ ] dedicated server / late join
+//        - Requires multiplayer automation coverage outside this code-only file.
 // -----------------------------------------------------------------------------
 
 #endif // WITH_DEV_AUTOMATION_TESTS
