@@ -10,6 +10,7 @@
 #include "GameFramework/Actor.h"
 #include "HAL/IConsoleManager.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
+#include "Components/WTBRInteractionComponent.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
 
@@ -1122,6 +1123,129 @@ bool FWTBRUIModelBuildCausesNoMutationTest::RunTest(const FString& /*Parameters*
     return true;
 }
 
+// =============================================================================
+// WTBR.CorpseLoot.Interact — Delegate Bridge Tests
+//
+// Covers the guard logic and no-mutation contract of
+// UWTBRInteractionComponent::RequestCorpseLootInteract().
+//
+// The focused trace path (requires live world/camera/collision) is intentionally
+// omitted — tests that depend on line trace results are brittle in headless
+// automation. Trace integration is covered by the Human Test Gate.
+// =============================================================================
+
+/**
+ * RequestCorpseLootInteract returns false immediately when the owning object
+ * is not an AWTBRCharacter (null / non-character outer).
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRInteractReturnsFalseNoOwnerTest,
+    "WTBR.CorpseLoot.Interact.ReturnsFalse_WhenOwnerIsNotCharacter",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRInteractReturnsFalseNoOwnerTest::RunTest(const FString& /*Parameters*/)
+{
+    // Component created with GetTransientPackage() as outer — GetOwner() returns
+    // null, so Cast<AWTBRCharacter> fails and the function returns false before
+    // the trace or delegate fire.
+    UWTBRInteractionComponent* Comp =
+        NewObject<UWTBRInteractionComponent>(GetTransientPackage());
+    TestNotNull(TEXT("InteractionComponent created"), Comp);
+    if (!Comp) return false;
+
+    TestFalse(
+        TEXT("RequestCorpseLootInteract returns false when owner is not a character"),
+        Comp->RequestCorpseLootInteract());
+
+    return true;
+}
+
+/**
+ * Calling RequestCorpseLootInteract with a non-character owner must not mutate
+ * LootEntries on any nearby container.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRInteractLootEntriesUnchangedTest,
+    "WTBR.CorpseLoot.Interact.LootEntriesUnchanged_AfterRequestWithNoOwner",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRInteractLootEntriesUnchangedTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_Interact_NoMutLoot"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Container spawns"), Container);
+    if (!Container) return false;
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("InteractMutTestA")));
+    Snapshots.Add(MakeInstalledTriggerSnapshot(1, TEXT("InteractMutTestB")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    const int32  EntryCountBefore       = Container->GetLootEntryCount();
+    const bool   bEntry0ValidBefore     = Container->IsEntryValidForPickup(0);
+    const bool   bEntry1ValidBefore     = Container->IsEntryValidForPickup(1);
+    const bool   bHasAvailableBefore    = Container->HasAvailableLootEntries();
+
+    UWTBRInteractionComponent* Comp =
+        NewObject<UWTBRInteractionComponent>(GetTransientPackage());
+    if (!Comp) return false;
+
+    Comp->RequestCorpseLootInteract(); // must be a no-op (null owner path)
+
+    TestEqual(TEXT("Entry count unchanged"), Container->GetLootEntryCount(),    EntryCountBefore);
+    TestEqual(TEXT("Entry 0 validity unchanged"), Container->IsEntryValidForPickup(0), bEntry0ValidBefore);
+    TestEqual(TEXT("Entry 1 validity unchanged"), Container->IsEntryValidForPickup(1), bEntry1ValidBefore);
+    TestEqual(TEXT("HasAvailableLoot unchanged"), Container->HasAvailableLootEntries(), bHasAvailableBefore);
+
+    return true;
+}
+
+/**
+ * Calling RequestCorpseLootInteract with a non-character owner must not mutate
+ * any trigger slot on a TriggerSetComponent.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRInteractTriggerSlotsUnchangedTest,
+    "WTBR.CorpseLoot.Interact.TriggerSlotsUnchanged_AfterRequestWithNoOwner",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRInteractTriggerSlotsUnchangedTest::RunTest(const FString& /*Parameters*/)
+{
+    UWTBRTriggerSetComponent* TriggerSet =
+        NewObject<UWTBRTriggerSetComponent>(GetTransientPackage());
+    TestNotNull(TEXT("TriggerSetComponent created"), TriggerSet);
+    if (!TriggerSet) return false;
+
+    // Record pre-call snapshots for all 8 slots.
+    TArray<FWTBRInstalledTriggerSlotSnapshot> SnapshotsBefore;
+    for (int32 i = 0; i < UWTBRTriggerSetComponent::TotalSlotCount; ++i)
+    {
+        FWTBRInstalledTriggerSlotSnapshot S;
+        TriggerSet->GetTriggerSlotSnapshot(i, S);
+        SnapshotsBefore.Add(S);
+    }
+
+    UWTBRInteractionComponent* Comp =
+        NewObject<UWTBRInteractionComponent>(GetTransientPackage());
+    if (!Comp) return false;
+
+    Comp->RequestCorpseLootInteract(); // must be a no-op (null owner path)
+
+    for (int32 i = 0; i < UWTBRTriggerSetComponent::TotalSlotCount; ++i)
+    {
+        FWTBRInstalledTriggerSlotSnapshot SAfter;
+        const bool bHasAfter = TriggerSet->GetTriggerSlotSnapshot(i, SAfter);
+        const bool bHasBefore = SnapshotsBefore[i].IsValid();
+        TestEqual(FString::Printf(TEXT("Slot %d occupancy unchanged"), i), bHasAfter, bHasBefore);
+    }
+
+    return true;
+}
+
 // -----------------------------------------------------------------------------
 // Remaining coverage gaps:
 //
@@ -1136,8 +1260,9 @@ bool FWTBRUIModelBuildCausesNoMutationTest::RunTest(const FString& /*Parameters*
 //  [ ] destroy-after-last-pickup through character flow
 //        - Container-level availability is covered here; actual Destroy() lives
 //          after successful character RPC pickup/replacement.
-//  [ ] focused trace end-to-end
-//        - Requires character/controller/viewpoint/collision setup.
+//  [ ] focused trace / RequestCorpseLootInteract with valid owner+container
+//        - Requires character/controller/viewpoint/collision setup; brittle in
+//          headless automation. Covered by Human Test Gate (prompt trace feel).
 //  [ ] dedicated server / late join
 //        - Requires multiplayer automation coverage outside this code-only file.
 // -----------------------------------------------------------------------------

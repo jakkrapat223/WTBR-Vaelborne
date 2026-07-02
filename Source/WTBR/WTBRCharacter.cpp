@@ -318,6 +318,10 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         {
             EIC->BindAction(SwitchSubAction, ETriggerEvent::Started, this, &AWTBRCharacter::SwitchSubTrigger);
         }
+        if (IsValid(InteractAction))
+        {
+            EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &AWTBRCharacter::Interact);
+        }
 
     }
 }
@@ -387,6 +391,14 @@ void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifySubReleased();
     Server_Fire(false, false, FVector::ZeroVector);
+}
+
+void AWTBRCharacter::Interact(const FInputActionValue& /*Value*/)
+{
+    if (InteractionComponent)
+    {
+        InteractionComponent->RequestCorpseLootInteract();
+    }
 }
 
 void AWTBRCharacter::Dodge(const FInputActionValue& Value)

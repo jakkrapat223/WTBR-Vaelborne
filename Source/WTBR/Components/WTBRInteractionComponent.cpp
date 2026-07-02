@@ -70,3 +70,26 @@ FText UWTBRInteractionComponent::GetFocusedInteractionPromptText() const
 
     return FocusedContainer->GetInteractionPromptText();
 }
+
+bool UWTBRInteractionComponent::RequestCorpseLootInteract()
+{
+    const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(OwnerCharacter))
+    {
+        return false;
+    }
+
+    AWTBRCorpseLootContainerActor* FocusedContainer = GetFocusedCorpseLootContainer();
+    if (!IsValid(FocusedContainer))
+    {
+        return false;
+    }
+
+    if (!FocusedContainer->CanBeInteractedWithBy(OwnerCharacter))
+    {
+        return false;
+    }
+
+    OnCorpseLootInteractRequested.Broadcast(FocusedContainer);
+    return true;
+}

@@ -97,6 +97,11 @@ class AWTBRCharacter : public ACharacter
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
     TObjectPtr<UInputAction> SwitchSubAction;
 
+    // Optional — assign IA_Interact in BP_WTBRCharacter or IMC. Defaults null;
+    // binding is skipped if not assigned, so the game runs identically without it.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
+    TObjectPtr<UInputAction> InteractAction;
+
 public:
     AWTBRCharacter();
 
@@ -304,6 +309,7 @@ protected:
     void SwitchMainTrigger(const FInputActionValue& Value);
     void SwitchSubTrigger(const FInputActionValue& Value);
     void DebugConsumeVaelFailTest();
+    void Interact(const FInputActionValue& Value);
 
     // ─── Server RPCs ──────────────────────────────────────────────────────────
     UFUNCTION(Server, Reliable)
