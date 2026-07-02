@@ -5,6 +5,7 @@
 #include "Misc/AutomationTest.h"
 #include "UObject/SoftObjectPath.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
+#include "Trigger/WTBRTriggerSetComponent.h"
 
 // -----------------------------------------------------------------------------
 // Corpse Loot Automation Test Foundation (Phase 1)
@@ -70,6 +71,83 @@ bool FWTBRCorpseLootEntryValidityTest::RunTest(const FString& /*Parameters*/)
         FWTBRCorpseLootEntry Entry;
         Entry.bConsumed = false; // asset stays null
         TestFalse(TEXT("Entry with null asset is rejected regardless of consumed flag"), Entry.IsValidForPickup());
+    }
+
+    return true;
+}
+
+/**
+ * Verifies the consumed-flag round-trip contract on FWTBRCorpseLootEntry.
+ * This mirrors the server rollback semantics (ClearEntryConsumedForFailedPickup)
+ * at struct level: consuming an entry invalidates it, restoring the flag makes
+ * the same entry pickable again with no other state involved.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCorpseLootEntryConsumedRoundTripTest,
+    "WTBR.CorpseLoot.LootEntryConsumedRoundTrip",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCorpseLootEntryConsumedRoundTripTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRCorpseLootEntry Entry;
+    Entry.TriggerDataAsset = MakeNonNullSoftTriggerRef();
+
+    TestTrue(TEXT("Entry starts valid for pickup"), Entry.IsValidForPickup());
+
+    // Consume: entry must become rejected.
+    Entry.bConsumed = true;
+    TestFalse(TEXT("Consumed entry is not valid for pickup"), Entry.IsValidForPickup());
+
+    // Rollback (failed replacement): restoring the flag must restore pickability.
+    Entry.bConsumed = false;
+    TestTrue(TEXT("Entry restored by rollback is valid for pickup again"), Entry.IsValidForPickup());
+
+    // The asset reference must be untouched by the flag round-trip.
+    TestFalse(TEXT("Asset reference survives the consume/rollback round-trip"), Entry.TriggerDataAsset.IsNull());
+
+    return true;
+}
+
+/**
+ * Verifies FWTBRInstalledTriggerSlotSnapshot::IsValid() semantics.
+ * Snapshots are the input contract for BOTH death-loot paths: invalid snapshots
+ * are skipped by SpawnLegacyDroppedTriggers_Internal and by
+ * InitializeCorpseLootContainer, so this gate decides what can become loot.
+ *   valid == (SlotIndex != INDEX_NONE && !DataAsset.IsNull())
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRInstalledTriggerSlotSnapshotValidityTest,
+    "WTBR.CorpseLoot.InstalledTriggerSlotSnapshotValidity",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRInstalledTriggerSlotSnapshotValidityTest::RunTest(const FString& /*Parameters*/)
+{
+    // Case 1: default-constructed snapshot (INDEX_NONE slot, null asset) -> invalid.
+    {
+        FWTBRInstalledTriggerSlotSnapshot Snapshot;
+        TestFalse(TEXT("Default snapshot is invalid"), Snapshot.IsValid());
+    }
+
+    // Case 2: slot set but asset null -> invalid.
+    {
+        FWTBRInstalledTriggerSlotSnapshot Snapshot;
+        Snapshot.SlotIndex = 0;
+        TestFalse(TEXT("Snapshot with null asset is invalid even with a set slot"), Snapshot.IsValid());
+    }
+
+    // Case 3: asset set but slot INDEX_NONE -> invalid.
+    {
+        FWTBRInstalledTriggerSlotSnapshot Snapshot;
+        Snapshot.DataAsset = MakeNonNullSoftTriggerRef();
+        TestFalse(TEXT("Snapshot with INDEX_NONE slot is invalid even with a set asset"), Snapshot.IsValid());
+    }
+
+    // Case 4: slot set and asset set -> valid (becomes loot on death).
+    {
+        FWTBRInstalledTriggerSlotSnapshot Snapshot;
+        Snapshot.SlotIndex = 2;
+        Snapshot.DataAsset = MakeNonNullSoftTriggerRef();
+        TestTrue(TEXT("Snapshot with valid slot and asset is valid"), Snapshot.IsValid());
     }
 
     return true;
