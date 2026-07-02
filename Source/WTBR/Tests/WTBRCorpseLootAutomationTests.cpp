@@ -7,6 +7,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "HAL/IConsoleManager.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 
@@ -61,6 +62,36 @@ namespace
         UWorld* World = nullptr;
     };
 
+    class FWTBRScopedFloatCVarOverride
+    {
+    public:
+        FWTBRScopedFloatCVarOverride(const TCHAR* InCVarName, float NewValue)
+            : CVarName(InCVarName)
+        {
+            CVar = IConsoleManager::Get().FindConsoleVariable(CVarName);
+            if (CVar)
+            {
+                OriginalValue = CVar->GetFloat();
+                CVar->Set(NewValue, ECVF_SetByCode);
+            }
+        }
+
+        ~FWTBRScopedFloatCVarOverride()
+        {
+            if (CVar)
+            {
+                CVar->Set(OriginalValue, ECVF_SetByCode);
+            }
+        }
+
+        bool IsValid() const { return CVar != nullptr; }
+
+    private:
+        const TCHAR* CVarName = nullptr;
+        IConsoleVariable* CVar = nullptr;
+        float OriginalValue = 0.0f;
+    };
+
     // Builds a soft pointer that reports IsNull()==false WITHOUT loading anything.
     // Uses a deliberately non-existent path so no asset dependency is introduced.
     TSoftObjectPtr<UWTBRTriggerDataAsset> MakeSoftTriggerRef(const TCHAR* AssetName)
@@ -99,6 +130,22 @@ namespace
                 FVector::ZeroVector,
                 FRotator::ZeroRotator)
             : nullptr;
+    }
+
+    void TickTransientWorld(UWorld* World, float TotalSeconds, float StepSeconds = 0.05f)
+    {
+        if (!World || TotalSeconds <= 0.0f || StepSeconds <= 0.0f)
+        {
+            return;
+        }
+
+        float ElapsedSeconds = 0.0f;
+        while (ElapsedSeconds < TotalSeconds)
+        {
+            const float DeltaSeconds = FMath::Min(StepSeconds, TotalSeconds - ElapsedSeconds);
+            World->Tick(LEVELTICK_All, DeltaSeconds);
+            ElapsedSeconds += DeltaSeconds;
+        }
     }
 }
 
@@ -468,6 +515,101 @@ bool FWTBRCorpseLootContainerAvailabilityAndPromptTest::RunTest(const FString& /
     return true;
 }
 
+/**
+ * Verifies aggregate consumed/availability state at the container actor seam.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCorpseLootContainerAllEntriesConsumedStateTest,
+    "WTBR.CorpseLoot.ContainerAllEntriesConsumedState",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCorpseLootContainerAllEntriesConsumedStateTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpseLoot_AllConsumed"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient test world is available"), World);
+    if (!World)
+    {
+        return false;
+    }
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse loot container spawns in transient world"), Container);
+    if (!Container)
+    {
+        return false;
+    }
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("AllConsumedTriggerA")));
+    Snapshots.Add(MakeInstalledTriggerSnapshot(1, TEXT("AllConsumedTriggerB")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    TestFalse(TEXT("Container with available entries is not fully consumed"), Container->AreAllEntriesConsumed());
+    TestTrue(TEXT("Container starts with available loot"), Container->HasAvailableLootEntries());
+
+    TestTrue(TEXT("First entry can be consumed"), Container->TryMarkEntryConsumed(0));
+    TestFalse(TEXT("Container is not fully consumed while one entry remains"), Container->AreAllEntriesConsumed());
+    TestTrue(TEXT("Container still has available loot after one entry is consumed"), Container->HasAvailableLootEntries());
+
+    TestTrue(TEXT("Second entry can be consumed"), Container->TryMarkEntryConsumed(1));
+    TestTrue(TEXT("Container is fully consumed after both entries are consumed"), Container->AreAllEntriesConsumed());
+    TestFalse(TEXT("Container has no available loot after all entries are consumed"), Container->HasAvailableLootEntries());
+
+    Container->ClearEntryConsumedForFailedPickup(0);
+
+    TestFalse(TEXT("Rolling back one entry makes container not fully consumed"), Container->AreAllEntriesConsumed());
+    TestTrue(TEXT("Rolling back one entry restores available loot"), Container->HasAvailableLootEntries());
+
+    return true;
+}
+
+/**
+ * Verifies that the disabled lifetime CVar does not auto-destroy initialized
+ * containers during deterministic transient-world ticks.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCorpseLootContainerLifetimeCVarZeroDoesNotAutoDestroyTest,
+    "WTBR.CorpseLoot.ContainerLifetimeCVarZeroDoesNotAutoDestroy",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCorpseLootContainerLifetimeCVarZeroDoesNotAutoDestroyTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRScopedFloatCVarOverride LifetimeOverride(TEXT("WTBR.CorpseLootContainerLifetimeSeconds"), 0.0f);
+    TestTrue(TEXT("Corpse loot lifetime CVar is available"), LifetimeOverride.IsValid());
+    if (!LifetimeOverride.IsValid())
+    {
+        return false;
+    }
+
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpseLoot_LifetimeZero"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient test world is available"), World);
+    if (!World)
+    {
+        return false;
+    }
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse loot container spawns in transient world"), Container);
+    if (!Container)
+    {
+        return false;
+    }
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("LifetimeZeroTrigger")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    TickTransientWorld(World, 0.5f);
+
+    TestTrue(TEXT("Container remains valid when lifetime CVar is disabled"), IsValid(Container));
+    TestFalse(TEXT("Container is not being destroyed when lifetime CVar is disabled"), Container->IsActorBeingDestroyed());
+    TestTrue(TEXT("Container still has available loot after disabled-lifetime tick"), Container->HasAvailableLootEntries());
+
+    return true;
+}
+
 // -----------------------------------------------------------------------------
 // Remaining coverage gaps:
 //
@@ -484,8 +626,9 @@ bool FWTBRCorpseLootContainerAvailabilityAndPromptTest::RunTest(const FString& /
 //          after successful character RPC pickup/replacement.
 //  [ ] focused trace end-to-end
 //        - Requires character/controller/viewpoint/collision setup.
-//  [ ] WTBR.CorpseLootContainerLifetimeSeconds CVar/lifetime behavior
-//        - Skipped here to avoid timing-sensitive world ticking.
+//  [ ] positive WTBR.CorpseLootContainerLifetimeSeconds auto-destroy
+//        - Skipped here because expiry did not fire deterministically in the
+//          minimal spawn-only transient world fixture.
 //  [ ] dedicated server / late join
 //        - Requires multiplayer automation coverage outside this code-only file.
 // -----------------------------------------------------------------------------
