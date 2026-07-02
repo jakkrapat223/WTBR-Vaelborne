@@ -14,6 +14,65 @@ class UWTBRTriggerDataAsset;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRCorpseLootEntriesChanged);
 
+// ─── UI-facing read-only view structs ────────────────────────────────────────
+// These expose safe display/query data only. They carry no authority and do not
+// mutate container or trigger-set state.
+
+USTRUCT(BlueprintType)
+struct FWTBRCorpseLootEntryViewModel
+{
+    GENERATED_BODY()
+
+    // Stable array index in the container's LootEntries — use this when calling server RPCs.
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    int32 StableEntryIndex = INDEX_NONE;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    TSoftObjectPtr<UWTBRTriggerDataAsset> TriggerDataAsset;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    ETriggerCategory CachedCategory = ETriggerCategory::None;
+
+    // Original slot index on the dead character — informational only.
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    int32 SourceSlotIndex = INDEX_NONE;
+
+    // Derived from entry.IsValidForPickup() — false if consumed or asset null.
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    bool bIsAvailable = false;
+};
+
+USTRUCT(BlueprintType)
+struct FWTBRTargetSlotOptionViewModel
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    int32 SlotIndex = INDEX_NONE;
+
+    // Localised label: "Main 1"–"Main 4" / "Sub 1"–"Sub 4".
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    FText SlotLabel;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    bool bIsEmpty = true;
+
+    // Null when slot is empty.
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    TSoftObjectPtr<UWTBRTriggerDataAsset> EquippedDataAsset;
+
+    // True when the loot entry's SlotConstraint permits this slot.
+    // Optimistically true when the DataAsset isn't loaded yet (server validates actual pickup).
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    bool bIsCompatible = false;
+
+    // Non-empty only when bIsCompatible is false and the DataAsset was loaded.
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Corpse Loot | UI")
+    FText IncompatibleReason;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 USTRUCT(BlueprintType)
 struct FWTBRCorpseLootEntry
 {
@@ -65,6 +124,33 @@ public:
 
     UFUNCTION(BlueprintPure, Category="WTBR | Corpse Loot")
     void GetLootEntriesForUIReadOnly(TArray<FWTBRCorpseLootEntry>& OutLootEntries) const;
+
+    // ── UI model / query functions ────────────────────────────────────────────
+    // Read-only. None of these mutate container entries, trigger slots, consume
+    // entries, destroy the container, or bypass server RPC validation.
+
+    // Build a display/query view of one loot entry by its stable array index.
+    UFUNCTION(BlueprintPure, Category="WTBR | Corpse Loot | UI")
+    FWTBRCorpseLootEntryViewModel BuildLootEntryViewModel(int32 LootEntryIndex) const;
+
+    // Build one target-slot option per trigger slot (always 8 options).
+    // LootDataAsset: pre-loaded DataAsset from the selected loot entry.
+    // Pass null if the asset isn't in memory — slots will be shown as compatible
+    // (the server validates the actual pickup attempt).
+    UFUNCTION(BlueprintCallable, Category="WTBR | Corpse Loot | UI")
+    void BuildTargetSlotOptions(
+        const UWTBRTriggerSetComponent* TriggerSet,
+        const UWTBRTriggerDataAsset* LootDataAsset,
+        TArray<FWTBRTargetSlotOptionViewModel>& OutOptions) const;
+
+    // Convenience overload: resolves the DataAsset from the loot entry at LootEntryIndex
+    // then calls BuildTargetSlotOptions. If the asset is not yet in memory the same
+    // optimistic-compatible behaviour applies.
+    UFUNCTION(BlueprintCallable, Category="WTBR | Corpse Loot | UI")
+    void BuildTargetSlotOptionsForEntry(
+        const UWTBRTriggerSetComponent* TriggerSet,
+        int32 LootEntryIndex,
+        TArray<FWTBRTargetSlotOptionViewModel>& OutOptions) const;
 
     UPROPERTY(BlueprintAssignable, Category="WTBR | Corpse Loot")
     FWTBRCorpseLootEntriesChanged OnCorpseLootEntriesChanged;

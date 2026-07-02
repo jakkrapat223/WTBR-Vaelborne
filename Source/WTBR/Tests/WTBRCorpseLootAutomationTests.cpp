@@ -4,12 +4,14 @@
 
 #include "Misc/AutomationTest.h"
 #include "UObject/SoftObjectPath.h"
+#include "UObject/Package.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "HAL/IConsoleManager.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
 
 // -----------------------------------------------------------------------------
 // Corpse Loot Automation Tests
@@ -764,6 +766,358 @@ bool FWTBRCorpseLootContainerLifetimeCVarPositiveDestroysActorTest::RunTest(cons
     }
 
     ADD_LATENT_AUTOMATION_COMMAND(FWTBRPositiveLifetimeLatentCommand(this, State));
+
+    return true;
+}
+
+// =============================================================================
+// UI Model / Query Layer Tests
+// =============================================================================
+
+/**
+ * Verifies BuildLootEntryViewModel assigns the stable entry index equal to the
+ * array position at which the entry lives inside the container.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRUIModelEntryViewModelPreservesStableEntryIndexTest,
+    "WTBR.CorpseLoot.UIModel.EntryViewModelPreservesStableEntryIndex",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRUIModelEntryViewModelPreservesStableEntryIndexTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_UIModel_StableIndex"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Container spawns"), Container);
+    if (!Container) return false;
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("VMIndexA")));
+    Snapshots.Add(MakeInstalledTriggerSnapshot(1, TEXT("VMIndexB")));
+    Snapshots.Add(MakeInstalledTriggerSnapshot(2, TEXT("VMIndexC")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    for (int32 i = 0; i < 3; ++i)
+    {
+        const FWTBRCorpseLootEntryViewModel VM = Container->BuildLootEntryViewModel(i);
+        TestEqual(FString::Printf(TEXT("VM[%d] StableEntryIndex == %d"), i, i), VM.StableEntryIndex, i);
+        TestTrue(FString::Printf(TEXT("VM[%d] bIsAvailable true"), i), VM.bIsAvailable);
+        TestFalse(FString::Printf(TEXT("VM[%d] TriggerDataAsset not null"), i), VM.TriggerDataAsset.IsNull());
+    }
+
+    // Out-of-range index returns a default-constructed ViewModel with INDEX_NONE.
+    const FWTBRCorpseLootEntryViewModel VMInvalid = Container->BuildLootEntryViewModel(99);
+    TestEqual(TEXT("Invalid index ViewModel has INDEX_NONE stable index"), VMInvalid.StableEntryIndex, (int32)INDEX_NONE);
+    TestFalse(TEXT("Invalid index ViewModel is not available"), VMInvalid.bIsAvailable);
+
+    return true;
+}
+
+/**
+ * Verifies BuildLootEntryViewModel reflects consumed state correctly via bIsAvailable.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRUIModelEntryViewModelConsumedStateTest,
+    "WTBR.CorpseLoot.UIModel.EntryViewModelConsumedStateReflectsAvailability",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRUIModelEntryViewModelConsumedStateTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_UIModel_Consumed"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Container spawns"), Container);
+    if (!Container) return false;
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("VMConsumedTrigger")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    TestTrue(TEXT("ViewModel shows available before consume"),
+        Container->BuildLootEntryViewModel(0).bIsAvailable);
+
+    Container->TryMarkEntryConsumed(0);
+    TestFalse(TEXT("ViewModel shows unavailable after consume"),
+        Container->BuildLootEntryViewModel(0).bIsAvailable);
+
+    Container->ClearEntryConsumedForFailedPickup(0);
+    TestTrue(TEXT("ViewModel shows available again after rollback"),
+        Container->BuildLootEntryViewModel(0).bIsAvailable);
+
+    return true;
+}
+
+/**
+ * Verifies BuildTargetSlotOptions produces 8 options and respects MainOnly constraint:
+ * Main slots [0,3] compatible, Sub slots [4,7] incompatible.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRUIModelTargetSlotOptionsMainOnlyCompatibilityTest,
+    "WTBR.CorpseLoot.UIModel.TargetSlotOptionsMainOnlyCompatibility",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRUIModelTargetSlotOptionsMainOnlyCompatibilityTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_UIModel_MainOnly"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Container spawns"), Container);
+    if (!Container) return false;
+
+    Container->InitializeCorpseLootContainer({});
+
+    UWTBRTriggerSetComponent* TriggerSet = NewObject<UWTBRTriggerSetComponent>(GetTransientPackage());
+    TestNotNull(TEXT("TriggerSetComponent created"), TriggerSet);
+    if (!TriggerSet) return false;
+
+    UWTBRTriggerDataAsset* DA = NewObject<UWTBRTriggerDataAsset>(GetTransientPackage());
+    TestNotNull(TEXT("DataAsset created"), DA);
+    if (!DA) return false;
+    DA->SlotConstraint = ETriggerSlotConstraint::MainOnly;
+
+    TArray<FWTBRTargetSlotOptionViewModel> Options;
+    Container->BuildTargetSlotOptions(TriggerSet, DA, Options);
+
+    TestEqual(TEXT("Exactly 8 slot options built"), Options.Num(), 8);
+
+    for (int32 i = 0; i < 4; ++i)
+    {
+        TestEqual(FString::Printf(TEXT("Option[%d] SlotIndex correct"), i), Options[i].SlotIndex, i);
+        TestTrue(FString::Printf(TEXT("Main slot %d compatible with MainOnly"), i), Options[i].bIsCompatible);
+        TestTrue(FString::Printf(TEXT("Main slot %d IncompatibleReason empty"), i), Options[i].IncompatibleReason.IsEmpty());
+    }
+
+    for (int32 i = 4; i < 8; ++i)
+    {
+        TestEqual(FString::Printf(TEXT("Option[%d] SlotIndex correct"), i), Options[i].SlotIndex, i);
+        TestFalse(FString::Printf(TEXT("Sub slot %d incompatible with MainOnly"), i), Options[i].bIsCompatible);
+        TestFalse(FString::Printf(TEXT("Sub slot %d has IncompatibleReason"), i), Options[i].IncompatibleReason.IsEmpty());
+    }
+
+    return true;
+}
+
+/**
+ * Verifies BuildTargetSlotOptions respects SubOnly constraint:
+ * Sub slots [4,7] compatible, Main slots [0,3] incompatible.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRUIModelTargetSlotOptionsSubOnlyCompatibilityTest,
+    "WTBR.CorpseLoot.UIModel.TargetSlotOptionsSubOnlyCompatibility",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRUIModelTargetSlotOptionsSubOnlyCompatibilityTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_UIModel_SubOnly"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Container spawns"), Container);
+    if (!Container) return false;
+
+    Container->InitializeCorpseLootContainer({});
+
+    UWTBRTriggerSetComponent* TriggerSet = NewObject<UWTBRTriggerSetComponent>(GetTransientPackage());
+    TestNotNull(TEXT("TriggerSetComponent created"), TriggerSet);
+    if (!TriggerSet) return false;
+
+    UWTBRTriggerDataAsset* DA = NewObject<UWTBRTriggerDataAsset>(GetTransientPackage());
+    TestNotNull(TEXT("DataAsset created"), DA);
+    if (!DA) return false;
+    DA->SlotConstraint = ETriggerSlotConstraint::SubOnly;
+
+    TArray<FWTBRTargetSlotOptionViewModel> Options;
+    Container->BuildTargetSlotOptions(TriggerSet, DA, Options);
+
+    TestEqual(TEXT("Exactly 8 slot options built"), Options.Num(), 8);
+
+    for (int32 i = 0; i < 4; ++i)
+    {
+        TestFalse(FString::Printf(TEXT("Main slot %d incompatible with SubOnly"), i), Options[i].bIsCompatible);
+        TestFalse(FString::Printf(TEXT("Main slot %d has IncompatibleReason"), i), Options[i].IncompatibleReason.IsEmpty());
+    }
+
+    for (int32 i = 4; i < 8; ++i)
+    {
+        TestTrue(FString::Printf(TEXT("Sub slot %d compatible with SubOnly"), i), Options[i].bIsCompatible);
+        TestTrue(FString::Printf(TEXT("Sub slot %d IncompatibleReason empty"), i), Options[i].IncompatibleReason.IsEmpty());
+    }
+
+    return true;
+}
+
+/**
+ * Verifies that each option's SlotLabel is non-empty and distinguishes Main from Sub.
+ * Also verifies null DataAsset produces optimistic-compatible options (no IncompatibleReason).
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRUIModelTargetSlotOptionsLabelAndNullDataAssetTest,
+    "WTBR.CorpseLoot.UIModel.TargetSlotOptionsLabelAndNullDataAssetIsOptimistic",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRUIModelTargetSlotOptionsLabelAndNullDataAssetTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_UIModel_Label"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Container spawns"), Container);
+    if (!Container) return false;
+
+    Container->InitializeCorpseLootContainer({});
+
+    UWTBRTriggerSetComponent* TriggerSet = NewObject<UWTBRTriggerSetComponent>(GetTransientPackage());
+    TestNotNull(TEXT("TriggerSetComponent created"), TriggerSet);
+    if (!TriggerSet) return false;
+
+    TArray<FWTBRTargetSlotOptionViewModel> Options;
+    // Null DataAsset — all slots should be shown as compatible.
+    Container->BuildTargetSlotOptions(TriggerSet, nullptr, Options);
+
+    TestEqual(TEXT("8 options built with null DataAsset"), Options.Num(), 8);
+
+    for (int32 i = 0; i < 8; ++i)
+    {
+        TestFalse(FString::Printf(TEXT("Option[%d] SlotLabel not empty"), i), Options[i].SlotLabel.IsEmpty());
+        TestTrue(FString::Printf(TEXT("Option[%d] optimistically compatible with null DataAsset"), i), Options[i].bIsCompatible);
+        TestTrue(FString::Printf(TEXT("Option[%d] IncompatibleReason empty when null DataAsset"), i), Options[i].IncompatibleReason.IsEmpty());
+    }
+
+    // Labels for Main slots should contain different text than Sub slots.
+    TestNotEqual(TEXT("Main label != Sub label"), Options[0].SlotLabel.ToString(), Options[4].SlotLabel.ToString());
+
+    return true;
+}
+
+/**
+ * Verifies that an occupied slot is correctly identified in the option ViewModel:
+ * bIsEmpty false and EquippedDataAsset matches the installed asset.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRUIModelOccupiedSlotReportsEquippedTriggerTest,
+    "WTBR.CorpseLoot.UIModel.OccupiedSlotReportsEquippedTrigger",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRUIModelOccupiedSlotReportsEquippedTriggerTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_UIModel_Occupied"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Container spawns"), Container);
+    if (!Container) return false;
+
+    Container->InitializeCorpseLootContainer({});
+
+    UWTBRTriggerSetComponent* TriggerSet = NewObject<UWTBRTriggerSetComponent>(GetTransientPackage());
+    TestNotNull(TEXT("TriggerSetComponent created"), TriggerSet);
+    if (!TriggerSet) return false;
+
+    // Occupy slot 2 via test-only setter.
+    const TSoftObjectPtr<UWTBRTriggerDataAsset> OccupiedRef = MakeSoftTriggerRef(TEXT("OccupiedSlotDA"));
+    TriggerSet->SetSlotDataAssetForTest(2, OccupiedRef);
+
+    UWTBRTriggerDataAsset* DA = NewObject<UWTBRTriggerDataAsset>(GetTransientPackage());
+    if (!DA) return false;
+    DA->SlotConstraint = ETriggerSlotConstraint::Any;
+
+    TArray<FWTBRTargetSlotOptionViewModel> Options;
+    Container->BuildTargetSlotOptions(TriggerSet, DA, Options);
+
+    TestEqual(TEXT("8 options built"), Options.Num(), 8);
+
+    // Slot 2 must be occupied.
+    TestFalse(TEXT("Slot 2 is not empty"), Options[2].bIsEmpty);
+    TestFalse(TEXT("Slot 2 EquippedDataAsset is not null"), Options[2].EquippedDataAsset.IsNull());
+    TestEqual(TEXT("Slot 2 EquippedDataAsset path matches installed asset"),
+        Options[2].EquippedDataAsset.ToSoftObjectPath().ToString(),
+        OccupiedRef.ToSoftObjectPath().ToString());
+
+    // All other slots must be empty.
+    for (int32 i = 0; i < 8; ++i)
+    {
+        if (i == 2) continue;
+        TestTrue(FString::Printf(TEXT("Slot %d is empty"), i), Options[i].bIsEmpty);
+        TestTrue(FString::Printf(TEXT("Slot %d EquippedDataAsset is null"), i), Options[i].EquippedDataAsset.IsNull());
+    }
+
+    return true;
+}
+
+/**
+ * Verifies that calling BuildLootEntryViewModel and BuildTargetSlotOptions causes
+ * no mutation to the container's loot entries or the trigger set component's slots.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRUIModelBuildCausesNoMutationTest,
+    "WTBR.CorpseLoot.UIModel.BuildCausesNoMutation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRUIModelBuildCausesNoMutationTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_UIModel_NoMutation"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Container spawns"), Container);
+    if (!Container) return false;
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("NoMutTriggerA")));
+    Snapshots.Add(MakeInstalledTriggerSnapshot(1, TEXT("NoMutTriggerB")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    UWTBRTriggerSetComponent* TriggerSet = NewObject<UWTBRTriggerSetComponent>(GetTransientPackage());
+    TestNotNull(TEXT("TriggerSetComponent created"), TriggerSet);
+    if (!TriggerSet) return false;
+
+    // Record pre-call state.
+    const int32 EntryCountBefore          = Container->GetLootEntryCount();
+    const bool bEntry0AvailableBefore     = Container->IsEntryValidForPickup(0);
+    const bool bEntry1AvailableBefore     = Container->IsEntryValidForPickup(1);
+    const bool bHasAvailableLootBefore    = Container->HasAvailableLootEntries();
+
+    FWTBRInstalledTriggerSlotSnapshot SlotSnapshotBefore;
+    const bool bSlot0Before = TriggerSet->GetTriggerSlotSnapshot(0, SlotSnapshotBefore);
+
+    // Exercise both query paths.
+    Container->BuildLootEntryViewModel(0);
+    Container->BuildLootEntryViewModel(1);
+
+    UWTBRTriggerDataAsset* DA = NewObject<UWTBRTriggerDataAsset>(GetTransientPackage());
+    if (!DA) return false;
+    DA->SlotConstraint = ETriggerSlotConstraint::Any;
+
+    TArray<FWTBRTargetSlotOptionViewModel> Options;
+    Container->BuildTargetSlotOptions(TriggerSet, DA, Options);
+    Container->BuildTargetSlotOptionsForEntry(TriggerSet, 0, Options);
+
+    // Verify no mutation.
+    TestEqual(TEXT("Entry count unchanged after build"), Container->GetLootEntryCount(), EntryCountBefore);
+    TestEqual(TEXT("Entry 0 availability unchanged"), Container->IsEntryValidForPickup(0), bEntry0AvailableBefore);
+    TestEqual(TEXT("Entry 1 availability unchanged"), Container->IsEntryValidForPickup(1), bEntry1AvailableBefore);
+    TestEqual(TEXT("Container HasAvailableLoot unchanged"), Container->HasAvailableLootEntries(), bHasAvailableLootBefore);
+
+    FWTBRInstalledTriggerSlotSnapshot SlotSnapshotAfter;
+    const bool bSlot0After = TriggerSet->GetTriggerSlotSnapshot(0, SlotSnapshotAfter);
+    TestEqual(TEXT("TriggerSet slot 0 occupancy unchanged"), bSlot0After, bSlot0Before);
 
     return true;
 }

@@ -137,6 +137,16 @@ public:
     void GetInstalledTriggerSlotSnapshots(TArray<FWTBRInstalledTriggerSlotSnapshot>& OutSnapshots) const;
     bool GetTriggerSlotSnapshot(int32 SlotIndex, FWTBRInstalledTriggerSlotSnapshot& OutSnapshot) const;
 
+    // UI-facing read-only compatibility query. Delegates to the server-side slot
+    // constraint rules so corpse loot UI can check compatibility without duplicating logic.
+    UFUNCTION(BlueprintPure, Category="TriggerSet | UI")
+    bool IsDataAssetCompatibleWithTargetSlot(int32 SlotIndex, const UWTBRTriggerDataAsset* DataAsset) const;
+
+#if WITH_DEV_AUTOMATION_TESTS
+    // Test-only: write a soft DataAsset reference directly into a slot without runtime instantiation.
+    void SetSlotDataAssetForTest(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> InDataAsset);
+#endif
+
     bool ReplaceTriggerSlotFromDataAsset(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> NewDataAsset);
 
     // Loadout assignment — called from PlayerController after character spawn

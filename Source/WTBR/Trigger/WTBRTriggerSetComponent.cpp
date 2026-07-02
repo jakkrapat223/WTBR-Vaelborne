@@ -1146,6 +1146,22 @@ void UWTBRTriggerSetComponent::OnRep_MergeState(EWTBRCompositeBulletType OldStat
     }
 }
 
+bool UWTBRTriggerSetComponent::IsDataAssetCompatibleWithTargetSlot(int32 SlotIndex, const UWTBRTriggerDataAsset* DataAsset) const
+{
+    return IsDataAssetCompatibleWithSlot(SlotIndex, DataAsset);
+}
+
+#if WITH_DEV_AUTOMATION_TESTS
+void UWTBRTriggerSetComponent::SetSlotDataAssetForTest(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> InDataAsset)
+{
+    if (TriggerSlots.IsValidIndex(SlotIndex))
+    {
+        TriggerSlots[SlotIndex].DataAsset = InDataAsset;
+        TriggerSlots[SlotIndex].CachedCategory = ETriggerCategory::None;
+    }
+}
+#endif
+
 void UWTBRTriggerSetComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);

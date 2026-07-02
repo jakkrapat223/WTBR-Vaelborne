@@ -7,6 +7,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "Net/UnrealNetwork.h"
+#include "Internationalization/Text.h"
 
 namespace
 {
@@ -184,6 +185,102 @@ FText AWTBRCorpseLootContainerActor::GetInteractionPromptText() const
 void AWTBRCorpseLootContainerActor::GetLootEntriesForUIReadOnly(TArray<FWTBRCorpseLootEntry>& OutLootEntries) const
 {
     OutLootEntries = LootEntries;
+}
+
+FWTBRCorpseLootEntryViewModel AWTBRCorpseLootContainerActor::BuildLootEntryViewModel(int32 LootEntryIndex) const
+{
+    FWTBRCorpseLootEntryViewModel VM; // StableEntryIndex defaults to INDEX_NONE
+
+    if (!LootEntries.IsValidIndex(LootEntryIndex))
+    {
+        return VM;
+    }
+
+    const FWTBRCorpseLootEntry& Entry = LootEntries[LootEntryIndex];
+    VM.StableEntryIndex  = LootEntryIndex;
+    VM.TriggerDataAsset  = Entry.TriggerDataAsset;
+    VM.CachedCategory    = Entry.CachedCategory;
+    VM.SourceSlotIndex   = Entry.SourceSlotIndex;
+    VM.bIsAvailable      = Entry.IsValidForPickup();
+    return VM;
+}
+
+void AWTBRCorpseLootContainerActor::BuildTargetSlotOptions(
+    const UWTBRTriggerSetComponent* TriggerSet,
+    const UWTBRTriggerDataAsset* LootDataAsset,
+    TArray<FWTBRTargetSlotOptionViewModel>& OutOptions) const
+{
+    OutOptions.Reset();
+
+    if (!IsValid(TriggerSet))
+    {
+        return;
+    }
+
+    const int32 TotalSlots = UWTBRTriggerSetComponent::TotalSlotCount;
+    const int32 MainSlots  = UWTBRTriggerSetComponent::MainSlotCount;
+
+    for (int32 SlotIndex = 0; SlotIndex < TotalSlots; ++SlotIndex)
+    {
+        FWTBRTargetSlotOptionViewModel Option;
+        Option.SlotIndex = SlotIndex;
+
+        const bool bIsMain   = SlotIndex < MainSlots;
+        const int32 LabelNum = bIsMain ? SlotIndex + 1 : (SlotIndex - MainSlots) + 1;
+        Option.SlotLabel = bIsMain
+            ? FText::Format(NSLOCTEXT("WTBR", "CorpseLootUI_SlotMain", "Main {0}"), FText::AsNumber(LabelNum))
+            : FText::Format(NSLOCTEXT("WTBR", "CorpseLootUI_SlotSub",  "Sub {0}"),  FText::AsNumber(LabelNum));
+
+        FWTBRInstalledTriggerSlotSnapshot SlotSnapshot;
+        const bool bHasSnapshot = TriggerSet->GetTriggerSlotSnapshot(SlotIndex, SlotSnapshot);
+        Option.bIsEmpty        = !bHasSnapshot;
+        Option.EquippedDataAsset = bHasSnapshot
+            ? SlotSnapshot.DataAsset
+            : TSoftObjectPtr<UWTBRTriggerDataAsset>();
+
+        if (IsValid(LootDataAsset))
+        {
+            Option.bIsCompatible = TriggerSet->IsDataAssetCompatibleWithTargetSlot(SlotIndex, LootDataAsset);
+            if (!Option.bIsCompatible)
+            {
+                switch (LootDataAsset->SlotConstraint)
+                {
+                    case ETriggerSlotConstraint::MainOnly:
+                        Option.IncompatibleReason = NSLOCTEXT("WTBR", "CorpseLootUI_IncompatMainOnly", "Main slot only");
+                        break;
+                    case ETriggerSlotConstraint::SubOnly:
+                        Option.IncompatibleReason = NSLOCTEXT("WTBR", "CorpseLootUI_IncompatSubOnly", "Sub slot only");
+                        break;
+                    default:
+                        Option.IncompatibleReason = NSLOCTEXT("WTBR", "CorpseLootUI_IncompatUnknown", "Incompatible");
+                        break;
+                }
+            }
+        }
+        else
+        {
+            // DataAsset not in memory — show optimistically compatible; server validates pickup.
+            Option.bIsCompatible = true;
+        }
+
+        OutOptions.Add(MoveTemp(Option));
+    }
+}
+
+void AWTBRCorpseLootContainerActor::BuildTargetSlotOptionsForEntry(
+    const UWTBRTriggerSetComponent* TriggerSet,
+    int32 LootEntryIndex,
+    TArray<FWTBRTargetSlotOptionViewModel>& OutOptions) const
+{
+    OutOptions.Reset();
+
+    if (!LootEntries.IsValidIndex(LootEntryIndex))
+    {
+        return;
+    }
+
+    const UWTBRTriggerDataAsset* LoadedDA = LootEntries[LootEntryIndex].TriggerDataAsset.Get();
+    BuildTargetSlotOptions(TriggerSet, LoadedDA, OutOptions);
 }
 
 void AWTBRCorpseLootContainerActor::OnRep_LootEntries()
