@@ -2,10 +2,8 @@
 
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
-Confirmed baseline: 34bf3ec Add positive corpse loot lifetime automation test  
-Automation confirmed: WTBR.CorpseLoot PASS 11/11
-
-`WTBR.CorpseLoot.ContainerLifetimeCVarPositiveDestroysActor` is committed and pushed at 34bf3ec.
+Confirmed baseline: 416e4e3 Add corpse loot interact request bridge
+Automation confirmed: WTBR.CorpseLoot PASS 12/12
 
 ## Guardrails
 

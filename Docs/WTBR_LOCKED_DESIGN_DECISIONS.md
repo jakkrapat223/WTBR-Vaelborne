@@ -2,10 +2,10 @@
 
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
-Confirmed baseline: 34bf3ec Add positive corpse loot lifetime automation test  
-Automation confirmed: WTBR.CorpseLoot PASS 11/11
+Confirmed baseline: 416e4e3 Add corpse loot interact request bridge
+Automation confirmed: WTBR.CorpseLoot PASS 12/12
 
-`WTBR.CorpseLoot.ContainerLifetimeCVarPositiveDestroysActor` is committed and pushed at 34bf3ec. Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` is local-only and must never be staged or committed.
+Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` is local-only and must never be staged or committed.
 
 Status tags:
 
@@ -100,13 +100,19 @@ Status tags:
 - `TUNABLE_STARTER`: One event per match, 10-15 min or zone phase 3, gauge 45-60s.
 - `UNKNOWN`: Pool, balance, and final indicator.
 
-## Quick Slot
+## Input Bindings
 
-- `LOCKED_MECHANIC`: Hold Q = Main wheel.
-- `LOCKED_MECHANIC`: Hold E = Sub wheel.
+- `LOCKED_MECHANIC`: Q tap = switch main trigger slot.
+- `LOCKED_MECHANIC`: Q hold = open main trigger wheel/dialog (client-local UI).
+- `LOCKED_MECHANIC`: E tap = switch sub trigger slot.
+- `LOCKED_MECHANIC`: E hold = open sub trigger wheel/dialog (client-local UI).
+- `LOCKED_MECHANIC`: F tap = context interact. F is the default key only; never hard-code F in gameplay logic; bind via `IA_Interact` / `InteractAction` so the key can be remapped.
+- `LOCKED_MECHANIC`: Interact must NOT be on Q or E. Q/E are reserved for trigger slot tap/hold only.
 - `LOCKED_MECHANIC`: Player can move normally while wheel open.
-- `LOCKED_MECHANIC`: Mouse direction selects trigger.
-- `LOCKED_MECHANIC`: Release confirms.
+- `LOCKED_MECHANIC`: Mouse direction selects trigger in wheel; release confirms.
+- `LOCKED_MECHANIC`: Context interact dispatch — focused corpse/container/chest: open loot UI (client-local, no server RPC for UI open); focused ground item: pick up via server-authoritative validation; focused generic interactable: call that object's interact behavior; no valid target: do nothing.
+- `LOCKED_MECHANIC`: Confirming loot pickup or slot swap from a container uses existing server RPC validation (`Server_RequestPickupCorpseLootEntry`).
+- `LOCKED_MECHANIC`: Client UI must not mutate inventory, trigger slots, corpse loot entries, or ground item state directly.
 - `PROPOSED_DETAIL`: Active-trigger change implementation is S2 if it creates a new input-to-server path.
 
 ## Infrastructure

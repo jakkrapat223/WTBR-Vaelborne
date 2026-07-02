@@ -2,10 +2,10 @@
 
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
-Confirmed baseline: 34bf3ec Add positive corpse loot lifetime automation test  
-Automation confirmed: WTBR.CorpseLoot PASS 11/11
+Confirmed baseline: 416e4e3 Add corpse loot interact request bridge
+Automation confirmed: WTBR.CorpseLoot PASS 12/12
 
-`WTBR.CorpseLoot.ContainerLifetimeCVarPositiveDestroysActor` is committed and pushed at 34bf3ec. Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` may exist as a local-only untracked file and must never be staged or committed.
+Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` may exist as a local-only untracked file and must never be staged or committed.
 
 ## Repo Paths
 
@@ -21,16 +21,19 @@ Automation confirmed: WTBR.CorpseLoot PASS 11/11
 ## Done
 
 - Corpse loot automation foundation.
-- Corpse loot container tests.
-- Positive lifetime test committed and pushed at 34bf3ec.
-- B1-B6 validation PASS.
+- Corpse loot container tests. WTBR.CorpseLoot PASS 12/12.
+- Same-container occupied-slot swap fixed (5afa7bb).
+- Corpse loot interact request bridge: `UWTBRInteractionComponent`, `RequestCorpseLootInteract()`, `OnCorpseLootInteractRequested` delegate (416e4e3).
+- B1-B6 multiplayer validation PASS.
 - Nexil cleanup fix PASS.
+- Human Test Gate v1.1 committed (ed9ecf0).
+- Input design lock documented: Q/E tap = cycle slot; Q/E hold = wheel; F = context interact via `IA_Interact`/`InteractAction`.
 
 ## Remaining
 
 - Pass F smoke audit.
 - B7 dedicated server / late join.
-- Real interact input.
+- Real interact implementation: Q/E hold wheel UI; context interact dispatch (ground item pickup, generic interactable) not yet wired to `InteractAction`; corpse loot path done.
 - Loot UI.
 - Match flow.
 - Composite input/UI.
@@ -57,7 +60,7 @@ S2/S3 PIE/network required items:
 - `ReplaceTriggerSlotFromDataAsset` end-to-end.
 - Destroy-after-last-pickup through character flow.
 - Focused trace end-to-end.
-- Real interact input.
+- Real interact implementation (Q/E hold wheel, context dispatch to ground item / generic interactable).
 - Replication correctness.
 - Dedicated server / late join.
 - Match rules, travel, reset, and production defaults.
@@ -97,7 +100,7 @@ git log --oneline --decorate -5
 Expected latest baseline:
 
 ```text
-34bf3ec Add positive corpse loot lifetime automation test
+416e4e3 Add corpse loot interact request bridge
 ```
 
 `Source/.claude/settings.local.json` may exist as a local-only untracked file.
