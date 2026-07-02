@@ -3,7 +3,7 @@
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
 Confirmed baseline: 6470cd1 Document canonical input binding lock
-Corpse-loot automation suite: WTBR.CorpseLoot PASS 12/12 (suite-scoped, not the latest global project automation status)
+Automation confirmed: WTBR.CorpseLoot PASS 22/22
 
 Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` is local-only and must never be staged or committed.
 
