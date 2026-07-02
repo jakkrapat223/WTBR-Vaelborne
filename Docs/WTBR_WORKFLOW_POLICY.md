@@ -55,3 +55,36 @@ If yes, treat it as S2/S3 unless explicitly scoped otherwise.
 
 Automation validates deterministic logic only. Automation is not netcode-safe by itself and does not replace PIE, listen server, dedicated server, late join, or manual multiplayer validation.
 
+## Human Test Gate v1.1
+
+Before requesting any Human PIE/manual test, always run these gates in order. The assistant/AI must restate this gate before asking the human to run any manual PIE test. Human checklists must show which cases were removed by Gate 1 and Gate 2.
+
+### Gate 1 - Changed Path Filter
+
+Run:
+
+```powershell
+git diff --name-only <last-validated-baseline> --
+git status --short -uall
+```
+
+- Do not use `<baseline> HEAD` as the primary check for active work because it misses uncommitted working-tree changes.
+- Any validation case whose relevant path did not change keeps its previous PASS result and must be removed from the human checklist.
+- Review untracked files through `git status --short -uall`.
+- Relevant new files must be included in validation scope.
+- Local-only files such as `Source/.claude/settings.local.json` must not be staged or committed.
+
+### Gate 2 - Automation Filter
+
+- Run relevant automation against the current working tree.
+- Do not assume PASS from old logs.
+- Any validation case covered by passing automation must be removed from the human checklist.
+
+### Gate 3 - Human-Only Remainder
+
+Human testing is required only for cases that are both:
+
+1. Inside changed paths.
+2. Not provable by automation.
+
+Human testing should be limited to visual, feel, input feel, movement/collision feel, real PIE character paths, network replication, listen/dedicated/late-join, and AI perception behavior.

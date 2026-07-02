@@ -75,6 +75,16 @@ S2/S3 PIE/network required items:
 
 B7 dedicated server / late join must pass before flipping the corpse-container production default.
 
+## Human Test Gate
+
+Before requesting any Human PIE/manual test, apply Human Test Gate v1.1 from `Docs/WTBR_WORKFLOW_POLICY.md`:
+
+- Gate 1: changed path filter using `git diff --name-only <last-validated-baseline> --` and `git status --short -uall`.
+- Gate 2: relevant automation against the current working tree.
+- Gate 3: human-only remainder for changed paths not provable by automation.
+
+The assistant/AI must restate this gate before asking for manual PIE. Human checklists must show which cases were removed by Gate 1 and Gate 2.
+
 ## Clear Before New Chat
 
 Run:
@@ -108,4 +118,3 @@ Push only after explicit human instruction:
 ```powershell
 git push
 ```
-
