@@ -147,6 +147,90 @@ namespace
             ElapsedSeconds += DeltaSeconds;
         }
     }
+
+    struct FWTBRPositiveLifetimeLatentTestState
+    {
+        FWTBRPositiveLifetimeLatentTestState()
+            : LifetimeOverride(TEXT("WTBR.CorpseLootContainerLifetimeSeconds"), 0.1f)
+            , WorldFixture(TEXT("WTBR_CorpseLoot_LifetimePositive"))
+        {
+            UWorld* World = WorldFixture.GetWorld();
+            if (!LifetimeOverride.IsValid() || !World)
+            {
+                return;
+            }
+
+            AWTBRCorpseLootContainerActor* SpawnedContainer = SpawnCorpseLootContainer(World);
+            if (!SpawnedContainer)
+            {
+                return;
+            }
+
+            TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+            Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("LifetimePositiveTrigger")));
+            SpawnedContainer->InitializeCorpseLootContainer(Snapshots);
+
+            Container = SpawnedContainer;
+            bSetupSucceeded = true;
+        }
+
+        FWTBRScopedFloatCVarOverride LifetimeOverride;
+        FWTBRTransientWorldFixture WorldFixture;
+        TWeakObjectPtr<AWTBRCorpseLootContainerActor> Container;
+        float ElapsedSeconds = 0.0f;
+        bool bSetupSucceeded = false;
+    };
+
+    class FWTBRPositiveLifetimeLatentCommand : public IAutomationLatentCommand
+    {
+    public:
+        FWTBRPositiveLifetimeLatentCommand(
+            FAutomationTestBase* InTest,
+            const TSharedRef<FWTBRPositiveLifetimeLatentTestState>& InState)
+            : Test(InTest)
+            , State(InState)
+        {
+        }
+
+        virtual bool Update() override
+        {
+            if (!State->bSetupSucceeded)
+            {
+                return true;
+            }
+
+            constexpr float TickStepSeconds = 0.05f;
+            constexpr float TimeoutSeconds = 1.0f;
+
+            UWorld* World = State->WorldFixture.GetWorld();
+            if (!World)
+            {
+                Test->AddError(TEXT("Transient test world disappeared before lifetime expiry could be verified."));
+                return true;
+            }
+
+            TickTransientWorld(World, TickStepSeconds, TickStepSeconds);
+            State->ElapsedSeconds += TickStepSeconds;
+
+            if (!State->Container.IsValid())
+            {
+                Test->TestTrue(TEXT("Container is destroyed after positive lifetime expires"), true);
+                return true;
+            }
+
+            if (State->ElapsedSeconds >= TimeoutSeconds)
+            {
+                Test->TestTrue(TEXT("Container is destroyed after positive lifetime expires"), false);
+                return true;
+            }
+
+            return false;
+        }
+
+    private:
+        FAutomationTestBase* Test = nullptr;
+        TSharedRef<FWTBRPositiveLifetimeLatentTestState> State;
+    };
 }
 
 /**
@@ -610,6 +694,34 @@ bool FWTBRCorpseLootContainerLifetimeCVarZeroDoesNotAutoDestroyTest::RunTest(con
     return true;
 }
 
+/**
+ * Verifies positive corpse loot container lifetime expiry using a latent command
+ * so the world timer manager advances across automation framework frames.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCorpseLootContainerLifetimeCVarPositiveDestroysActorTest,
+    "WTBR.CorpseLoot.ContainerLifetimeCVarPositiveDestroysActor",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCorpseLootContainerLifetimeCVarPositiveDestroysActorTest::RunTest(const FString& /*Parameters*/)
+{
+    TSharedRef<FWTBRPositiveLifetimeLatentTestState> State = MakeShared<FWTBRPositiveLifetimeLatentTestState>();
+
+    TestTrue(TEXT("Corpse loot lifetime CVar is available"), State->LifetimeOverride.IsValid());
+    TestNotNull(TEXT("Transient test world is available"), State->WorldFixture.GetWorld());
+    TestTrue(TEXT("Corpse loot container was spawned and initialized"), State->bSetupSucceeded);
+    TestTrue(TEXT("Container starts valid before lifetime expiry"), State->Container.IsValid());
+
+    if (!State->LifetimeOverride.IsValid() || !State->WorldFixture.GetWorld() || !State->bSetupSucceeded || !State->Container.IsValid())
+    {
+        return false;
+    }
+
+    ADD_LATENT_AUTOMATION_COMMAND(FWTBRPositiveLifetimeLatentCommand(this, State));
+
+    return true;
+}
+
 // -----------------------------------------------------------------------------
 // Remaining coverage gaps:
 //
@@ -626,9 +738,6 @@ bool FWTBRCorpseLootContainerLifetimeCVarZeroDoesNotAutoDestroyTest::RunTest(con
 //          after successful character RPC pickup/replacement.
 //  [ ] focused trace end-to-end
 //        - Requires character/controller/viewpoint/collision setup.
-//  [ ] positive WTBR.CorpseLootContainerLifetimeSeconds auto-destroy
-//        - Skipped here because expiry did not fire deterministically in the
-//          minimal spawn-only transient world fixture.
 //  [ ] dedicated server / late join
 //        - Requires multiplayer automation coverage outside this code-only file.
 // -----------------------------------------------------------------------------
