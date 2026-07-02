@@ -135,6 +135,7 @@ public:
     EWTBRDualWieldState GetDualWieldState() const { return CurrentDualWieldState; }
 
     void GetInstalledTriggerSlotSnapshots(TArray<FWTBRInstalledTriggerSlotSnapshot>& OutSnapshots) const;
+    bool GetTriggerSlotSnapshot(int32 SlotIndex, FWTBRInstalledTriggerSlotSnapshot& OutSnapshot) const;
 
     bool ReplaceTriggerSlotFromDataAsset(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> NewDataAsset);
 

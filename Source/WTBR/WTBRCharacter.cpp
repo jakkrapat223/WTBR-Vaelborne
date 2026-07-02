@@ -1181,6 +1181,11 @@ void AWTBRCharacter::Server_RequestPickupCorpseLootEntry_Implementation(
         return;
     }
 
+    FWTBRInstalledTriggerSlotSnapshot ReplacedTargetSlotSnapshot;
+    const bool bTargetSlotHadTrigger = TriggerSetComponent->GetTriggerSlotSnapshot(
+        TargetSlotIndex,
+        ReplacedTargetSlotSnapshot);
+
     if (!LootContainer->TryMarkEntryConsumed(LootEntryIndex))
     {
         UE_LOG(LogTemp, Warning, TEXT("WTBR corpse loot pickup rejected: failed to consume entry %d in container %s"),
@@ -1199,7 +1204,27 @@ void AWTBRCharacter::Server_RequestPickupCorpseLootEntry_Implementation(
         return;
     }
 
-    UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot pickup succeeded: character %s consumed container %s entry %d into slot %d"),
+    if (bTargetSlotHadTrigger)
+    {
+        if (!LootContainer->ReplaceEntryWithSnapshot(LootEntryIndex, ReplacedTargetSlotSnapshot))
+        {
+            UE_LOG(LogTemp, Error, TEXT("WTBR corpse loot pickup swap failed after replacement: character %s container %s entry %d slot %d"),
+                *GetNameSafe(this),
+                *GetNameSafe(LootContainer),
+                LootEntryIndex,
+                TargetSlotIndex);
+            return;
+        }
+
+        UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot pickup swapped: character %s took container %s entry %d into slot %d and returned previous slot trigger to same entry"),
+            *GetNameSafe(this),
+            *GetNameSafe(LootContainer),
+            LootEntryIndex,
+            TargetSlotIndex);
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR corpse loot pickup succeeded: character %s consumed container %s entry %d into empty slot %d"),
         *GetNameSafe(this),
         *GetNameSafe(LootContainer),
         LootEntryIndex,

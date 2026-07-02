@@ -48,6 +48,7 @@ public:
     bool IsEntryConsumed(int32 LootEntryIndex) const;
     bool TryMarkEntryConsumed(int32 LootEntryIndex);
     void ClearEntryConsumedForFailedPickup(int32 LootEntryIndex);
+    bool ReplaceEntryWithSnapshot(int32 LootEntryIndex, const FWTBRInstalledTriggerSlotSnapshot& Snapshot);
     bool AreAllEntriesConsumed() const;
 
     int32 GetLootEntryCount() const { return LootEntries.Num(); }

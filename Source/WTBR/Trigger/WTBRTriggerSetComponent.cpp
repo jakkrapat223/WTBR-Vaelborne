@@ -293,6 +293,27 @@ void UWTBRTriggerSetComponent::GetInstalledTriggerSlotSnapshots(TArray<FWTBRInst
     }
 }
 
+bool UWTBRTriggerSetComponent::GetTriggerSlotSnapshot(int32 SlotIndex, FWTBRInstalledTriggerSlotSnapshot& OutSnapshot) const
+{
+    OutSnapshot = FWTBRInstalledTriggerSlotSnapshot();
+
+    if (!IsValidSlotIndex(SlotIndex))
+    {
+        return false;
+    }
+
+    const FWTBRTriggerSlot& Slot = TriggerSlots[SlotIndex];
+    if (Slot.IsEmpty())
+    {
+        return false;
+    }
+
+    OutSnapshot.SlotIndex = SlotIndex;
+    OutSnapshot.DataAsset = Slot.DataAsset;
+    OutSnapshot.CachedCategory = Slot.CachedCategory;
+    return OutSnapshot.IsValid();
+}
+
 bool UWTBRTriggerSetComponent::ReplaceTriggerSlotFromDataAsset(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> NewDataAsset)
 {
     if (!HasServerAuthority())

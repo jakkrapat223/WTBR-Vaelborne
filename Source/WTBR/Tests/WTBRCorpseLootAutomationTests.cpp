@@ -534,6 +534,52 @@ bool FWTBRCorpseLootContainerConsumeRollbackRestoresAvailabilityTest::RunTest(co
 }
 
 /**
+ * Verifies the same-container swap seam: a consumed entry can be replaced with
+ * the target slot's previous trigger while keeping its stable entry index.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCorpseLootContainerReplaceEntryWithSnapshotPreservesIndexTest,
+    "WTBR.CorpseLoot.ContainerReplaceEntryWithSnapshotPreservesIndex",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCorpseLootContainerReplaceEntryWithSnapshotPreservesIndexTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpseLoot_ReplaceEntry"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient test world is available"), World);
+    if (!World)
+    {
+        return false;
+    }
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse loot container spawns in transient world"), Container);
+    if (!Container)
+    {
+        return false;
+    }
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("CorpseEntryOriginal")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    const FString ReturnedTriggerPath = MakeSoftTriggerRef(TEXT("ReturnedTargetSlotTrigger")).ToSoftObjectPath().ToString();
+    const FWTBRInstalledTriggerSlotSnapshot ReturnedSnapshot = MakeInstalledTriggerSnapshot(
+        3,
+        TEXT("ReturnedTargetSlotTrigger"),
+        ETriggerCategory::Gunner);
+
+    TestTrue(TEXT("Entry can be reserved/consumed before same-container swap"), Container->TryMarkEntryConsumed(0));
+    TestTrue(TEXT("Consumed entry is replaced by returned target-slot snapshot"), Container->ReplaceEntryWithSnapshot(0, ReturnedSnapshot));
+    TestFalse(TEXT("Entry is available after same-container swap"), Container->IsEntryConsumed(0));
+    TestTrue(TEXT("Entry remains valid for pickup after same-container swap"), Container->IsEntryValidForPickup(0));
+    TestEqual(TEXT("Stable entry index now exposes returned trigger"), Container->GetEntryTriggerDataAsset(0).ToSoftObjectPath().ToString(), ReturnedTriggerPath);
+    TestFalse(TEXT("Single returned entry is not considered fully consumed"), Container->AreAllEntriesConsumed());
+
+    return true;
+}
+
+/**
  * Verifies availability, prompt text, and the safe container-local interaction
  * predicate without depending on a character controller or trace setup.
  */

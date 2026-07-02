@@ -110,6 +110,25 @@ void AWTBRCorpseLootContainerActor::ClearEntryConsumedForFailedPickup(int32 Loot
     NotifyLootEntriesChanged();
 }
 
+bool AWTBRCorpseLootContainerActor::ReplaceEntryWithSnapshot(
+    int32 LootEntryIndex,
+    const FWTBRInstalledTriggerSlotSnapshot& Snapshot)
+{
+    if (!HasAuthority() || !LootEntries.IsValidIndex(LootEntryIndex) || !Snapshot.IsValid())
+    {
+        return false;
+    }
+
+    FWTBRCorpseLootEntry& Entry = LootEntries[LootEntryIndex];
+    Entry.TriggerDataAsset = Snapshot.DataAsset;
+    Entry.SourceSlotIndex = Snapshot.SlotIndex;
+    Entry.CachedCategory = Snapshot.CachedCategory;
+    Entry.bConsumed = false;
+
+    NotifyLootEntriesChanged();
+    return true;
+}
+
 bool AWTBRCorpseLootContainerActor::AreAllEntriesConsumed() const
 {
     if (LootEntries.Num() == 0)
