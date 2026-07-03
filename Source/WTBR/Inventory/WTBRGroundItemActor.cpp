@@ -3,6 +3,7 @@
 #include "Inventory/WTBRGroundItemActor.h"
 
 #include "Components/SceneComponent.h"
+#include "Components/SphereComponent.h"
 #include "Net/UnrealNetwork.h"
 
 AWTBRGroundItemActor::AWTBRGroundItemActor()
@@ -13,6 +14,18 @@ AWTBRGroundItemActor::AWTBRGroundItemActor()
 
     RootSceneComponent = CreateDefaultSubobject<USceneComponent>(TEXT("RootSceneComponent"));
     SetRootComponent(RootSceneComponent);
+
+    // Interaction-only volume: query-only, blocks the Visibility trace channel and
+    // nothing else, so the crosshair interaction trace can focus this actor without
+    // ever blocking movement, physics, or projectiles.
+    InteractionCollision = CreateDefaultSubobject<USphereComponent>(TEXT("InteractionCollision"));
+    InteractionCollision->SetupAttachment(RootSceneComponent);
+    InteractionCollision->InitSphereRadius(InteractionCollisionRadius);
+    InteractionCollision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+    InteractionCollision->SetCollisionObjectType(ECC_WorldDynamic);
+    InteractionCollision->SetCollisionResponseToAllChannels(ECR_Ignore);
+    InteractionCollision->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+    InteractionCollision->SetGenerateOverlapEvents(false);
 }
 
 void AWTBRGroundItemActor::InitializeGroundItem(const TSoftObjectPtr<UWTBRItemDataAsset>& InItemData, int32 InQuantity)

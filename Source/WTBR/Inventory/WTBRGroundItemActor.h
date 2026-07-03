@@ -8,6 +8,7 @@
 #include "WTBRGroundItemActor.generated.h"
 
 class USceneComponent;
+class USphereComponent;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AWTBRGroundItemActor — a BR ground item that can be picked up into the
@@ -51,6 +52,17 @@ public:
 protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="WTBR | Ground Item")
     TObjectPtr<USceneComponent> RootSceneComponent;
+
+    // Query-only interaction volume that exists ONLY so the interaction visibility
+    // trace (see UWTBRInteractionComponent::GetFocusedGroundItem) can focus this
+    // actor. Mirrors the corpse container's setup: QueryOnly, WorldDynamic, ignores
+    // all channels and blocks ECC_Visibility only. It never blocks movement or
+    // projectiles and generates no overlap events.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="WTBR | Ground Item | Interaction", meta=(AllowPrivateAccess="true"))
+    TObjectPtr<USphereComponent> InteractionCollision;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Ground Item | Interaction", meta=(ClampMin="1.0"))
+    float InteractionCollisionRadius = 60.0f;
 
     UPROPERTY(Replicated, BlueprintReadOnly, Category="WTBR | Ground Item")
     TSoftObjectPtr<UWTBRItemDataAsset> ItemData;

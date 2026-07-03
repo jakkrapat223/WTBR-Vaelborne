@@ -5,6 +5,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
+#include "Inventory/WTBRGroundItemActor.h"
 #include "WTBRCharacter.h"
 
 UWTBRInteractionComponent::UWTBRInteractionComponent()
@@ -94,6 +95,48 @@ bool UWTBRInteractionComponent::RequestCorpseLootInteract()
     return true;
 }
 
+AWTBRGroundItemActor* UWTBRInteractionComponent::GetFocusedGroundItem() const
+{
+    const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(OwnerCharacter))
+    {
+        return nullptr;
+    }
+
+    UWorld* World = OwnerCharacter->GetWorld();
+    if (!World)
+    {
+        return nullptr;
+    }
+
+    FVector ViewLocation = FVector::ZeroVector;
+    FRotator ViewRotation = FRotator::ZeroRotator;
+    if (AController* Controller = OwnerCharacter->GetController())
+    {
+        Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
+    }
+    else
+    {
+        OwnerCharacter->GetActorEyesViewPoint(ViewLocation, ViewRotation);
+    }
+
+    const FVector TraceStart = ViewLocation;
+    const FVector TraceEnd = TraceStart + (ViewRotation.Vector() * InteractionTraceDistance);
+
+    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(WTBRInteractionFocusedGroundItem), false, OwnerCharacter);
+    QueryParams.AddIgnoredActor(OwnerCharacter);
+
+    FHitResult Hit;
+    const bool bHit = World->LineTraceSingleByChannel(
+        Hit,
+        TraceStart,
+        TraceEnd,
+        ECC_Visibility,
+        QueryParams);
+
+    return bHit ? Cast<AWTBRGroundItemActor>(Hit.GetActor()) : nullptr;
+}
+
 bool UWTBRInteractionComponent::RequestContextInteract()
 {
     // Priority 1 — corpse / container / chest.
@@ -111,9 +154,19 @@ bool UWTBRInteractionComponent::RequestContextInteract()
     // and ...IntoActiveSubSlot. A single context-interact press has no explicit
     // active-main vs active-sub rule yet, so the slot must not be guessed here.
 
-    // Priority 3 — BR ground item.
-    // BR Ground Item branch waits for S5 inventory foundation
-    // (AWTBRGroundItemActor + inventory model do not exist yet).
+    // Priority 3 — BR ground item (S6).
+    // Server-authoritative: the client only requests focus + dispatch; AWTBRCharacter's
+    // server RPC validates authority/alive/match/distance and performs the
+    // all-or-nothing inventory add. No inventory/ground-item mutation happens here.
+    if (AWTBRGroundItemActor* FocusedGroundItem = GetFocusedGroundItem())
+    {
+        if (AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner()))
+        {
+            OwnerCharacter->Server_RequestPickupGroundItem(FocusedGroundItem);
+            return true;
+        }
+        return false;
+    }
 
     // Priority 4 — generic interactable.
     // Generic interactable branch waits for interface pass

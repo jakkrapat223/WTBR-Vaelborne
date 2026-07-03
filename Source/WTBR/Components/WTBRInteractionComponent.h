@@ -7,6 +7,7 @@
 #include "WTBRInteractionComponent.generated.h"
 
 class AWTBRCorpseLootContainerActor;
+class AWTBRGroundItemActor;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FWTBRCorpseLootInteractRequested, AWTBRCorpseLootContainerActor*, Container);
 
@@ -41,8 +42,8 @@ public:
     // handler. Called by AWTBRCharacter::Interact() on the owning client.
     // Priority:
     //   1. corpse / container / chest -> RequestCorpseLootInteract() [implemented]
-    //   2. dropped trigger            -> future: needs active-main/sub target-slot policy
-    //   3. BR ground item             -> future: waits for S5 inventory foundation
+    //   2. dropped trigger            -> parked: needs active-main/sub target-slot policy
+    //   3. BR ground item             -> Server_RequestPickupGroundItem [implemented S6]
     //   4. generic interactable       -> future: waits for interactable interface pass
     //   5. no valid focus             -> no-op
     // Does not mutate gameplay state; server-authoritative pickup RPCs are unchanged.
@@ -51,6 +52,10 @@ public:
     bool RequestContextInteract();
 
 private:
+    // Line-traces from the owner's viewpoint (same model as GetFocusedCorpseLootContainer)
+    // and returns the focused BR ground item, or null. Focus only — no mutation.
+    AWTBRGroundItemActor* GetFocusedGroundItem() const;
+
     UPROPERTY(EditDefaultsOnly, Category="WTBR|Interaction")
     float InteractionTraceDistance = 300.0f;
 };
