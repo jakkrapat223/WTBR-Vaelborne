@@ -18,6 +18,7 @@
 #include "Components/WTBRHealthComponent.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
+#include "Trigger/WTBRArcvenTrigger.h"          // concrete UWTBRTriggerBase for TriggerClass (code-only)
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Data/WTBRMatchModeRulesDataAsset.h"   // FWTBRMatchModeRules
 
@@ -32,13 +33,20 @@
 // or PIE camera is required. No Blueprint, WBP, UMG, .uasset, .umap, or production
 // gameplay changes.
 //
-// Server-authoritative contract preserved: these tests only drive the client-side
-// request/focus path (RequestContextInteract / GetFocusedDroppedTrigger). Server
-// validation remains the sole mutation source and is not bypassed here.
+// Server-authoritative contract preserved: S7B tests split coverage into two
+// deterministic phases. Phase A drives RequestContextInteract with a dev-only
+// capture seam at the production routing point, proving the resolved dropped trigger
+// and active target slot without executing the RPC wrapper or mutating gameplay state.
+// Phase B independently drives the server RPC body
+// Server_RequestPickupDroppedTrigger_Implementation to prove authoritative mutation
+// semantics. Transient headless worlds do not provide reliable network RPC transport,
+// so these tests do not claim network transport coverage. They use a code-only
+// transient UWTBRTriggerDataAsset with a concrete TriggerClass (UWTBRArcvenTrigger)
+// — still no assets, still server-authoritative.
 //
-// Deferred (reported near the end): MainOnly/SubOnly constraint dispatch, and the
-// ground-item branch pickup through GetFocusedGroundItem's ECC_Visibility line trace
-// (no initialized physics scene in a transient headless world — see test 4 comment).
+// Deferred (reported near the end): the ground-item branch pickup through
+// GetFocusedGroundItem's ECC_Visibility line trace (no initialized physics scene in a
+// transient headless world — see the NoDroppedTriggerFocus test comment).
 // -----------------------------------------------------------------------------
 
 namespace
@@ -125,6 +133,26 @@ namespace
         return GameState;
     }
 
+    // Spawns an in-match GameState that permits trigger pickup AND trigger swap during
+    // match, registered as the world GameState. Server_RequestPickupDroppedTrigger and
+    // CanMutateTriggerLoadout both require IsInMatch + AllowsTriggerPickup +
+    // AllowsTriggerSwapDuringMatch for a pickup to actually mutate a slot.
+    AWTBRGameState* SpawnTriggerSwapInMatchGameState(UWorld* World)
+    {
+        if (!World) return nullptr;
+        AWTBRGameState* GameState = World->SpawnActor<AWTBRGameState>(AWTBRGameState::StaticClass());
+        if (!GameState) return nullptr;
+
+        World->SetGameState(GameState);
+
+        FWTBRMatchModeRules Rules;
+        Rules.bAllowTriggerPickup = true;
+        Rules.bAllowTriggerSwapDuringMatch = true;
+        GameState->SetCurrentMatchRules(Rules);
+        GameState->SetCurrentMatchPhase(EWTBRMatchPhase::InMatch);
+        return GameState;
+    }
+
     AWTBRCharacter* SpawnCharacter(UWorld* World, const FVector& Loc)
     {
         if (!World) return nullptr;
@@ -141,6 +169,18 @@ namespace
     {
         UWTBRTriggerDataAsset* Asset = NewObject<UWTBRTriggerDataAsset>(GetTransientPackage());
         Asset->SlotConstraint = Constraint;
+        return Asset;
+    }
+
+    // Transient trigger data asset with a valid (concrete, code-only) TriggerClass.
+    // The server-side slot replacement (ReplaceTriggerSlotFromDataAsset) rejects a
+    // DataAsset whose TriggerClass is null, and InstantiateRuntimeTrigger NewObjects
+    // that class — so it must be a concrete UWTBRTriggerBase subclass. UWTBRArcvenTrigger
+    // is a concrete C++ class (no override of InitializeTrigger), so no .uasset is needed.
+    UWTBRTriggerDataAsset* MakeTransientPickableTriggerDataAsset(ETriggerSlotConstraint Constraint)
+    {
+        UWTBRTriggerDataAsset* Asset = MakeTransientTriggerDataAsset(Constraint);
+        Asset->TriggerClass = UWTBRArcvenTrigger::StaticClass();
         return Asset;
     }
 
@@ -394,15 +434,218 @@ bool FWTBRDroppedTriggerInteractNoFocusDoesNotConsumeTest::RunTest(const FString
     return true;
 }
 
+// ── Test 5 — MainOnly dropped trigger dispatches into the active main slot ────
+//
+// WTBR.DroppedTrigger.Interact.MainOnlyDispatchesToActiveMain
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRDroppedTriggerInteractMainOnlyTest,
+    "WTBR.DroppedTrigger.Interact.MainOnlyDispatchesToActiveMain",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRDroppedTriggerInteractMainOnlyTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRDroppedTriggerWorldFixture Fixture(TEXT("WTBR_DT_MainOnly"));
+    UWorld* World = Fixture.GetWorld();
+
+    AWTBRGameState* GameState = SpawnTriggerSwapInMatchGameState(World);
+    TestNotNull(TEXT("GameState spawns"), GameState);
+    if (!GameState) return false;
+
+    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!Character || !Character->InteractionComponent || !Character->TriggerSetComponent) return false;
+
+    UWTBRTriggerSetComponent* Triggers = Character->TriggerSetComponent;
+    const int32 MainIndex = Triggers->GetActiveMainIndex();   // default 0 (a main slot)
+    const int32 SubIndex  = Triggers->GetActiveSubIndex();     // default 4 (a sub slot)
+    TestTrue(TEXT("Active main index is a main slot (0..3)"), MainIndex >= 0 && MainIndex < 4);
+    TestTrue(TEXT("Active sub index is a sub slot (4..7)"), SubIndex >= 4 && SubIndex < 8);
+
+    // Pre-seed both active slots with distinct markers so we can prove exactly one changed.
+    TStrongObjectPtr<UWTBRTriggerDataAsset> MainMarker(MakeTransientTriggerDataAsset(ETriggerSlotConstraint::MainOnly));
+    TStrongObjectPtr<UWTBRTriggerDataAsset> SubMarker(MakeTransientTriggerDataAsset(ETriggerSlotConstraint::SubOnly));
+    Triggers->SetSlotDataAssetForTest(MainIndex, TSoftObjectPtr<UWTBRTriggerDataAsset>(MainMarker.Get()));
+    Triggers->SetSlotDataAssetForTest(SubIndex,  TSoftObjectPtr<UWTBRTriggerDataAsset>(SubMarker.Get()));
+
+    // MainOnly dropped trigger (concrete TriggerClass so the server-side replace succeeds).
+    TStrongObjectPtr<UWTBRTriggerDataAsset> Picked(
+        MakeTransientPickableTriggerDataAsset(ETriggerSlotConstraint::MainOnly));
+    AWTBRDroppedTriggerActor* Dropped = SpawnDroppedTrigger(
+        World, TSoftObjectPtr<UWTBRTriggerDataAsset>(Picked.Get()), InFrontOfEyes(Character, 150.0f));
+    TestNotNull(TEXT("Dropped trigger spawns"), Dropped);
+    if (!Dropped) return false;
+
+    // Phase A — context routing proof. Capture-only mode records the production
+    // resolver's pending RPC target and prevents the RPC wrapper from executing in
+    // this transient headless world, so RequestContextInteract remains testable
+    // without mutation.
+    Character->SetDroppedTriggerRouteCaptureForTest(true);
+    const bool bHandled = Character->InteractionComponent->RequestContextInteract();
+    TestTrue(TEXT("Context interact handled by dropped-trigger branch (MainOnly)"), bHandled);
+    TestTrue(TEXT("MainOnly route was captured"), Character->WasDroppedTriggerRouteCapturedForTest());
+    TestTrue(TEXT("Captured trigger is the focused dropped trigger"),
+        Character->GetCapturedDroppedTriggerForTest() == Dropped);
+    TestEqual(TEXT("MainOnly resolves to active main slot"),
+        Character->GetCapturedDroppedTriggerSlotForTest(), MainIndex);
+    TestTrue(TEXT("Captured policy is MainOnly"),
+        Character->GetCapturedDroppedTriggerConstraintForTest() == ETriggerSlotConstraint::MainOnly);
+    TestTrue(TEXT("Dropped trigger remains valid during capture-only routing"), IsValid(Dropped));
+    TestFalse(TEXT("Dropped trigger remains unconsumed during capture-only routing"), Dropped->IsConsumed());
+
+    FWTBRInstalledTriggerSlotSnapshot MainAfterCapture;
+    FWTBRInstalledTriggerSlotSnapshot SubAfterCapture;
+    TestTrue(TEXT("Active main snapshot readable after capture"), Triggers->GetTriggerSlotSnapshot(MainIndex, MainAfterCapture));
+    TestTrue(TEXT("Active sub snapshot readable after capture"), Triggers->GetTriggerSlotSnapshot(SubIndex, SubAfterCapture));
+    TestTrue(TEXT("Active main unchanged during capture"), MainAfterCapture.DataAsset.Get() == MainMarker.Get());
+    TestTrue(TEXT("Active sub unchanged during capture"), SubAfterCapture.DataAsset.Get() == SubMarker.Get());
+    Character->SetDroppedTriggerRouteCaptureForTest(false);
+
+    // Phase B — server-authoritative mutation proof. Use a fresh dropped trigger
+    // and call the server RPC body directly because transient headless automation
+    // has no reliable network RPC transport. This proves server-side slot
+    // compatibility, rollback, replacement, and destruction semantics only.
+    TStrongObjectPtr<UWTBRTriggerDataAsset> PickedForServer(
+        MakeTransientPickableTriggerDataAsset(ETriggerSlotConstraint::MainOnly));
+    AWTBRDroppedTriggerActor* ServerDropped = SpawnDroppedTrigger(
+        World, TSoftObjectPtr<UWTBRTriggerDataAsset>(PickedForServer.Get()), InFrontOfEyes(Character, 150.0f));
+    TestNotNull(TEXT("Fresh MainOnly dropped trigger spawns for server body phase"), ServerDropped);
+    if (!ServerDropped) return false;
+
+    AddExpectedError(TEXT("WTBR trigger pickup replacement rejected"), EAutomationExpectedErrorFlags::Contains, 1);
+    AddExpectedError(TEXT("WTBR dropped trigger pickup rejected: replacement failed"), EAutomationExpectedErrorFlags::Contains, 1);
+    Character->Server_RequestPickupDroppedTrigger_Implementation(ServerDropped, SubIndex);
+    TestTrue(TEXT("MainOnly rejected at a sub slot: dropped trigger still present"), IsValid(ServerDropped));
+    if (IsValid(ServerDropped))
+    {
+        TestFalse(TEXT("MainOnly rejected at a sub slot: not consumed (rolled back)"), ServerDropped->IsConsumed());
+    }
+
+    Character->Server_RequestPickupDroppedTrigger_Implementation(ServerDropped, MainIndex);
+    TestFalse(TEXT("Dropped trigger destroyed after successful pickup into active main"), IsValid(ServerDropped));
+
+    // Correct slot changed: active main now holds the picked asset; active sub is unchanged.
+    FWTBRInstalledTriggerSlotSnapshot MainSnap;
+    FWTBRInstalledTriggerSlotSnapshot SubSnap;
+    TestTrue(TEXT("Active main slot snapshot readable"), Triggers->GetTriggerSlotSnapshot(MainIndex, MainSnap));
+    TestTrue(TEXT("Active sub slot snapshot readable"), Triggers->GetTriggerSlotSnapshot(SubIndex, SubSnap));
+    TestTrue(TEXT("Active main slot now holds the picked-up trigger"), MainSnap.DataAsset.Get() == PickedForServer.Get());
+    TestTrue(TEXT("Active sub slot unchanged (still its marker)"), SubSnap.DataAsset.Get() == SubMarker.Get());
+    return true;
+}
+
+// ── Test 6 — SubOnly dropped trigger dispatches into the active sub slot ──────
+//
+// WTBR.DroppedTrigger.Interact.SubOnlyDispatchesToActiveSub
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRDroppedTriggerInteractSubOnlyTest,
+    "WTBR.DroppedTrigger.Interact.SubOnlyDispatchesToActiveSub",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRDroppedTriggerInteractSubOnlyTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRDroppedTriggerWorldFixture Fixture(TEXT("WTBR_DT_SubOnly"));
+    UWorld* World = Fixture.GetWorld();
+
+    AWTBRGameState* GameState = SpawnTriggerSwapInMatchGameState(World);
+    TestNotNull(TEXT("GameState spawns"), GameState);
+    if (!GameState) return false;
+
+    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!Character || !Character->InteractionComponent || !Character->TriggerSetComponent) return false;
+
+    UWTBRTriggerSetComponent* Triggers = Character->TriggerSetComponent;
+    const int32 MainIndex = Triggers->GetActiveMainIndex();   // default 0 (a main slot)
+    const int32 SubIndex  = Triggers->GetActiveSubIndex();     // default 4 (a sub slot)
+    TestTrue(TEXT("Active main index is a main slot (0..3)"), MainIndex >= 0 && MainIndex < 4);
+    TestTrue(TEXT("Active sub index is a sub slot (4..7)"), SubIndex >= 4 && SubIndex < 8);
+
+    // Pre-seed both active slots with distinct markers so we can prove exactly one changed.
+    TStrongObjectPtr<UWTBRTriggerDataAsset> MainMarker(MakeTransientTriggerDataAsset(ETriggerSlotConstraint::MainOnly));
+    TStrongObjectPtr<UWTBRTriggerDataAsset> SubMarker(MakeTransientTriggerDataAsset(ETriggerSlotConstraint::SubOnly));
+    Triggers->SetSlotDataAssetForTest(MainIndex, TSoftObjectPtr<UWTBRTriggerDataAsset>(MainMarker.Get()));
+    Triggers->SetSlotDataAssetForTest(SubIndex,  TSoftObjectPtr<UWTBRTriggerDataAsset>(SubMarker.Get()));
+
+    // SubOnly dropped trigger (concrete TriggerClass so the server-side replace succeeds).
+    TStrongObjectPtr<UWTBRTriggerDataAsset> Picked(
+        MakeTransientPickableTriggerDataAsset(ETriggerSlotConstraint::SubOnly));
+    AWTBRDroppedTriggerActor* Dropped = SpawnDroppedTrigger(
+        World, TSoftObjectPtr<UWTBRTriggerDataAsset>(Picked.Get()), InFrontOfEyes(Character, 150.0f));
+    TestNotNull(TEXT("Dropped trigger spawns"), Dropped);
+    if (!Dropped) return false;
+
+    // Phase A — context routing proof. Capture-only mode records the production
+    // resolver's pending RPC target and prevents the RPC wrapper from executing in
+    // this transient headless world, so RequestContextInteract remains testable
+    // without mutation.
+    Character->SetDroppedTriggerRouteCaptureForTest(true);
+    const bool bHandled = Character->InteractionComponent->RequestContextInteract();
+    TestTrue(TEXT("Context interact handled by dropped-trigger branch (SubOnly)"), bHandled);
+    TestTrue(TEXT("SubOnly route was captured"), Character->WasDroppedTriggerRouteCapturedForTest());
+    TestTrue(TEXT("Captured trigger is the focused dropped trigger"),
+        Character->GetCapturedDroppedTriggerForTest() == Dropped);
+    TestEqual(TEXT("SubOnly resolves to active sub slot"),
+        Character->GetCapturedDroppedTriggerSlotForTest(), SubIndex);
+    TestTrue(TEXT("Captured policy is SubOnly"),
+        Character->GetCapturedDroppedTriggerConstraintForTest() == ETriggerSlotConstraint::SubOnly);
+    TestTrue(TEXT("Dropped trigger remains valid during capture-only routing"), IsValid(Dropped));
+    TestFalse(TEXT("Dropped trigger remains unconsumed during capture-only routing"), Dropped->IsConsumed());
+
+    FWTBRInstalledTriggerSlotSnapshot MainAfterCapture;
+    FWTBRInstalledTriggerSlotSnapshot SubAfterCapture;
+    TestTrue(TEXT("Active main snapshot readable after capture"), Triggers->GetTriggerSlotSnapshot(MainIndex, MainAfterCapture));
+    TestTrue(TEXT("Active sub snapshot readable after capture"), Triggers->GetTriggerSlotSnapshot(SubIndex, SubAfterCapture));
+    TestTrue(TEXT("Active main unchanged during capture"), MainAfterCapture.DataAsset.Get() == MainMarker.Get());
+    TestTrue(TEXT("Active sub unchanged during capture"), SubAfterCapture.DataAsset.Get() == SubMarker.Get());
+    Character->SetDroppedTriggerRouteCaptureForTest(false);
+
+    // Phase B — server-authoritative mutation proof. Use a fresh dropped trigger
+    // and call the server RPC body directly because transient headless automation
+    // has no reliable network RPC transport. This proves server-side slot
+    // compatibility, rollback, replacement, and destruction semantics only.
+    TStrongObjectPtr<UWTBRTriggerDataAsset> PickedForServer(
+        MakeTransientPickableTriggerDataAsset(ETriggerSlotConstraint::SubOnly));
+    AWTBRDroppedTriggerActor* ServerDropped = SpawnDroppedTrigger(
+        World, TSoftObjectPtr<UWTBRTriggerDataAsset>(PickedForServer.Get()), InFrontOfEyes(Character, 150.0f));
+    TestNotNull(TEXT("Fresh SubOnly dropped trigger spawns for server body phase"), ServerDropped);
+    if (!ServerDropped) return false;
+
+    AddExpectedError(TEXT("WTBR trigger pickup replacement rejected"), EAutomationExpectedErrorFlags::Contains, 1);
+    AddExpectedError(TEXT("WTBR dropped trigger pickup rejected: replacement failed"), EAutomationExpectedErrorFlags::Contains, 1);
+    Character->Server_RequestPickupDroppedTrigger_Implementation(ServerDropped, MainIndex);
+    TestTrue(TEXT("SubOnly rejected at a main slot: dropped trigger still present"), IsValid(ServerDropped));
+    if (IsValid(ServerDropped))
+    {
+        TestFalse(TEXT("SubOnly rejected at a main slot: not consumed (rolled back)"), ServerDropped->IsConsumed());
+    }
+
+    AddExpectedError(TEXT("WTBR GetActiveMainTrigger: slot 0 RuntimeTrigger is nullptr"), EAutomationExpectedErrorFlags::Contains, 1);
+    Character->Server_RequestPickupDroppedTrigger_Implementation(ServerDropped, SubIndex);
+    TestFalse(TEXT("Dropped trigger destroyed after successful pickup into active sub"), IsValid(ServerDropped));
+
+    // Correct slot changed: active sub now holds the picked asset; active main is unchanged.
+    FWTBRInstalledTriggerSlotSnapshot MainSnap;
+    FWTBRInstalledTriggerSlotSnapshot SubSnap;
+    TestTrue(TEXT("Active main slot snapshot readable"), Triggers->GetTriggerSlotSnapshot(MainIndex, MainSnap));
+    TestTrue(TEXT("Active sub slot snapshot readable"), Triggers->GetTriggerSlotSnapshot(SubIndex, SubSnap));
+    TestTrue(TEXT("Active sub slot now holds the picked-up trigger"), SubSnap.DataAsset.Get() == PickedForServer.Get());
+    TestTrue(TEXT("Active main slot unchanged (still its marker)"), MainSnap.DataAsset.Get() == MainMarker.Get());
+    return true;
+}
+
 // -----------------------------------------------------------------------------
 // Deferred / not covered here (reported, no assets created or modified):
 //
-// * WTBR.DroppedTrigger.Interact.MainOnly / .SubOnly dispatch — feasible code-only
-//   (transient UWTBRTriggerDataAsset with SlotConstraint=MainOnly/SubOnly + an active
-//   main/sub index), but they exercise the mutating Server_RequestPickupDroppedTrigger
-//   path; deferred to keep this pass to the safest non-mutating subset.
 // * Ground-item pickup through RequestContextInteract's focus trace — see the TODO in
 //   WTBR.DroppedTrigger.Interact.NoDroppedTriggerFocusDoesNotConsumeInteract.
+//
+// MainOnly/SubOnly constraint dispatch is now covered (S7B):
+//   WTBR.DroppedTrigger.Interact.MainOnlyDispatchesToActiveMain and .SubOnlyDispatchesToActiveSub
+//   prove RequestContextInteract slot routing with a capture-only dev automation seam,
+//   then separately prove server implementation semantics by directly calling
+//   Server_RequestPickupDroppedTrigger_Implementation. They do not claim network RPC
+//   transport coverage. Both phases use code-only transient UWTBRTriggerDataAssets with
+//   a concrete TriggerClass (UWTBRArcvenTrigger) — no assets.
 // -----------------------------------------------------------------------------
 
 #endif // WITH_DEV_AUTOMATION_TESTS

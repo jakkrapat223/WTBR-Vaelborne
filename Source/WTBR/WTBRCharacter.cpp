@@ -987,8 +987,41 @@ void AWTBRCharacter::RequestPickupAimedDroppedTriggerByConstraint()
         *GetNameSafe(AimedDroppedTrigger),
         TargetSlotIndex,
         *GetNameSafe(this));
+
+#if WITH_DEV_AUTOMATION_TESTS
+    if (bCaptureDroppedTriggerRouteForTest)
+    {
+        bDroppedTriggerRouteCapturedForTest = true;
+        CapturedDroppedTriggerForTest = AimedDroppedTrigger;
+        CapturedDroppedTriggerSlotForTest = TargetSlotIndex;
+        CapturedDroppedTriggerConstraintForTest = LoadedDataAsset->SlotConstraint;
+        UE_LOG(LogTemp, Log, TEXT("WTBR constraint dropped trigger pickup captured for automation: trigger=%s slot=%d constraint=%d character=%s."),
+            *GetNameSafe(AimedDroppedTrigger),
+            TargetSlotIndex,
+            static_cast<int32>(LoadedDataAsset->SlotConstraint),
+            *GetNameSafe(this));
+        return;
+    }
+#endif
+
     Server_RequestPickupDroppedTrigger(AimedDroppedTrigger, TargetSlotIndex);
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+void AWTBRCharacter::SetDroppedTriggerRouteCaptureForTest(bool bEnable)
+{
+    bCaptureDroppedTriggerRouteForTest = bEnable;
+    ClearDroppedTriggerRouteCaptureForTest();
+}
+
+void AWTBRCharacter::ClearDroppedTriggerRouteCaptureForTest()
+{
+    bDroppedTriggerRouteCapturedForTest = false;
+    CapturedDroppedTriggerForTest.Reset();
+    CapturedDroppedTriggerSlotForTest = INDEX_NONE;
+    CapturedDroppedTriggerConstraintForTest = ETriggerSlotConstraint::Any;
+}
+#endif
 
 void AWTBRCharacter::WTBRDebugCharacterPickupAimedDroppedTriggerActiveMain()
 {

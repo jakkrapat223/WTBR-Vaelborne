@@ -297,6 +297,15 @@ public:
     UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
     void RequestPickupAimedDroppedTriggerByConstraint();
 
+#if WITH_DEV_AUTOMATION_TESTS
+    void SetDroppedTriggerRouteCaptureForTest(bool bEnable);
+    void ClearDroppedTriggerRouteCaptureForTest();
+    bool WasDroppedTriggerRouteCapturedForTest() const { return bDroppedTriggerRouteCapturedForTest; }
+    AWTBRDroppedTriggerActor* GetCapturedDroppedTriggerForTest() const { return CapturedDroppedTriggerForTest.Get(); }
+    int32 GetCapturedDroppedTriggerSlotForTest() const { return CapturedDroppedTriggerSlotForTest; }
+    ETriggerSlotConstraint GetCapturedDroppedTriggerConstraintForTest() const { return CapturedDroppedTriggerConstraintForTest; }
+#endif
+
     UFUNCTION(Exec)
     void WTBRDebugCharacterPickupNearestDroppedTrigger(int32 TargetSlotIndex);
 
@@ -403,6 +412,14 @@ private:
     FWTBRHUDTriggerVaelAffordability GetActiveTriggerVaelAffordabilityForHUD(bool bIsMain) const;
     FVector GetClientMoveInputDirectionForTrigger() const;
     static FVector SanitizeClientMoveInputDirection(FVector ClientMoveInputDir);
+
+#if WITH_DEV_AUTOMATION_TESTS
+    bool bCaptureDroppedTriggerRouteForTest = false;
+    bool bDroppedTriggerRouteCapturedForTest = false;
+    TWeakObjectPtr<AWTBRDroppedTriggerActor> CapturedDroppedTriggerForTest;
+    int32 CapturedDroppedTriggerSlotForTest = INDEX_NONE;
+    ETriggerSlotConstraint CapturedDroppedTriggerConstraintForTest = ETriggerSlotConstraint::Any;
+#endif
 
     UFUNCTION()
     void OnStaggerExpired();
