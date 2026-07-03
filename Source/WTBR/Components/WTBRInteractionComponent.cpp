@@ -134,15 +134,32 @@ AWTBRGroundItemActor* UWTBRInteractionComponent::GetFocusedGroundItem() const
         ECC_Visibility,
         QueryParams);
 
-    return bHit ? Cast<AWTBRGroundItemActor>(Hit.GetActor()) : nullptr;
+    if (!bHit)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] Ground focus trace hit nothing (range=%.0f)."),
+            InteractionTraceDistance);
+        return nullptr;
+    }
+
+    AWTBRGroundItemActor* GroundItem = Cast<AWTBRGroundItemActor>(Hit.GetActor());
+    UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] Ground focus trace hit %s (isGroundItem=%s) at %.0f/%.0f units."),
+        *GetNameSafe(Hit.GetActor()),
+        GroundItem ? TEXT("true") : TEXT("false"),
+        (Hit.Location - TraceStart).Size(),
+        InteractionTraceDistance);
+    return GroundItem;
 }
 
 bool UWTBRInteractionComponent::RequestContextInteract()
 {
+    UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] RequestContextInteract called (owner=%s)."),
+        *GetNameSafe(GetOwner()));
+
     // Priority 1 — corpse / container / chest.
     // Reuses the existing client-side loot request bridge (no gameplay mutation).
     if (RequestCorpseLootInteract())
     {
+        UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] Handled by corpse/container/chest focus (priority 1)."));
         return true;
     }
 
@@ -162,9 +179,14 @@ bool UWTBRInteractionComponent::RequestContextInteract()
     {
         if (AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner()))
         {
+            UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] Ground item %s focused (priority 3); dispatching Server_RequestPickupGroundItem."),
+                *GetNameSafe(FocusedGroundItem));
             OwnerCharacter->Server_RequestPickupGroundItem(FocusedGroundItem);
             return true;
         }
+
+        UE_LOG(LogTemp, Warning, TEXT("[WTBR Interact] Ground item %s focused but owner is not an AWTBRCharacter; cannot dispatch."),
+            *GetNameSafe(FocusedGroundItem));
         return false;
     }
 
@@ -173,5 +195,6 @@ bool UWTBRInteractionComponent::RequestContextInteract()
     // (no interactable interface exists yet).
 
     // Priority 5 — no valid focus: no-op.
+    UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] No valid focus for context interact (no-op)."));
     return false;
 }

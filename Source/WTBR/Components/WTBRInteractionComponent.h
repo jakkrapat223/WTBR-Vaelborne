@@ -56,6 +56,10 @@ private:
     // and returns the focused BR ground item, or null. Focus only — no mutation.
     AWTBRGroundItemActor* GetFocusedGroundItem() const;
 
+    // Interaction focus trace length. In third person the viewpoint is the follow
+    // camera (behind the pawn via a ~400-unit spring arm), so the trace must cover
+    // the camera offset plus the interaction reach to hit items at/in front of the
+    // pawn. The server still gates pickup independently by WTBRGroundItemPickupRange.
     UPROPERTY(EditDefaultsOnly, Category="WTBR|Interaction")
-    float InteractionTraceDistance = 300.0f;
+    float InteractionTraceDistance = 800.0f;
 };
