@@ -149,6 +149,15 @@ public:
     float GetTotalSpeedPenaltyFromLimbs() const;
     float GetTotalDamagePenaltyFromLimbs() const;
 
+#if WITH_DEV_AUTOMATION_TESTS
+    // Test-only: invoke the eliminated-character death-drop routine directly on an
+    // authority owner, without driving the full damage/downed/elimination pipeline
+    // (which is timer/CoreStats-asset dependent and not headless-safe). Mirrors the
+    // UWTBRTriggerSetComponent::SetSlotDataAssetForTest seam. Behaviour-neutral in
+    // shipping (compiled out); still runs the same server-side drop logic.
+    void SpawnDroppedTriggersForEliminatedCharacterForTest() { SpawnDroppedTriggersForEliminatedCharacter(); }
+#endif
+
 protected:
     virtual void BeginPlay() override;
 

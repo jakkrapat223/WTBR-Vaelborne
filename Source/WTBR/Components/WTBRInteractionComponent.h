@@ -43,7 +43,9 @@ public:
     // handler. Called by AWTBRCharacter::Interact() on the owning client.
     // Priority:
     //   1. corpse / container / chest -> RequestCorpseLootInteract() [implemented]
-    //   2. dropped trigger            -> parked: needs active-main/sub target-slot policy
+    //   2. dropped trigger            -> constraint-driven pickup dispatch [implemented S7A]:
+    //                                    MainOnly -> active main, SubOnly -> active sub,
+    //                                    Any -> reject AmbiguousTargetSlot (no slot guessed)
     //   3. BR ground item             -> Server_RequestPickupGroundItem [implemented S6]
     //   4. generic interactable       -> future: waits for interactable interface pass
     //   5. no valid focus             -> no-op
