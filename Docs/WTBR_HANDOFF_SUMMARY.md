@@ -2,23 +2,24 @@
 
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
-Confirmed baseline: 11b9313 Fix third-person ground item focus trace and add interact logs
+Confirmed baseline: 36b599d Add interact input asset binding
 Latest source implementation baseline: 11b9313 Fix third-person ground item focus trace and add interact logs
+Latest supporting asset baseline: 36b599d Add interact input asset binding
 Automation confirmed: WTBR.Inventory + WTBR.CorpseLoot PASS 56/56 (32 Inventory + 24 CorpseLoot), run with `Automation RunTests WTBR.Inventory+WTBR.CorpseLoot;Quit`. S6 BR ground-item pickup was also **PIE/manually validated** end-to-end (see S6 section).
 
-Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` may exist as a local-only untracked file and must never be staged or committed.
+Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` may exist as a local-only untracked file and must never be staged or committed. Binary assets (`.uasset`/`.png`) are tracked via Git LFS.
 
 ## Recent Commits
 
 ```text
+36b599d Add interact input asset binding
+e12604a Add HP consumable test data asset
+7f50a30 Add starter avatar concept sheets
+a114d82 Update handoff after S6 PIE validation
 11b9313 Fix third-person ground item focus trace and add interact logs
-0c4c447 Expose ground item fields for PIE validation
-4a2c459 Wire BR ground item context interact
-f4293f2 Update handoff after inventory foundation
-a05195f Add inventory consumable use foundation
 ```
 
-Current baseline / `origin/main`: `11b9313`. Working tree should have no tracked source changes. Untracked/uncommitted local files may remain and must never be staged by an assistant: six `Source/output/concepts/starter_avatars/*.png` concept-art files, and human PIE-setup assets (`Content/Input/Actions/IA_Interact.uasset`, `Content/Data/AssetTest/DA_Test_HP_Small.uasset`, a ThirdPersonMap external-actor `.uasset`, plus modified `Content/Blueprints/BP_WTBRCharacter.uasset` and `Content/Input/IMC_WTBR_Default.uasset`). Their version-control decision is pending human review.
+Current baseline / `origin/main`: `36b599d`. Working tree should have no tracked changes. One local file remains intentionally uncommitted and must never be staged by an assistant without explicit approval: the ThirdPersonMap external-actor `.uasset` (`Content/__ExternalActors__/.../ThirdPersonMap/...uasset`).
 
 ## Repo Paths
 
@@ -110,7 +111,13 @@ Validation:
 - PIE/manual: **PASS**. After `WTBRDebugCharacterSetMatchPhase InMatch`, aiming at a placed ground item and pressing F produced:
   `RequestContextInteract called` → `Ground focus trace hit WTBRGroundItemActor isGroundItem=true at 439/800` →
   `dispatching Server_RequestPickupGroundItem` → `WTBR ground item pickup succeeded`.
-- PIE setup used local, uncommitted assets (`IA_Interact`, `IMC_WTBR_Default`, `BP_WTBRCharacter` interact binding, `DA_Test_HP_Small`, a placed ground item). Their version-control/commit decision is pending human review.
+- PIE-setup assets are now committed/pushed (`36b599d`, `e12604a`, `7f50a30`):
+  - `Content/Input/Actions/IA_Interact.uasset` — created; mapped to default **F** via `IMC_WTBR_Default`.
+  - `Content/Input/IMC_WTBR_Default.uasset` — `IA_Interact` → F binding.
+  - `Content/Blueprints/BP_WTBRCharacter.uasset` — `InteractAction` assigned to `IA_Interact` (temporary debug Print String removed before commit).
+  - `Content/Data/AssetTest/DA_Test_HP_Small.uasset` — permanent manual PIE / consumable-heal test fixture (NOT final balance data).
+  - `Source/output/concepts/starter_avatars/*.png` — starter avatar concept sheets, committed as reference assets.
+- The ThirdPersonMap external-actor `.uasset` (the placed ground item) remains **intentionally uncommitted** unless later approved.
 
 ## Current Pending Work
 
@@ -220,10 +227,10 @@ git log --oneline --decorate -5
 Expected latest baseline:
 
 ```text
-11b9313 Fix third-person ground item focus trace and add interact logs
+36b599d Add interact input asset binding
 ```
 
-`Source/.claude/settings.local.json` may exist as a local-only untracked file. Other local uncommitted files may also remain and must never be staged by an assistant: six `Source/output/concepts/starter_avatars/*.png` concept-art files and the human PIE-setup assets (`IA_Interact.uasset`, `DA_Test_HP_Small.uasset`, a ThirdPersonMap external-actor `.uasset`, modified `BP_WTBRCharacter.uasset` and `IMC_WTBR_Default.uasset`).
+`Source/.claude/settings.local.json` may exist as a local-only untracked file. One local file remains intentionally uncommitted and must never be staged by an assistant without explicit approval: the ThirdPersonMap external-actor `.uasset` (the placed ground item).
 
 ## Prompt For New Chat
 
@@ -231,9 +238,9 @@ Expected latest baseline:
 We are continuing WTBR / Vaelborne: Dominion UE 5.1.1 C++.
 
 Current baseline:
-11b9313 Fix third-person ground item focus trace and add interact logs
+36b599d Add interact input asset binding
 
-Working tree should have no tracked source changes. Local uncommitted files may remain and must never be staged by an assistant: six concept-art .png files and human PIE-setup assets (IA_Interact, DA_Test_HP_Small, a ThirdPersonMap external actor, modified BP_WTBRCharacter and IMC_WTBR_Default). Their commit decision is pending human review.
+Working tree should have no tracked changes. One local file remains intentionally uncommitted and must never be staged by an assistant without explicit approval: the ThirdPersonMap external-actor .uasset (the placed ground item).
 
 Recent completed work:
 - S4-A context interact dispatch foundation committed.
@@ -242,6 +249,7 @@ Recent completed work:
 - S5-C ground item actor + server pickup committed.
 - S5-D inventory item use + HP/Vael consumables committed.
 - S6 BR ground item context interact wiring committed AND PIE-validated (0c4c447 expose fields, 11b9313 third-person trace fix + logs).
+- S6 supporting assets committed/pushed (36b599d interact input binding, e12604a DA_Test_HP_Small, 7f50a30 starter avatar concept sheets). IA_Interact mapped to F via IMC_WTBR_Default; BP_WTBRCharacter InteractAction assigned.
 
 Latest automation:
 WTBR.Inventory + WTBR.CorpseLoot PASS 56/56.
@@ -262,7 +270,7 @@ Important current state:
 
 Optional cleanup available:
 - [WTBR Interact] logs are plain Log verbosity; could be gated behind Verbose/CVar/#if !UE_BUILD_SHIPPING.
-- Decide version-control for the local PIE-setup .uasset files.
+- Decide version-control for the one remaining uncommitted ThirdPersonMap external-actor .uasset (placed ground item).
 
 Start next with:
 Choose the next parked interaction item (dropped-trigger target-slot policy, or generic interactable interface) — or a non-interaction pass.
