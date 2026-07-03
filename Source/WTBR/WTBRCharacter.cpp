@@ -23,6 +23,9 @@
 #include "Components/WTBRInteractionComponent.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
+#include "Inventory/WTBRInventoryComponent.h"
+#include "Inventory/WTBRGroundItemActor.h"
+#include "Inventory/WTBRItemDataAsset.h"
 #include "WTBRGameMode.h"
 #include "WTBRGameState.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
@@ -48,6 +51,10 @@
 namespace
 {
     constexpr float WTBRDroppedTriggerPickupRange = 300.0f;
+
+    // BR Ground Item pickup range. Mirrors the dropped-trigger range style;
+    // final balance is tunable and may move to a DataAsset later.
+    constexpr float WTBRGroundItemPickupRange = 300.0f;
 
     bool TryParseWTBRDebugMatchPhase(const FString& PhaseName, EWTBRMatchPhase& OutPhase)
     {
@@ -182,6 +189,7 @@ AWTBRCharacter::AWTBRCharacter()
     InputGestureComponent = CreateDefaultSubobject<UWTBRInputGestureComponent>(TEXT("InputGestureComponent"));
     InteractionComponent  = CreateDefaultSubobject<UWTBRInteractionComponent>(TEXT("InteractionComponent"));
     TriggerSetComponent   = CreateDefaultSubobject<UWTBRTriggerSetComponent>(TEXT("TriggerSetComponent"));
+    InventoryComponent    = CreateDefaultSubobject<UWTBRInventoryComponent>(TEXT("InventoryComponent"));
 
     static ConstructorHelpers::FObjectFinder<UInputMappingContext> DefaultMappingContextAsset(
         TEXT("/Game/Input/IMC_WTBR_Default.IMC_WTBR_Default"));
@@ -1248,6 +1256,120 @@ void AWTBRCharacter::Server_RequestPickupCorpseLootEntry_Implementation(
             *GetNameSafe(LootContainer));
         LootContainer->Destroy();
     }
+}
+
+void AWTBRCharacter::Server_RequestPickupGroundItem_Implementation(AWTBRGroundItemActor* GroundItem)
+{
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: character %s has no authority"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(HealthComponent) || !HealthComponent->IsAlive())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: character %s is not alive"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(InventoryComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: InventoryComponent is missing for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(GroundItem) || GroundItem->IsConsumed())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: ground item is invalid or already consumed for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const TSoftObjectPtr<UWTBRItemDataAsset> ItemDataRef = GroundItem->GetItemData();
+    if (ItemDataRef.IsNull())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: ground item %s has no ItemData"),
+            *GetNameSafe(GroundItem));
+        return;
+    }
+
+    const int32 Quantity = GroundItem->GetQuantity();
+    if (Quantity <= 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: ground item %s has non-positive quantity %d"),
+            *GetNameSafe(GroundItem),
+            Quantity);
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: World is missing for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    // Match gate (I-2 MVP): ground item pickup is gated by IsInMatch() only and
+    // must NOT reuse AllowsTriggerPickup / AllowsTriggerSwapDuringMatch.
+    // TODO(S5+): replace with dedicated AllowsGroundItemPickup / AllowsInventoryItemUse
+    // rules on UWTBRMatchModeRulesDataAsset once those fields exist.
+    const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!IsValid(WTBRGameState) || !WTBRGameState->IsInMatch())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected by match phase for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const float DistanceSq = FVector::DistSquared(GetActorLocation(), GroundItem->GetActorLocation());
+    const float MaxDistanceSq = FMath::Square(WTBRGroundItemPickupRange);
+    if (DistanceSq > MaxDistanceSq)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: character %s is too far from %s (Distance=%.1f Max=%.1f)"),
+            *GetNameSafe(this),
+            *GetNameSafe(GroundItem),
+            FMath::Sqrt(DistanceSq),
+            WTBRGroundItemPickupRange);
+        return;
+    }
+
+    // Atomic claim before mutating inventory so a failed add can roll back cleanly.
+    if (!GroundItem->TryMarkConsumed())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: ground item %s was already consumed"),
+            *GetNameSafe(GroundItem));
+        return;
+    }
+
+    const UWTBRItemDataAsset* ItemDataObj = ItemDataRef.LoadSynchronous();
+    if (!IsValid(ItemDataObj))
+    {
+        GroundItem->ClearConsumedForFailedPickup();
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: ground item %s ItemData failed to load"),
+            *GetNameSafe(GroundItem));
+        return;
+    }
+
+    // All-or-nothing add (TryAddItem is transactional from S5-B). Do not stack here.
+    if (!InventoryComponent->TryAddItem(ItemDataObj, Quantity))
+    {
+        GroundItem->ClearConsumedForFailedPickup();
+        UE_LOG(LogTemp, Warning, TEXT("WTBR ground item pickup rejected: inventory full for character %s (item %s x%d)"),
+            *GetNameSafe(this),
+            *GetNameSafe(GroundItem),
+            Quantity);
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR ground item pickup succeeded: character %s picked up %s x%d"),
+        *GetNameSafe(this),
+        *GetNameSafe(GroundItem),
+        Quantity);
+    GroundItem->Destroy();
 }
 
 void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir)

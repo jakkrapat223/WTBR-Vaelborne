@@ -18,9 +18,11 @@ class UWTBRVaelComponent;
 class UWTBRMovementExtComponent;
 class UWTBRInputGestureComponent;
 class UWTBRInteractionComponent;
+class UWTBRInventoryComponent;
 class UTexture2D;
 class AWTBRDroppedTriggerActor;
 class AWTBRCorpseLootContainerActor;
+class AWTBRGroundItemActor;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRHUDHintsChanged);
 
@@ -126,6 +128,9 @@ public:
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
     TObjectPtr<UWTBRTriggerSetComponent> TriggerSetComponent;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
+    TObjectPtr<UWTBRInventoryComponent> InventoryComponent;
 
     UPROPERTY(BlueprintAssignable, Category="WTBR | HUD")
     FWTBRHUDHintsChanged OnHUDHintsChanged;
@@ -257,6 +262,12 @@ public:
 
     UFUNCTION(Server, Reliable)
     void Server_RequestPickupCorpseLootEntry(AWTBRCorpseLootContainerActor* LootContainer, int32 LootEntryIndex, int32 TargetSlotIndex);
+
+    // BR Ground Item pickup (S5-C). Server-authoritative; adds the item to
+    // InventoryComponent via the all-or-nothing TryAddItem. Separate from
+    // dropped-trigger pickup and does not use trigger pickup/swap match gates.
+    UFUNCTION(Server, Reliable)
+    void Server_RequestPickupGroundItem(AWTBRGroundItemActor* GroundItem);
 
     UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
     AWTBRDroppedTriggerActor* FindAimedDroppedTriggerForPickup() const;
