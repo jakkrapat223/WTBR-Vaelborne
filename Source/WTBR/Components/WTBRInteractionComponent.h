@@ -7,6 +7,7 @@
 #include "WTBRInteractionComponent.generated.h"
 
 class AWTBRCorpseLootContainerActor;
+class AWTBRDroppedTriggerActor;
 class AWTBRGroundItemActor;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FWTBRCorpseLootInteractRequested, AWTBRCorpseLootContainerActor*, Container);
@@ -52,6 +53,12 @@ public:
     bool RequestContextInteract();
 
 private:
+    // Line-traces from the owner's viewpoint (same model as GetFocusedCorpseLootContainer)
+    // and returns the focused dropped trigger, or null. Focus only — no mutation.
+    // Used by RequestContextInteract priority 2 to decide whether to route to the
+    // character's constraint-driven dropped-trigger pickup dispatch.
+    AWTBRDroppedTriggerActor* GetFocusedDroppedTrigger() const;
+
     // Line-traces from the owner's viewpoint (same model as GetFocusedCorpseLootContainer)
     // and returns the focused BR ground item, or null. Focus only — no mutation.
     AWTBRGroundItemActor* GetFocusedGroundItem() const;

@@ -284,6 +284,19 @@ public:
     UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
     void RequestPickupAimedDroppedTriggerIntoActiveSubSlot();
 
+    // S7A — constraint-driven single-valid-target dropped trigger pickup.
+    // Client-side resolver used by the F context interact (branch 2). Reads the
+    // aimed dropped trigger's ETriggerSlotConstraint and dispatches the existing
+    // Server_RequestPickupDroppedTrigger to the single valid ACTIVE target slot:
+    //   MainOnly -> ActiveMainIndex, SubOnly -> ActiveSubIndex.
+    // Constraint Any resolves to two valid active targets, so it is rejected as
+    // AmbiguousTargetSlot (dev log only) and no request is dispatched. Invalid,
+    // null, or incompatible cases dispatch nothing. This function only requests;
+    // the server remains authoritative and re-validates before any mutation.
+    // Does not remove or replace the legacy ActiveMain/ActiveSub pickup functions.
+    UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
+    void RequestPickupAimedDroppedTriggerByConstraint();
+
     UFUNCTION(Exec)
     void WTBRDebugCharacterPickupNearestDroppedTrigger(int32 TargetSlotIndex);
 
@@ -304,6 +317,21 @@ public:
 
     UFUNCTION(Exec)
     void WTBRDebugCharacterPickupAimedDroppedTriggerActiveSub();
+
+    // Dev-only diagnostic: dumps this character's server-authoritative trigger
+    // loadout so PIE can confirm whether death-drop has any DataAssets to drop.
+    // Prints name, roles, match gate flags, active main/sub index, and every
+    // installed trigger snapshot (SlotIndex / DataAsset path / CachedCategory /
+    // SlotConstraint). Logs a clear message when zero snapshots exist.
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterPrintTriggerSlots() const;
+
+    // Dev-only diagnostic: lists every AWTBRDroppedTriggerActor in the world with
+    // name, location, distance from character, distance from camera, DataAsset path,
+    // IsConsumed, and root collision info. Used to debug why F focus / aimed pickup
+    // fails to detect spawned dropped triggers.
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterListNearbyDroppedTriggers() const;
 
     UPROPERTY(ReplicatedUsing = OnRep_bIsStaggered, BlueprintReadOnly,
         Category = "WTBR | Character | Stagger")

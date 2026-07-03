@@ -671,12 +671,20 @@ void UWTBRHealthComponent::SpawnLegacyDroppedTriggers_Internal()
     AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
     if (!IsValid(VictimCharacter) || !VictimCharacter->HasAuthority())
     {
+#if !UE_BUILD_SHIPPING
+        UE_LOG(LogTemp, Warning, TEXT("WTBR legacy dropped trigger drop skipped: invalid victim or no authority (owner=%s)."),
+            *GetNameSafe(GetOwner()));
+#endif
         return;
     }
 
     UWorld* World = GetWorld();
     if (!World)
     {
+#if !UE_BUILD_SHIPPING
+        UE_LOG(LogTemp, Warning, TEXT("WTBR legacy dropped trigger drop skipped for %s: World is missing."),
+            *GetNameSafe(VictimCharacter));
+#endif
         return;
     }
 
@@ -686,12 +694,24 @@ void UWTBRHealthComponent::SpawnLegacyDroppedTriggers_Internal()
         || !WTBRGameState->AllowsCorpseLoot()
         || !WTBRGameState->AllowsTriggerPickup())
     {
+#if !UE_BUILD_SHIPPING
+        UE_LOG(LogTemp, Warning, TEXT("WTBR legacy dropped trigger drop skipped for %s: match gate failed (GameStateValid=%d IsInMatch=%d AllowsCorpseLoot=%d AllowsTriggerPickup=%d)."),
+            *GetNameSafe(VictimCharacter),
+            IsValid(WTBRGameState) ? 1 : 0,
+            (IsValid(WTBRGameState) && WTBRGameState->IsInMatch()) ? 1 : 0,
+            (IsValid(WTBRGameState) && WTBRGameState->AllowsCorpseLoot()) ? 1 : 0,
+            (IsValid(WTBRGameState) && WTBRGameState->AllowsTriggerPickup()) ? 1 : 0);
+#endif
         return;
     }
 
     UWTBRTriggerSetComponent* TriggerSetComponent = VictimCharacter->TriggerSetComponent;
     if (!IsValid(TriggerSetComponent))
     {
+#if !UE_BUILD_SHIPPING
+        UE_LOG(LogTemp, Warning, TEXT("WTBR legacy dropped trigger drop skipped for %s: TriggerSetComponent is missing."),
+            *GetNameSafe(VictimCharacter));
+#endif
         return;
     }
 
@@ -699,6 +719,10 @@ void UWTBRHealthComponent::SpawnLegacyDroppedTriggers_Internal()
     TriggerSetComponent->GetInstalledTriggerSlotSnapshots(InstalledTriggers);
     if (InstalledTriggers.Num() == 0)
     {
+#if !UE_BUILD_SHIPPING
+        UE_LOG(LogTemp, Warning, TEXT("WTBR legacy dropped trigger drop skipped for %s: 0 installed trigger snapshots; server TriggerSlots may be empty (no loadout on server)."),
+            *GetNameSafe(VictimCharacter));
+#endif
         return;
     }
 
@@ -716,6 +740,12 @@ void UWTBRHealthComponent::SpawnLegacyDroppedTriggers_Internal()
         const FWTBRInstalledTriggerSlotSnapshot& Snapshot = InstalledTriggers[DropIndex];
         if (!Snapshot.IsValid())
         {
+#if !UE_BUILD_SHIPPING
+            UE_LOG(LogTemp, Warning, TEXT("WTBR legacy dropped trigger drop skipped a slot for %s: snapshot invalid (SlotIndex=%d DataAssetNull=%d)."),
+                *GetNameSafe(VictimCharacter),
+                Snapshot.SlotIndex,
+                Snapshot.DataAsset.IsNull() ? 1 : 0);
+#endif
             continue;
         }
 

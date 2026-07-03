@@ -52,6 +52,12 @@ namespace
 {
     constexpr float WTBRDroppedTriggerPickupRange = 300.0f;
 
+    // Minimum dot(view-forward, dir-to-candidate) for a dropped trigger to count as
+    // "aimed at". AWTBRDroppedTriggerActor has no collision primitive, so detection
+    // uses actor iteration + this view-cone gate instead of a trace/sweep. ~0.5 is a
+    // forgiving ~60-degree half-cone that still works for low ground loot.
+    constexpr float WTBRDroppedTriggerAimDotThreshold = 0.5f;
+
     // BR Ground Item pickup range. Mirrors the dropped-trigger range style;
     // final balance is tunable and may move to a DataAsset later.
     constexpr float WTBRGroundItemPickupRange = 300.0f;
@@ -816,35 +822,39 @@ AWTBRDroppedTriggerActor* AWTBRCharacter::FindAimedDroppedTriggerForPickup() con
         GetActorEyesViewPoint(ViewLocation, ViewRotation);
     }
 
-    const FVector TraceStart = ViewLocation;
-    const FVector TraceEnd = TraceStart + (ViewRotation.Vector() * WTBRDroppedTriggerPickupRange);
+    const FVector ViewForward = ViewRotation.Vector();
 
-    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(WTBRFindAimedDroppedTriggerForPickup), false, this);
-    QueryParams.AddIgnoredActor(this);
-
-    TArray<FHitResult> HitResults;
-    World->SweepMultiByChannel(
-        HitResults,
-        TraceStart,
-        TraceEnd,
-        FQuat::Identity,
-        ECC_Visibility,
-        FCollisionShape::MakeSphere(24.0f),
-        QueryParams);
-
+    // AWTBRDroppedTriggerActor is spawned with only a USceneComponent root and has no
+    // collision primitive, so line traces / channel sweeps cannot detect it. Iterate the
+    // dropped-trigger actors directly and pick the nearest not-yet-consumed candidate that
+    // is within pickup range and in front of the view (aimed). Mirrors the collision-
+    // independent lookup used by the nearest-pickup debug command. Detection only — the
+    // server still re-validates distance on pickup.
     AWTBRDroppedTriggerActor* BestDroppedTrigger = nullptr;
-    float BestDistanceSq = FMath::Square(WTBRDroppedTriggerPickupRange);
+    float BestDistanceSq = TNumericLimits<float>::Max();
+    const float MaxRangeSq = FMath::Square(WTBRDroppedTriggerPickupRange);
 
-    for (const FHitResult& Hit : HitResults)
+    for (TActorIterator<AWTBRDroppedTriggerActor> It(World); It; ++It)
     {
-        AWTBRDroppedTriggerActor* Candidate = Cast<AWTBRDroppedTriggerActor>(Hit.GetActor());
+        AWTBRDroppedTriggerActor* Candidate = *It;
         if (!IsValid(Candidate) || Candidate->IsConsumed() || Candidate->GetDroppedTriggerDataAsset().IsNull())
         {
             continue;
         }
 
         const float CandidateDistanceSq = FVector::DistSquared(GetActorLocation(), Candidate->GetActorLocation());
-        if (CandidateDistanceSq <= BestDistanceSq)
+        if (CandidateDistanceSq > MaxRangeSq)
+        {
+            continue;
+        }
+
+        const FVector ToCandidate = Candidate->GetActorLocation() - ViewLocation;
+        if (FVector::DotProduct(ToCandidate.GetSafeNormal(), ViewForward) < WTBRDroppedTriggerAimDotThreshold)
+        {
+            continue;
+        }
+
+        if (CandidateDistanceSq < BestDistanceSq)
         {
             BestDroppedTrigger = Candidate;
             BestDistanceSq = CandidateDistanceSq;
@@ -908,6 +918,78 @@ void AWTBRCharacter::RequestPickupAimedDroppedTriggerIntoActiveSubSlot()
     Server_RequestPickupDroppedTrigger(AimedDroppedTrigger, TargetSlotIndex);
 }
 
+void AWTBRCharacter::RequestPickupAimedDroppedTriggerByConstraint()
+{
+    // Client-side resolver. Dispatches only; the server re-validates authority,
+    // match state, distance, and slot compatibility before any mutation.
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR constraint dropped trigger pickup rejected: TriggerSetComponent is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    AWTBRDroppedTriggerActor* AimedDroppedTrigger = FindAimedDroppedTriggerForPickup();
+    if (!IsValid(AimedDroppedTrigger))
+    {
+        // FindAimedDroppedTriggerForPickup already logged the no-target reason.
+        return;
+    }
+
+    const TSoftObjectPtr<UWTBRTriggerDataAsset> DroppedDataAsset = AimedDroppedTrigger->GetDroppedTriggerDataAsset();
+    if (DroppedDataAsset.IsNull())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR constraint dropped trigger pickup rejected: %s has no DataAsset for character %s."),
+            *GetNameSafe(AimedDroppedTrigger),
+            *GetNameSafe(this));
+        return;
+    }
+
+    // Read-only load to inspect the slot constraint. No mutation happens here;
+    // the server independently reloads and re-validates the asset on dispatch.
+    const UWTBRTriggerDataAsset* LoadedDataAsset = DroppedDataAsset.LoadSynchronous();
+    if (!IsValid(LoadedDataAsset))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR constraint dropped trigger pickup rejected: failed to load DataAsset for %s (character %s)."),
+            *GetNameSafe(AimedDroppedTrigger),
+            *GetNameSafe(this));
+        return;
+    }
+
+    // S7A Policy v1 — constraint-driven single-valid-target resolution.
+    int32 TargetSlotIndex = INDEX_NONE;
+    switch (LoadedDataAsset->SlotConstraint)
+    {
+        case ETriggerSlotConstraint::MainOnly:
+            TargetSlotIndex = TriggerSetComponent->GetActiveMainIndex();
+            break;
+
+        case ETriggerSlotConstraint::SubOnly:
+            TargetSlotIndex = TriggerSetComponent->GetActiveSubIndex();
+            break;
+
+        case ETriggerSlotConstraint::Any:
+            // Two valid active targets (active main and active sub). Per policy we
+            // must not blindly choose; defer to a future slot-selection UI.
+            UE_LOG(LogTemp, Warning, TEXT("WTBR constraint dropped trigger pickup: AmbiguousTargetSlot for %s (SlotConstraint=Any) — not dispatching for character %s."),
+                *GetNameSafe(AimedDroppedTrigger),
+                *GetNameSafe(this));
+            return;
+
+        default:
+            UE_LOG(LogTemp, Warning, TEXT("WTBR constraint dropped trigger pickup rejected: unhandled SlotConstraint for %s (character %s)."),
+                *GetNameSafe(AimedDroppedTrigger),
+                *GetNameSafe(this));
+            return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR constraint dropped trigger pickup: requesting pickup of %s into active slot %d (SlotConstraint resolved) for character %s."),
+        *GetNameSafe(AimedDroppedTrigger),
+        TargetSlotIndex,
+        *GetNameSafe(this));
+    Server_RequestPickupDroppedTrigger(AimedDroppedTrigger, TargetSlotIndex);
+}
+
 void AWTBRCharacter::WTBRDebugCharacterPickupAimedDroppedTriggerActiveMain()
 {
 #if UE_BUILD_SHIPPING
@@ -923,6 +1005,121 @@ void AWTBRCharacter::WTBRDebugCharacterPickupAimedDroppedTriggerActiveSub()
     UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPickupAimedDroppedTriggerActiveSub is disabled in Shipping builds."));
 #else
     RequestPickupAimedDroppedTriggerIntoActiveSubSlot();
+#endif
+}
+
+void AWTBRCharacter::WTBRDebugCharacterPrintTriggerSlots() const
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterPrintTriggerSlots is disabled in Shipping builds."));
+#else
+    UE_LOG(LogTemp, Log, TEXT("[WTBR TriggerSlots] Character=%s HasAuthority=%d LocalRole=%d RemoteRole=%d"),
+        *GetNameSafe(this),
+        HasAuthority() ? 1 : 0,
+        (int32)GetLocalRole(),
+        (int32)GetRemoteRole());
+
+    const UWorld* World = GetWorld();
+    const AWTBRGameState* WTBRGameState = World ? World->GetGameState<AWTBRGameState>() : nullptr;
+    UE_LOG(LogTemp, Log, TEXT("[WTBR TriggerSlots] GameStateValid=%d IsInMatch=%d AllowsCorpseLoot=%d AllowsTriggerPickup=%d"),
+        IsValid(WTBRGameState) ? 1 : 0,
+        (IsValid(WTBRGameState) && WTBRGameState->IsInMatch()) ? 1 : 0,
+        (IsValid(WTBRGameState) && WTBRGameState->AllowsCorpseLoot()) ? 1 : 0,
+        (IsValid(WTBRGameState) && WTBRGameState->AllowsTriggerPickup()) ? 1 : 0);
+
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[WTBR TriggerSlots] TriggerSetComponent is missing for %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[WTBR TriggerSlots] ActiveMainIndex=%d ActiveSubIndex=%d"),
+        TriggerSetComponent->GetActiveMainIndex(),
+        TriggerSetComponent->GetActiveSubIndex());
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> InstalledTriggers;
+    TriggerSetComponent->GetInstalledTriggerSlotSnapshots(InstalledTriggers);
+
+    if (InstalledTriggers.Num() == 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[WTBR TriggerSlots] 0 installed trigger snapshots; server TriggerSlots may be empty (no loadout on server) for %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    for (const FWTBRInstalledTriggerSlotSnapshot& Snapshot : InstalledTriggers)
+    {
+        const UWTBRTriggerDataAsset* LoadedDataAsset = Snapshot.DataAsset.IsNull()
+            ? nullptr
+            : Snapshot.DataAsset.LoadSynchronous();
+        const FString SlotConstraintText = IsValid(LoadedDataAsset)
+            ? UEnum::GetValueAsString(LoadedDataAsset->SlotConstraint)
+            : FString(TEXT("<unloaded>"));
+
+        UE_LOG(LogTemp, Log, TEXT("[WTBR TriggerSlots] SlotIndex=%d DataAsset=%s CachedCategory=%s SlotConstraint=%s"),
+            Snapshot.SlotIndex,
+            *Snapshot.DataAsset.ToSoftObjectPath().ToString(),
+            *UEnum::GetValueAsString(Snapshot.CachedCategory),
+            *SlotConstraintText);
+    }
+#endif
+}
+
+void AWTBRCharacter::WTBRDebugCharacterListNearbyDroppedTriggers() const
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterListNearbyDroppedTriggers is disabled in Shipping builds."));
+#else
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[WTBR DroppedList] World is missing for %s."), *GetNameSafe(this));
+        return;
+    }
+
+    FVector ViewLocation = FVector::ZeroVector;
+    FRotator ViewRotation = FRotator::ZeroRotator;
+    if (Controller)
+    {
+        Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
+    }
+    else
+    {
+        GetActorEyesViewPoint(ViewLocation, ViewRotation);
+    }
+
+    const FVector CharacterLocation = GetActorLocation();
+    int32 Count = 0;
+    for (TActorIterator<AWTBRDroppedTriggerActor> It(World); It; ++It)
+    {
+        const AWTBRDroppedTriggerActor* DroppedTrigger = *It;
+        if (!IsValid(DroppedTrigger))
+        {
+            continue;
+        }
+        ++Count;
+
+        const UPrimitiveComponent* RootPrimitive = Cast<UPrimitiveComponent>(DroppedTrigger->GetRootComponent());
+        const FString CollisionText = RootPrimitive
+            ? FString::Printf(TEXT("CollisionEnabled=%d Profile=%s"),
+                (int32)RootPrimitive->GetCollisionEnabled(),
+                *RootPrimitive->GetCollisionProfileName().ToString())
+            : FString(TEXT("root has no UPrimitiveComponent (no collision)"));
+
+        UE_LOG(LogTemp, Log, TEXT("[WTBR DroppedList] %s Loc=%s DistFromChar=%.1f DistFromCam=%.1f DataAsset=%s IsConsumed=%d %s"),
+            *GetNameSafe(DroppedTrigger),
+            *DroppedTrigger->GetActorLocation().ToCompactString(),
+            FVector::Dist(CharacterLocation, DroppedTrigger->GetActorLocation()),
+            FVector::Dist(ViewLocation, DroppedTrigger->GetActorLocation()),
+            *DroppedTrigger->GetDroppedTriggerDataAsset().ToSoftObjectPath().ToString(),
+            DroppedTrigger->IsConsumed() ? 1 : 0,
+            *CollisionText);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[WTBR DroppedList] Total AWTBRDroppedTriggerActor in world = %d (character=%s)."),
+        Count,
+        *GetNameSafe(this));
 #endif
 }
 

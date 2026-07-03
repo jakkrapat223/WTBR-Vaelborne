@@ -3,10 +3,21 @@
 #include "Components/WTBRInteractionComponent.h"
 
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Controller.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
+#include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Inventory/WTBRGroundItemActor.h"
 #include "WTBRCharacter.h"
+
+namespace
+{
+    // Minimum dot(view-forward, dir-to-candidate) for a dropped trigger to be treated
+    // as focused. AWTBRDroppedTriggerActor has no collision primitive, so focus uses
+    // actor iteration + this view-cone gate instead of a line trace. ~0.5 ≈ 60-degree
+    // half-cone, forgiving enough for low ground loot.
+    constexpr float WTBRInteractionDroppedTriggerFocusAimDotThreshold = 0.5f;
+}
 
 UWTBRInteractionComponent::UWTBRInteractionComponent()
 {
@@ -95,6 +106,71 @@ bool UWTBRInteractionComponent::RequestCorpseLootInteract()
     return true;
 }
 
+AWTBRDroppedTriggerActor* UWTBRInteractionComponent::GetFocusedDroppedTrigger() const
+{
+    const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(OwnerCharacter))
+    {
+        return nullptr;
+    }
+
+    UWorld* World = OwnerCharacter->GetWorld();
+    if (!World)
+    {
+        return nullptr;
+    }
+
+    FVector ViewLocation = FVector::ZeroVector;
+    FRotator ViewRotation = FRotator::ZeroRotator;
+    if (AController* Controller = OwnerCharacter->GetController())
+    {
+        Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
+    }
+    else
+    {
+        OwnerCharacter->GetActorEyesViewPoint(ViewLocation, ViewRotation);
+    }
+
+    const FVector ViewForward = ViewRotation.Vector();
+
+    // AWTBRDroppedTriggerActor has no collision primitive (bare USceneComponent root),
+    // so a line trace can never hit it and would instead stop on the floor. Iterate the
+    // dropped-trigger actors and pick the nearest not-yet-consumed candidate within
+    // InteractionTraceDistance that is in front of the view. Focus only — no mutation.
+    AWTBRDroppedTriggerActor* BestDroppedTrigger = nullptr;
+    float BestDistanceSq = TNumericLimits<float>::Max();
+    const float MaxRangeSq = FMath::Square(InteractionTraceDistance);
+
+    for (TActorIterator<AWTBRDroppedTriggerActor> It(World); It; ++It)
+    {
+        AWTBRDroppedTriggerActor* Candidate = *It;
+        if (!IsValid(Candidate) || Candidate->IsConsumed() || Candidate->GetDroppedTriggerDataAsset().IsNull())
+        {
+            continue;
+        }
+
+        const FVector ToCandidate = Candidate->GetActorLocation() - ViewLocation;
+        const float CandidateDistanceSq = ToCandidate.SizeSquared();
+        if (CandidateDistanceSq > MaxRangeSq)
+        {
+            continue;
+        }
+
+        if (FVector::DotProduct(ToCandidate.GetSafeNormal(), ViewForward) < WTBRInteractionDroppedTriggerFocusAimDotThreshold)
+        {
+            continue;
+        }
+
+        if (CandidateDistanceSq < BestDistanceSq)
+        {
+            BestDroppedTrigger = Candidate;
+            BestDistanceSq = CandidateDistanceSq;
+        }
+    }
+
+    return BestDroppedTrigger;
+}
+
 AWTBRGroundItemActor* UWTBRInteractionComponent::GetFocusedGroundItem() const
 {
     const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
@@ -163,13 +239,27 @@ bool UWTBRInteractionComponent::RequestContextInteract()
         return true;
     }
 
-    // Priority 2 — dropped trigger.
-    // TODO(S4-B): Dropped Trigger branch needs target slot policy before implementation.
-    // A server-authoritative pickup path already exists on AWTBRCharacter
-    // (Server_RequestPickupDroppedTrigger, resolved via FindAimedDroppedTriggerForPickup),
-    // but it exposes two distinct targets — RequestPickupAimedDroppedTriggerIntoActiveMainSlot
-    // and ...IntoActiveSubSlot. A single context-interact press has no explicit
-    // active-main vs active-sub rule yet, so the slot must not be guessed here.
+    // Priority 2 — dropped trigger (S7A).
+    // Server-authoritative: the client only decides priority via focus, then routes
+    // to AWTBRCharacter::RequestPickupAimedDroppedTriggerByConstraint(), which reads
+    // the trigger's ETriggerSlotConstraint and dispatches Server_RequestPickupDroppedTrigger
+    // to the single valid ACTIVE target slot (MainOnly->active main, SubOnly->active sub).
+    // Constraint Any is rejected as AmbiguousTargetSlot inside the character resolver
+    // (no slot is guessed). No inventory/slot/actor mutation happens here.
+    if (AWTBRDroppedTriggerActor* FocusedDroppedTrigger = GetFocusedDroppedTrigger())
+    {
+        if (AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner()))
+        {
+            UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] Dropped trigger %s focused (priority 2); routing to RequestPickupAimedDroppedTriggerByConstraint."),
+                *GetNameSafe(FocusedDroppedTrigger));
+            OwnerCharacter->RequestPickupAimedDroppedTriggerByConstraint();
+            return true;
+        }
+
+        UE_LOG(LogTemp, Warning, TEXT("[WTBR Interact] Dropped trigger %s focused but owner is not an AWTBRCharacter; cannot route."),
+            *GetNameSafe(FocusedDroppedTrigger));
+        return false;
+    }
 
     // Priority 3 — BR ground item (S6).
     // Server-authoritative: the client only requests focus + dispatch; AWTBRCharacter's
