@@ -93,3 +93,32 @@ bool UWTBRInteractionComponent::RequestCorpseLootInteract()
     OnCorpseLootInteractRequested.Broadcast(FocusedContainer);
     return true;
 }
+
+bool UWTBRInteractionComponent::RequestContextInteract()
+{
+    // Priority 1 — corpse / container / chest.
+    // Reuses the existing client-side loot request bridge (no gameplay mutation).
+    if (RequestCorpseLootInteract())
+    {
+        return true;
+    }
+
+    // Priority 2 — dropped trigger.
+    // TODO(S4-B): Dropped Trigger branch needs target slot policy before implementation.
+    // A server-authoritative pickup path already exists on AWTBRCharacter
+    // (Server_RequestPickupDroppedTrigger, resolved via FindAimedDroppedTriggerForPickup),
+    // but it exposes two distinct targets — RequestPickupAimedDroppedTriggerIntoActiveMainSlot
+    // and ...IntoActiveSubSlot. A single context-interact press has no explicit
+    // active-main vs active-sub rule yet, so the slot must not be guessed here.
+
+    // Priority 3 — BR ground item.
+    // BR Ground Item branch waits for S5 inventory foundation
+    // (AWTBRGroundItemActor + inventory model do not exist yet).
+
+    // Priority 4 — generic interactable.
+    // Generic interactable branch waits for interface pass
+    // (no interactable interface exists yet).
+
+    // Priority 5 — no valid focus: no-op.
+    return false;
+}

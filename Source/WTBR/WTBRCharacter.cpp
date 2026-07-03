@@ -397,7 +397,7 @@ void AWTBRCharacter::Interact(const FInputActionValue& /*Value*/)
 {
     if (InteractionComponent)
     {
-        InteractionComponent->RequestCorpseLootInteract();
+        InteractionComponent->RequestContextInteract();
     }
 }
 

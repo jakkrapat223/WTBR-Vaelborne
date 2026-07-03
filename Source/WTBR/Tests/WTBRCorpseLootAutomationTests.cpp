@@ -1246,6 +1246,90 @@ bool FWTBRInteractTriggerSlotsUnchangedTest::RunTest(const FString& /*Parameters
     return true;
 }
 
+// =============================================================================
+// WTBR.CorpseLoot.Interact — Context Interact Dispatch Tests (S4-A)
+//
+// Covers the guard logic and no-mutation contract of
+// UWTBRInteractionComponent::RequestContextInteract().
+//
+// In S4-A only the corpse/container branch is wired; the dropped trigger, BR
+// ground item, and generic interactable branches are documented future work and
+// currently fall through to the no-op (return false) tail. The focused trace
+// path (valid owner+container) is intentionally omitted here for the same reason
+// as RequestCorpseLootInteract — it needs a live world/camera/collision setup and
+// is brittle in headless automation. It is covered by the Human Test Gate.
+// =============================================================================
+
+/**
+ * RequestContextInteract returns false when the owning object is not an
+ * AWTBRCharacter (null / non-character outer). No branch can resolve a focus,
+ * so the dispatch falls through to the no-op tail.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRContextInteractReturnsFalseNoOwnerTest,
+    "WTBR.CorpseLoot.Interact.ContextReturnsFalse_WhenOwnerIsNotCharacter",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRContextInteractReturnsFalseNoOwnerTest::RunTest(const FString& /*Parameters*/)
+{
+    // Component created with GetTransientPackage() as outer — GetOwner() returns
+    // null, so the corpse branch bails and every future branch is a no-op.
+    UWTBRInteractionComponent* Comp =
+        NewObject<UWTBRInteractionComponent>(GetTransientPackage());
+    TestNotNull(TEXT("InteractionComponent created"), Comp);
+    if (!Comp) return false;
+
+    TestFalse(
+        TEXT("RequestContextInteract returns false when owner is not a character"),
+        Comp->RequestContextInteract());
+
+    return true;
+}
+
+/**
+ * Calling RequestContextInteract with a non-character owner must not mutate
+ * LootEntries on any nearby container (no-mutation contract of the dispatch).
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRContextInteractLootEntriesUnchangedTest,
+    "WTBR.CorpseLoot.Interact.ContextLootEntriesUnchanged_AfterRequestWithNoOwner",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRContextInteractLootEntriesUnchangedTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_ContextInteract_NoMutLoot"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Container spawns"), Container);
+    if (!Container) return false;
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("ContextInteractMutTestA")));
+    Snapshots.Add(MakeInstalledTriggerSnapshot(1, TEXT("ContextInteractMutTestB")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+
+    const int32  EntryCountBefore    = Container->GetLootEntryCount();
+    const bool   bEntry0ValidBefore  = Container->IsEntryValidForPickup(0);
+    const bool   bEntry1ValidBefore  = Container->IsEntryValidForPickup(1);
+    const bool   bHasAvailableBefore = Container->HasAvailableLootEntries();
+
+    UWTBRInteractionComponent* Comp =
+        NewObject<UWTBRInteractionComponent>(GetTransientPackage());
+    if (!Comp) return false;
+
+    Comp->RequestContextInteract(); // must be a no-op (null owner path)
+
+    TestEqual(TEXT("Entry count unchanged"), Container->GetLootEntryCount(),    EntryCountBefore);
+    TestEqual(TEXT("Entry 0 validity unchanged"), Container->IsEntryValidForPickup(0), bEntry0ValidBefore);
+    TestEqual(TEXT("Entry 1 validity unchanged"), Container->IsEntryValidForPickup(1), bEntry1ValidBefore);
+    TestEqual(TEXT("HasAvailableLoot unchanged"), Container->HasAvailableLootEntries(), bHasAvailableBefore);
+
+    return true;
+}
+
 // -----------------------------------------------------------------------------
 // Remaining coverage gaps:
 //

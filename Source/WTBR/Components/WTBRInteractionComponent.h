@@ -36,6 +36,20 @@ public:
     UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
     bool RequestCorpseLootInteract();
 
+    // F context interact dispatch (S4-A foundation). Resolves the focused
+    // interaction in design-lock priority order and delegates to the matching
+    // handler. Called by AWTBRCharacter::Interact() on the owning client.
+    // Priority:
+    //   1. corpse / container / chest -> RequestCorpseLootInteract() [implemented]
+    //   2. dropped trigger            -> future: needs active-main/sub target-slot policy
+    //   3. BR ground item             -> future: waits for S5 inventory foundation
+    //   4. generic interactable       -> future: waits for interactable interface pass
+    //   5. no valid focus             -> no-op
+    // Does not mutate gameplay state; server-authoritative pickup RPCs are unchanged.
+    // Returns true if a branch handled the interaction, false otherwise.
+    UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
+    bool RequestContextInteract();
+
 private:
     UPROPERTY(EditDefaultsOnly, Category="WTBR|Interaction")
     float InteractionTraceDistance = 300.0f;
