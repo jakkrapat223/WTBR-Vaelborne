@@ -2,24 +2,25 @@
 
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
-Confirmed baseline: 36b599d Add interact input asset binding
-Latest source implementation baseline: 11b9313 Fix third-person ground item focus trace and add interact logs
+Confirmed baseline: c0f7c0c Add S7A dropped-trigger F context interact
+Previous baseline: 234d5e0 Update handoff after interact asset push
+Latest source implementation baseline: c0f7c0c Add S7A dropped-trigger F context interact
 Latest supporting asset baseline: 36b599d Add interact input asset binding
-Automation confirmed: WTBR.Inventory + WTBR.CorpseLoot PASS 56/56 (32 Inventory + 24 CorpseLoot), run with `Automation RunTests WTBR.Inventory+WTBR.CorpseLoot;Quit`. S6 BR ground-item pickup was also **PIE/manually validated** end-to-end (see S6 section).
+Automation confirmed: WTBR PASS 56/56 (32 Inventory + 24 CorpseLoot), run with `Automation RunTests WTBR;Quit`. S6 BR ground-item pickup and S7A dropped-trigger F interact were both **PIE/manually validated** end-to-end (see S6 / S7A sections).
 
 Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` may exist as a local-only untracked file and must never be staged or committed. Binary assets (`.uasset`/`.png`) are tracked via Git LFS.
 
 ## Recent Commits
 
 ```text
+c0f7c0c Add S7A dropped-trigger F context interact
+234d5e0 Update handoff after interact asset push
 36b599d Add interact input asset binding
 e12604a Add HP consumable test data asset
 7f50a30 Add starter avatar concept sheets
-a114d82 Update handoff after S6 PIE validation
-11b9313 Fix third-person ground item focus trace and add interact logs
 ```
 
-Current baseline / `origin/main`: `36b599d`. Working tree should have no tracked changes. One local file remains intentionally uncommitted and must never be staged by an assistant without explicit approval: the ThirdPersonMap external-actor `.uasset` (`Content/__ExternalActors__/.../ThirdPersonMap/...uasset`).
+Current baseline / `origin/main` / `origin/HEAD`: `c0f7c0c` (S7A DONE / COMMITTED / PUSHED). Previous baseline: `234d5e0`. Working tree should have no tracked changes. One local file remains intentionally uncommitted and must never be staged by an assistant without explicit approval: the ThirdPersonMap external-actor `.uasset` (`Content/__ExternalActors__/.../ThirdPersonMap/...uasset`).
 
 ## Repo Paths
 
@@ -119,21 +120,71 @@ Validation:
   - `Source/output/concepts/starter_avatars/*.png` — starter avatar concept sheets, committed as reference assets.
 - The ThirdPersonMap external-actor `.uasset` (the placed ground item) remains **intentionally uncommitted** unless later approved.
 
+### S7A — Dropped Trigger F Context Interact (branch 2) — DONE / COMMITTED / PUSHED (`c0f7c0c`)
+
+Dropped Trigger F context interact branch 2 is implemented. `RequestContextInteract` priority order is now:
+
+1. corpse/container/chest — implemented
+2. **dropped trigger — implemented (S7A)**
+3. BR ground item — implemented (S6)
+4. generic interactable — parked
+5. no-op
+
+**S7A Policy (constraint-driven single-valid-target):**
+
+- `MainOnly` → dispatch into active main slot (`GetActiveMainIndex()`).
+- `SubOnly` → dispatch into active sub slot (`GetActiveSubIndex()`).
+- `Any` → reject as `AmbiguousTargetSlot` (dev-log only); no dispatch.
+- No blind Main/Sub guess when a trigger has two valid active targets (`Any`).
+- Client dispatch only — the client never mutates slots/inventory/actors.
+- Server remains authoritative; it re-validates before any mutation.
+- `Server_RequestPickupDroppedTrigger` signature and its mutation/swap (transactional consume → replace → rollback) behavior are **unchanged**.
+- Legacy `RequestPickupAimedDroppedTriggerIntoActiveMainSlot` / `...IntoActiveSubSlot` pickup paths are **preserved**.
+- Resolver entry point: `AWTBRCharacter::RequestPickupAimedDroppedTriggerByConstraint()`; component branch: `UWTBRInteractionComponent::GetFocusedDroppedTrigger()`.
+
+**Detection fix:**
+
+- `AWTBRDroppedTriggerActor` has **no collision primitive and no mesh component** (bare `USceneComponent` root).
+- Therefore line trace / channel sweep could not reliably find dropped-trigger actors (floor blocked the trace; sweep returned nothing).
+- `GetFocusedDroppedTrigger` and `FindAimedDroppedTriggerForPickup` now use **collision-independent actor iteration** with distance + view-cone (dot ≥ 0.5) filtering.
+- This is detection/dispatch only — not client-side mutation. Server still re-validates distance on pickup.
+
+**Dev-only diagnostics added (guarded, non-shipping):**
+
+- `WTBRDebugCharacterPrintTriggerSlots` — dumps server-side trigger loadout (roles, match gate, active main/sub, per-slot DataAsset/Category/SlotConstraint).
+- `WTBRDebugCharacterListNearbyDroppedTriggers` — lists dropped-trigger actors with location, distance from char/camera, DataAsset, IsConsumed, root collision info.
+- `SpawnLegacyDroppedTriggers_Internal` silent-return diagnostic logs (invalid victim / no world / match-gate values / no TriggerSetComponent / 0 snapshots / per-slot skip).
+
+**Validation:**
+
+- Build: PASS (`WTBREditor Win64 Development`).
+- Automation: `Automation RunTests WTBR;Quit` → PASS **56/56**, 0 FAIL.
+- Manual PIE core: **PASS** —
+  - `WTBRDebugCharacterSetMatchPhase InMatch` set match phase to InMatch (default is `LoadoutSetup`; no auto-transition).
+  - Legacy dropped-trigger death-drop spawned 8 actors (`WTBR.UseCorpseLootContainerOnDeath 0`).
+  - `WTBRDebugCharacterListNearbyDroppedTriggers` confirmed the actors exist.
+  - Interact reached dropped trigger priority 2 (`... focused (priority 2); routing to RequestPickupAimedDroppedTriggerByConstraint`).
+  - Current DataAssets are `SlotConstraint=Any` → resolver correctly rejected as `AmbiguousTargetSlot`; trigger stayed on the ground.
+  - BR Ground Item priority 3 regression pickup still succeeded.
+- Corpse/container-vs-dropped-trigger priority smoke test: **optional / not re-run** (accepted).
+
 ## Current Pending Work
 
-No inventory-foundation pass is in flight. The F-context ground-item branch is complete; the next interaction work is the still-parked list below.
+No inventory-foundation pass is in flight. The F-context dropped-trigger branch (S7A) and ground-item branch (S6) are complete.
+
+**Next pass: S7A-Auto — Dropped Trigger Context Interact Automation.**
+Goal: convert the repeated Manual PIE checks into automation. Start with death-drop spawn, dropped-trigger detection, `Any` → `AmbiguousTargetSlot` behavior, and branch 3 (ground item) regression if low-risk.
 
 F context priority (current status):
 
 1. corpse/container/chest — implemented
-2. dropped trigger — parked (no locked target-slot policy: active main? active sub? slot-selection UI?)
+2. dropped trigger — implemented (S7A)
 3. BR ground item — implemented (S6)
 4. generic interactable — parked (needs interface pass)
 5. no-op
 
 ## Parked / Not Implemented
 
-- Dropped-trigger F pickup branch (needs target-slot policy).
 - Generic interactable interface.
 - Senku implementation.
 - Escudo / Aegorn Wall implementation.
@@ -224,13 +275,13 @@ git status --short -uall
 git log --oneline --decorate -5
 ```
 
-Expected latest baseline:
+Expected latest baseline (at `HEAD` / `main` / `origin/main` / `origin/HEAD`):
 
 ```text
-36b599d Add interact input asset binding
+c0f7c0c Add S7A dropped-trigger F context interact
 ```
 
-`Source/.claude/settings.local.json` may exist as a local-only untracked file. One local file remains intentionally uncommitted and must never be staged by an assistant without explicit approval: the ThirdPersonMap external-actor `.uasset` (the placed ground item).
+`git status` should show only the intentionally excluded ThirdPersonMap external-actor `.uasset` as untracked. `Source/.claude/settings.local.json` may exist as a local-only untracked file. Both must never be staged by an assistant without explicit approval — in particular, do not stage the ThirdPersonMap external-actor `.uasset` (the placed ground item).
 
 ## Prompt For New Chat
 
@@ -238,33 +289,30 @@ Expected latest baseline:
 We are continuing WTBR / Vaelborne: Dominion UE 5.1.1 C++.
 
 Current baseline:
-36b599d Add interact input asset binding
+c0f7c0c Add S7A dropped-trigger F context interact
 
 Working tree should have no tracked changes. One local file remains intentionally uncommitted and must never be staged by an assistant without explicit approval: the ThirdPersonMap external-actor .uasset (the placed ground item).
 
 Recent completed work:
 - S4-A context interact dispatch foundation committed.
-- S5-A item data model committed.
-- S5-B inventory component + transactional TryAddItem committed.
-- S5-C ground item actor + server pickup committed.
-- S5-D inventory item use + HP/Vael consumables committed.
+- S5-A..D inventory foundation committed (item data model, inventory component + TryAddItem, ground item actor + server pickup, item use + HP/Vael consumables).
 - S6 BR ground item context interact wiring committed AND PIE-validated (0c4c447 expose fields, 11b9313 third-person trace fix + logs).
 - S6 supporting assets committed/pushed (36b599d interact input binding, e12604a DA_Test_HP_Small, 7f50a30 starter avatar concept sheets). IA_Interact mapped to F via IMC_WTBR_Default; BP_WTBRCharacter InteractAction assigned.
+- S7A dropped-trigger F context interact (branch 2) committed AND PIE-validated (c0f7c0c).
 
 Latest automation:
-WTBR.Inventory + WTBR.CorpseLoot PASS 56/56.
+WTBR PASS 56/56.
 
 Important current state:
-- RequestContextInteract exists. It handles corpse/container/chest and BR ground item (branch 3).
-- BR Ground Item branch is implemented in S6, PIE-validated, and dispatches the existing server pickup RPC/path.
+- RequestContextInteract handles corpse/container/chest (1), dropped trigger (2, S7A), and BR ground item (3, S6).
+- Dropped Trigger branch 2 is implemented (S7A): constraint-driven single-valid-target. MainOnly -> active main, SubOnly -> active sub, Any -> reject AmbiguousTargetSlot (no blind guess). Client dispatch only; server authoritative; Server_RequestPickupDroppedTrigger and legacy active main/sub paths unchanged.
+- Detection uses collision-independent actor iteration (AWTBRDroppedTriggerActor has no collision/mesh): GetFocusedDroppedTrigger + FindAimedDroppedTriggerForPickup filter by distance + view-cone.
+- BR Ground Item branch is implemented in S6, PIE-validated, dispatches the existing server pickup RPC/path.
 - InteractionTraceDistance is 800 (third-person camera reach); server still gates pickup by WTBRGroundItemPickupRange.
-- Dropped Trigger branch is pending due to target slot ambiguity (still parked).
 - Generic interactable branch is pending interface pass (still parked).
+- Dev-only diagnostics available: WTBRDebugCharacterPrintTriggerSlots, WTBRDebugCharacterListNearbyDroppedTriggers, SpawnLegacyDroppedTriggers_Internal silent-return logs (all non-shipping guarded).
 - AWTBRGroundItemActor exists, with a query-only Visibility-trace interaction collision; ItemData/Quantity are EditInstanceOnly.
-- Server_RequestPickupGroundItem exists.
-- UWTBRInventoryComponent exists.
-- Server_RequestUseInventoryItem exists.
-- RestoreHP exists.
+- Server_RequestPickupGroundItem / Server_RequestUseInventoryItem / RestoreHP / UWTBRInventoryComponent exist.
 - Vael Overcharge is design-locked but not implemented.
 - Senku / Escudo / Tuning are design-locked/parked, not implemented.
 
@@ -273,8 +321,8 @@ Optional cleanup available:
 - Decide version-control for the one remaining uncommitted ThirdPersonMap external-actor .uasset (placed ground item).
 
 Start next with:
-Choose the next parked interaction item (dropped-trigger target-slot policy, or generic interactable interface) — or a non-interaction pass.
-Keep gameplay server-authoritative and run WTBR.Inventory + WTBR.CorpseLoot after changes.
+S7A-Auto — Dropped Trigger Context Interact Automation: convert repeated Manual PIE checks into automation (death-drop spawn, dropped-trigger detection, Any AmbiguousTargetSlot behavior, branch 3 regression if low-risk).
+Keep gameplay server-authoritative and run WTBR automation after changes.
 ```
 
 ## Safe Commit And Push Pattern
