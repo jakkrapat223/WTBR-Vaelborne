@@ -64,10 +64,13 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Ground Item | Interaction", meta=(ClampMin="1.0"))
     float InteractionCollisionRadius = 60.0f;
 
-    UPROPERTY(Replicated, BlueprintReadOnly, Category="WTBR | Ground Item")
+    // EditInstanceOnly so a designer can configure a hand-placed ground item in the
+    // Details panel (needed for PIE validation). Runtime spawns still set these via
+    // InitializeGroundItem; replication and server validation are unchanged.
+    UPROPERTY(EditInstanceOnly, Replicated, BlueprintReadOnly, Category="WTBR | Ground Item")
     TSoftObjectPtr<UWTBRItemDataAsset> ItemData;
 
-    UPROPERTY(Replicated, BlueprintReadOnly, Category="WTBR | Ground Item", meta=(ClampMin="1"))
+    UPROPERTY(EditInstanceOnly, Replicated, BlueprintReadOnly, Category="WTBR | Ground Item", meta=(ClampMin="1"))
     int32 Quantity = 1;
 
     UPROPERTY(Replicated, BlueprintReadOnly, Category="WTBR | Ground Item")
