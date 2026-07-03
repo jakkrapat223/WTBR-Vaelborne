@@ -111,6 +111,13 @@ public:
     UFUNCTION(BlueprintCallable, Category="Health")
     void RestoreLimb(EWTBRLimbType Limb);
 
+    // Server-authoritative HP restore for consumables (S5-D). Alive-only: never
+    // revives Downed/Eliminated and never touches limb or downed HP. Clamps to
+    // MaxHP (no overheal). Returns true only if HP actually increased. Caller is
+    // expected to be server-side.
+    UFUNCTION(BlueprintCallable, Category="Health")
+    bool RestoreHP(float Amount);
+
     UFUNCTION(BlueprintPure, Category="Health")
     float GetCurrentHP() const { return CurrentHP; }
 

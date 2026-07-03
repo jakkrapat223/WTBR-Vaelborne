@@ -190,6 +190,39 @@ bool UWTBRInventoryComponent::TryAddItem(const UWTBRItemDataAsset* ItemData, int
     return true;
 }
 
+bool UWTBRInventoryComponent::ConsumeItemAtSlot(int32 SlotIndex, int32 Quantity)
+{
+    if (!HasServerAuthority())
+    {
+        return false;
+    }
+
+    if (!InventorySlots.IsValidIndex(SlotIndex))
+    {
+        return false;
+    }
+
+    if (Quantity <= 0)
+    {
+        return false;
+    }
+
+    FWTBRInventorySlot& Slot = InventorySlots[SlotIndex];
+    if (Slot.IsEmpty() || Quantity > Slot.Quantity)
+    {
+        return false;
+    }
+
+    Slot.Quantity -= Quantity;
+    if (Slot.Quantity <= 0)
+    {
+        Slot.Clear();
+    }
+
+    OnInventoryChanged.Broadcast();
+    return true;
+}
+
 void UWTBRInventoryComponent::OnRep_InventorySlots()
 {
     OnInventoryChanged.Broadcast();

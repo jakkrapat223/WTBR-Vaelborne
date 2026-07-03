@@ -884,6 +884,40 @@ float UWTBRHealthComponent::GetMaxHP() const
     return S ? S->MaxHP : 300.f;
 }
 
+bool UWTBRHealthComponent::RestoreHP(float Amount)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority())
+    {
+        return false;
+    }
+
+    if (Amount <= 0.0f)
+    {
+        return false;
+    }
+
+    // Alive-only (I-1): HP consumables never revive Downed/Eliminated characters
+    // and never touch Downed/Revive/Respawn or limb health.
+    if (!IsAlive())
+    {
+        return false;
+    }
+
+    const float MaxHP = GetMaxHP();
+    const float OldHP = CurrentHP;
+    const float NewHP = FMath::Min(OldHP + Amount, MaxHP);
+    if (NewHP <= OldHP)
+    {
+        // Already full — do not overheal, report no restore so the caller does not
+        // consume the item.
+        return false;
+    }
+
+    CurrentHP = NewHP;
+    OnHPChanged.Broadcast(CurrentHP, MaxHP);
+    return true;
+}
+
 FWTBRLimbState UWTBRHealthComponent::GetLimbState(EWTBRLimbType Limb) const
 {
     const int32 Idx = (int32)Limb;

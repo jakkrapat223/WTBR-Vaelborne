@@ -269,6 +269,12 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_RequestPickupGroundItem(AWTBRGroundItemActor* GroundItem);
 
+    // BR inventory item use (S5-D). Server-authoritative MVP consumable use:
+    // HealHP -> HealthComponent->RestoreHP, RestoreVael -> VaelComponent->GrantVael.
+    // Consumes exactly one item only if the effect was actually applied.
+    UFUNCTION(Server, Reliable)
+    void Server_RequestUseInventoryItem(int32 SlotIndex);
+
     UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
     AWTBRDroppedTriggerActor* FindAimedDroppedTriggerForPickup() const;
 

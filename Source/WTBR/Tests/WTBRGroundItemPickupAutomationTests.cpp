@@ -66,7 +66,7 @@ namespace
         UWorld* World = nullptr;
     };
 
-    UWTBRItemDataAsset* MakeItem(int32 MaxStack)
+    UWTBRItemDataAsset* MakeGroundItemTestAsset(int32 MaxStack)
     {
         UWTBRItemDataAsset* Item = NewObject<UWTBRItemDataAsset>(GetTransientPackage());
         Item->MaxStackSize = MaxStack;
@@ -111,7 +111,7 @@ namespace
             AWTBRCharacter::StaticClass(), Loc, FRotator::ZeroRotator, Params);
     }
 
-    int32 CountFilledSlots(const UWTBRInventoryComponent* Comp)
+    int32 CountFilledGroundSlots(const UWTBRInventoryComponent* Comp)
     {
         int32 Filled = 0;
         for (const FWTBRInventorySlot& Slot : Comp->GetInventorySlots())
@@ -136,7 +136,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FWTBRGroundItemInitializeTest::RunTest(const FString& /*Parameters*/)
 {
     FWTBRPickupWorldFixture Fixture(TEXT("WTBR_GI_Init"));
-    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeItem(4));
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
     AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
         Fixture.GetWorld(), TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 3, FVector::ZeroVector);
     TestNotNull(TEXT("Ground item spawns"), GroundItem);
@@ -157,7 +157,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FWTBRGroundItemClaimOnceTest::RunTest(const FString& /*Parameters*/)
 {
     FWTBRPickupWorldFixture Fixture(TEXT("WTBR_GI_ClaimOnce"));
-    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeItem(4));
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
     AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
         Fixture.GetWorld(), TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 1, FVector::ZeroVector);
     TestNotNull(TEXT("Ground item spawns"), GroundItem);
@@ -178,7 +178,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FWTBRGroundItemRollbackTest::RunTest(const FString& /*Parameters*/)
 {
     FWTBRPickupWorldFixture Fixture(TEXT("WTBR_GI_Rollback"));
-    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeItem(4));
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
     AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
         Fixture.GetWorld(), TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 1, FVector::ZeroVector);
     TestNotNull(TEXT("Ground item spawns"), GroundItem);
@@ -213,7 +213,7 @@ bool FWTBRPickupValidAddsAndConsumesTest::RunTest(const FString& /*Parameters*/)
     if (!Character || !Character->InventoryComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
 
-    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeItem(4));
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
     AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
         World, TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 2, FVector::ZeroVector);
     TestNotNull(TEXT("Ground item spawns"), GroundItem);
@@ -221,7 +221,7 @@ bool FWTBRPickupValidAddsAndConsumesTest::RunTest(const FString& /*Parameters*/)
 
     Character->Server_RequestPickupGroundItem_Implementation(GroundItem);
 
-    TestEqual(TEXT("One inventory slot filled"), CountFilledSlots(Character->InventoryComponent), 1);
+    TestEqual(TEXT("One inventory slot filled"), CountFilledGroundSlots(Character->InventoryComponent), 1);
     TestEqual(TEXT("Slot 0 holds quantity 2"), Character->InventoryComponent->GetInventorySlots()[0].Quantity, 2);
     TestTrue(TEXT("Slot 0 identity matches item"),
         Character->InventoryComponent->GetInventorySlots()[0].ItemData.Get() == Item.Get());
@@ -251,7 +251,7 @@ bool FWTBRPickupFullInventoryRejectsTest::RunTest(const FString& /*Parameters*/)
     Character->InventoryComponent->InventorySlotCount = 1;
     Character->InventoryComponent->InitializeServerInventory();
 
-    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeItem(2));
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(2));
     TestTrue(TEXT("Pre-fill single slot"), Character->InventoryComponent->TryAddItem(Item.Get(), 2));
 
     AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
@@ -263,7 +263,7 @@ bool FWTBRPickupFullInventoryRejectsTest::RunTest(const FString& /*Parameters*/)
 
     TestFalse(TEXT("Ground item not consumed on full inventory"), GroundItem->IsConsumed());
     TestTrue(TEXT("Ground item still available"), IsValid(GroundItem));
-    TestEqual(TEXT("Inventory unchanged: still 1 slot"), CountFilledSlots(Character->InventoryComponent), 1);
+    TestEqual(TEXT("Inventory unchanged: still 1 slot"), CountFilledGroundSlots(Character->InventoryComponent), 1);
     TestEqual(TEXT("Slot 0 unchanged at 2"), Character->InventoryComponent->GetInventorySlots()[0].Quantity, 2);
     return true;
 }
@@ -287,7 +287,7 @@ bool FWTBRPickupAlreadyConsumedTest::RunTest(const FString& /*Parameters*/)
     if (!Character || !Character->InventoryComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
 
-    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeItem(4));
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
     AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
         World, TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 2, FVector::ZeroVector);
     TestNotNull(TEXT("Ground item spawns"), GroundItem);
@@ -297,7 +297,7 @@ bool FWTBRPickupAlreadyConsumedTest::RunTest(const FString& /*Parameters*/)
 
     Character->Server_RequestPickupGroundItem_Implementation(GroundItem);
 
-    TestEqual(TEXT("Nothing added"), CountFilledSlots(Character->InventoryComponent), 0);
+    TestEqual(TEXT("Nothing added"), CountFilledGroundSlots(Character->InventoryComponent), 0);
     TestTrue(TEXT("Ground item remains consumed"), GroundItem->IsConsumed());
     TestTrue(TEXT("Ground item not destroyed"), IsValid(GroundItem));
     return true;
@@ -324,7 +324,7 @@ bool FWTBRPickupNullGroundItemTest::RunTest(const FString& /*Parameters*/)
 
     Character->Server_RequestPickupGroundItem_Implementation(nullptr);
 
-    TestEqual(TEXT("Nothing added on null pickup"), CountFilledSlots(Character->InventoryComponent), 0);
+    TestEqual(TEXT("Nothing added on null pickup"), CountFilledGroundSlots(Character->InventoryComponent), 0);
     return true;
 }
 
@@ -355,7 +355,7 @@ bool FWTBRPickupNullItemDataTest::RunTest(const FString& /*Parameters*/)
 
     Character->Server_RequestPickupGroundItem_Implementation(GroundItem);
 
-    TestEqual(TEXT("Nothing added on null item data"), CountFilledSlots(Character->InventoryComponent), 0);
+    TestEqual(TEXT("Nothing added on null item data"), CountFilledGroundSlots(Character->InventoryComponent), 0);
     TestFalse(TEXT("Ground item not consumed"), GroundItem->IsConsumed());
     TestTrue(TEXT("Ground item still available"), IsValid(GroundItem));
     return true;
@@ -380,7 +380,7 @@ bool FWTBRPickupNonPositiveQuantityTest::RunTest(const FString& /*Parameters*/)
     if (!Character || !Character->InventoryComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
 
-    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeItem(4));
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
     AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
         World, TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 0, FVector::ZeroVector);
     TestNotNull(TEXT("Ground item spawns"), GroundItem);
@@ -388,7 +388,7 @@ bool FWTBRPickupNonPositiveQuantityTest::RunTest(const FString& /*Parameters*/)
 
     Character->Server_RequestPickupGroundItem_Implementation(GroundItem);
 
-    TestEqual(TEXT("Nothing added on zero quantity"), CountFilledSlots(Character->InventoryComponent), 0);
+    TestEqual(TEXT("Nothing added on zero quantity"), CountFilledGroundSlots(Character->InventoryComponent), 0);
     TestFalse(TEXT("Ground item not consumed"), GroundItem->IsConsumed());
     TestTrue(TEXT("Ground item still available"), IsValid(GroundItem));
     return true;
@@ -413,7 +413,7 @@ bool FWTBRPickupDistanceGateTest::RunTest(const FString& /*Parameters*/)
     if (!Character || !Character->InventoryComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
 
-    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeItem(4));
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
     // Well beyond the 300-unit pickup range.
     AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
         World, TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 2, FVector(10000.0f, 0.0f, 0.0f));
@@ -422,7 +422,7 @@ bool FWTBRPickupDistanceGateTest::RunTest(const FString& /*Parameters*/)
 
     Character->Server_RequestPickupGroundItem_Implementation(GroundItem);
 
-    TestEqual(TEXT("Nothing added when too far"), CountFilledSlots(Character->InventoryComponent), 0);
+    TestEqual(TEXT("Nothing added when too far"), CountFilledGroundSlots(Character->InventoryComponent), 0);
     TestFalse(TEXT("Ground item not consumed when too far"), GroundItem->IsConsumed());
     TestTrue(TEXT("Ground item still available when too far"), IsValid(GroundItem));
     return true;
@@ -450,7 +450,7 @@ bool FWTBRPickupDoesNotMutateTriggerSetTest::RunTest(const FString& /*Parameters
     const int32 MainIndexBefore = Character->TriggerSetComponent->GetActiveMainIndex();
     const int32 SubIndexBefore = Character->TriggerSetComponent->GetActiveSubIndex();
 
-    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeItem(4));
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
     AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
         World, TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 2, FVector::ZeroVector);
     TestNotNull(TEXT("Ground item spawns"), GroundItem);
@@ -458,7 +458,7 @@ bool FWTBRPickupDoesNotMutateTriggerSetTest::RunTest(const FString& /*Parameters
 
     Character->Server_RequestPickupGroundItem_Implementation(GroundItem);
 
-    TestEqual(TEXT("Item went to inventory"), CountFilledSlots(Character->InventoryComponent), 1);
+    TestEqual(TEXT("Item went to inventory"), CountFilledGroundSlots(Character->InventoryComponent), 1);
     TestEqual(TEXT("Active main slot index unchanged"),
         Character->TriggerSetComponent->GetActiveMainIndex(), MainIndexBefore);
     TestEqual(TEXT("Active sub slot index unchanged"),

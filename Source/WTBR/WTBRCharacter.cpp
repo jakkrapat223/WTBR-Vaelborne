@@ -1372,6 +1372,113 @@ void AWTBRCharacter::Server_RequestPickupGroundItem_Implementation(AWTBRGroundIt
     GroundItem->Destroy();
 }
 
+void AWTBRCharacter::Server_RequestUseInventoryItem_Implementation(int32 SlotIndex)
+{
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR inventory item use rejected: character %s has no authority"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(HealthComponent) || !HealthComponent->IsAlive())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR inventory item use rejected: character %s is not alive"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(InventoryComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR inventory item use rejected: InventoryComponent is missing for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const TArray<FWTBRInventorySlot>& Slots = InventoryComponent->GetInventorySlots();
+    if (!Slots.IsValidIndex(SlotIndex))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR inventory item use rejected: invalid slot %d for character %s"),
+            SlotIndex,
+            *GetNameSafe(this));
+        return;
+    }
+
+    const FWTBRInventorySlot& Slot = Slots[SlotIndex];
+    if (Slot.IsEmpty() || Slot.ItemData.IsNull())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR inventory item use rejected: slot %d is empty for character %s"),
+            SlotIndex,
+            *GetNameSafe(this));
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR inventory item use rejected: World is missing for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    // Match gate (I-2 MVP): inventory item use is gated by IsInMatch() only and must
+    // NOT reuse trigger pickup/swap gates.
+    // TODO(S5+): replace with a dedicated AllowsInventoryItemUse rule on
+    // UWTBRMatchModeRulesDataAsset once that field exists.
+    const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
+    if (!IsValid(WTBRGameState) || !WTBRGameState->IsInMatch())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR inventory item use rejected by match phase for character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const UWTBRItemDataAsset* ItemData = Slot.ItemData.LoadSynchronous();
+    if (!IsValid(ItemData))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR inventory item use rejected: slot %d ItemData failed to load for character %s"),
+            SlotIndex,
+            *GetNameSafe(this));
+        return;
+    }
+
+    // Apply the MVP effect. The item is consumed only if the effect was actually
+    // applied (e.g. HealHP fails at full HP; RestoreVael fails when Vael is full).
+    bool bEffectApplied = false;
+    switch (ItemData->ConsumableEffectType)
+    {
+    case EWTBRConsumableEffectType::HealHP:
+        bEffectApplied = HealthComponent->RestoreHP(ItemData->EffectMagnitude);
+        break;
+
+    case EWTBRConsumableEffectType::RestoreVael:
+        bEffectApplied = IsValid(VaelComponent) && VaelComponent->GrantVael(ItemData->EffectMagnitude);
+        break;
+
+    default:
+        // None, VaelOvercharge (parked), and any future/unsupported effect: reject
+        // without consuming.
+        UE_LOG(LogTemp, Warning, TEXT("WTBR inventory item use rejected: unsupported effect type %d in slot %d for character %s"),
+            static_cast<int32>(ItemData->ConsumableEffectType),
+            SlotIndex,
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!bEffectApplied)
+    {
+        UE_LOG(LogTemp, Log, TEXT("WTBR inventory item use no-op: effect not applied for slot %d (character %s); item not consumed"),
+            SlotIndex,
+            *GetNameSafe(this));
+        return;
+    }
+
+    InventoryComponent->ConsumeItemAtSlot(SlotIndex, 1);
+    UE_LOG(LogTemp, Log, TEXT("WTBR inventory item use succeeded: character %s used slot %d"),
+        *GetNameSafe(this),
+        SlotIndex);
+}
+
 void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir)
 {
     const FVector SafeClientMoveInputDir = SanitizeClientMoveInputDirection(ClientMoveInputDir);

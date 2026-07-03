@@ -68,6 +68,14 @@ public:
     UFUNCTION(BlueprintCallable, Category="WTBR | Inventory")
     bool TryAddItem(const UWTBRItemDataAsset* ItemData, int32 Quantity);
 
+    // Server-only: consume Quantity from a slot after a use has been validated and
+    // applied by the caller. This function does NOT decide item effects — it only
+    // decrements the stack, clearing the slot when it empties, and broadcasts
+    // OnInventoryChanged on success. Rejects invalid/empty slot, Quantity <= 0, or
+    // Quantity greater than the slot holds.
+    UFUNCTION(BlueprintCallable, Category="WTBR | Inventory")
+    bool ConsumeItemAtSlot(int32 SlotIndex, int32 Quantity = 1);
+
 protected:
     virtual void BeginPlay() override;
 
