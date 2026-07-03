@@ -2,23 +2,23 @@
 
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
-Confirmed baseline: 4a2c459 Wire BR ground item context interact
-Latest source implementation baseline: 4a2c459 Wire BR ground item context interact
-Automation confirmed: WTBR.Inventory + WTBR.CorpseLoot PASS 56/56 (32 Inventory + 24 CorpseLoot), run on the S6 working tree with `Automation RunTests WTBR.Inventory+WTBR.CorpseLoot;Quit`. PIE/manual remainder was only carried, not completed.
+Confirmed baseline: 11b9313 Fix third-person ground item focus trace and add interact logs
+Latest source implementation baseline: 11b9313 Fix third-person ground item focus trace and add interact logs
+Automation confirmed: WTBR.Inventory + WTBR.CorpseLoot PASS 56/56 (32 Inventory + 24 CorpseLoot), run with `Automation RunTests WTBR.Inventory+WTBR.CorpseLoot;Quit`. S6 BR ground-item pickup was also **PIE/manually validated** end-to-end (see S6 section).
 
 Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` may exist as a local-only untracked file and must never be staged or committed.
 
 ## Recent Commits
 
 ```text
+11b9313 Fix third-person ground item focus trace and add interact logs
+0c4c447 Expose ground item fields for PIE validation
 4a2c459 Wire BR ground item context interact
 f4293f2 Update handoff after inventory foundation
 a05195f Add inventory consumable use foundation
-886c937 Add ground item pickup foundation
-77b67d8 Add inventory component stacking foundation
 ```
 
-Current baseline / `origin/main`: `4a2c459`. Working tree should have no tracked changes (six pre-existing untracked `Source/output/concepts/starter_avatars/*.png` concept-art files remain and must never be staged).
+Current baseline / `origin/main`: `11b9313`. Working tree should have no tracked source changes. Untracked/uncommitted local files may remain and must never be staged by an assistant: six `Source/output/concepts/starter_avatars/*.png` concept-art files, and human PIE-setup assets (`Content/Input/Actions/IA_Interact.uasset`, `Content/Data/AssetTest/DA_Test_HP_Small.uasset`, a ThirdPersonMap external-actor `.uasset`, plus modified `Content/Blueprints/BP_WTBRCharacter.uasset` and `Content/Input/IMC_WTBR_Default.uasset`). Their version-control decision is pending human review.
 
 ## Repo Paths
 
@@ -86,9 +86,11 @@ Current baseline / `origin/main`: `4a2c459`. Working tree should have no tracked
 - Item is consumed only if the effect actually succeeds.
 - No VaelOvercharge implementation. No tuning/Senku/Escudo. No `RequestContextInteract` wiring.
 
-### S6 — BR Ground Item Context Interact Wiring — DONE / committed / pushed (4a2c459)
+### S6 — BR Ground Item Context Interact Wiring — DONE / committed / pushed / PIE-validated
 
-- `AWTBRGroundItemActor` now has an asset-free, query-only `USphereComponent` interaction collision.
+Commits: `4a2c459` (wiring) → `0c4c447` (expose fields) → `11b9313` (third-person trace fix + logs).
+
+- `AWTBRGroundItemActor` now has an asset-free, query-only `USphereComponent` interaction collision (`4a2c459`).
 - Collision is `QueryOnly`, `ECC_WorldDynamic`, ignores all channels, and blocks `ECC_Visibility` only.
 - It does not block movement, physics, or projectiles, and generates no overlap events.
 - `UWTBRInteractionComponent` now has a focused-ground-item line-trace helper (`GetFocusedGroundItem`, mirrors the corpse/container focus trace).
@@ -97,13 +99,18 @@ Current baseline / `origin/main`: `4a2c459`. Working tree should have no tracked
 - Dropped-trigger F branch remains intentionally parked (no locked target-slot policy).
 - Generic interactable branch remains parked.
 - Server authority model unchanged: the client only requests; the server validates and decides.
+- `0c4c447` — exposed `AWTBRGroundItemActor::ItemData` and `Quantity` as `EditInstanceOnly` so a hand-placed ground item can be configured in the editor Details panel (needed for manual PIE). Runtime init / replication / server validation unchanged.
+- `11b9313` — increased `InteractionTraceDistance` 300 → 800 so the third-person follow camera (behind a ~400-unit spring arm) can reach items at/in front of the pawn; added concise `[WTBR Interact]` diagnostic logs. Server still gates pickup independently by `WTBRGroundItemPickupRange`.
 
-Validation on the S6 working tree:
+Validation:
 
 - Build: PASS (`WTBREditor Win64 Development`).
 - Automation command: `Automation RunTests WTBR.Inventory+WTBR.CorpseLoot;Quit`.
-- Result: 56/56 PASS, 0 FAIL (32 Inventory + 24 CorpseLoot).
-- PIE/manual was carried as remainder only (not completed).
+- Result: 56/56 PASS, 0 FAIL (32 Inventory + 24 CorpseLoot) — held across `4a2c459`, `0c4c447`, `11b9313`.
+- PIE/manual: **PASS**. After `WTBRDebugCharacterSetMatchPhase InMatch`, aiming at a placed ground item and pressing F produced:
+  `RequestContextInteract called` → `Ground focus trace hit WTBRGroundItemActor isGroundItem=true at 439/800` →
+  `dispatching Server_RequestPickupGroundItem` → `WTBR ground item pickup succeeded`.
+- PIE setup used local, uncommitted assets (`IA_Interact`, `IMC_WTBR_Default`, `BP_WTBRCharacter` interact binding, `DA_Test_HP_Small`, a placed ground item). Their version-control/commit decision is pending human review.
 
 ## Current Pending Work
 
@@ -213,10 +220,10 @@ git log --oneline --decorate -5
 Expected latest baseline:
 
 ```text
-4a2c459 Wire BR ground item context interact
+11b9313 Fix third-person ground item focus trace and add interact logs
 ```
 
-`Source/.claude/settings.local.json` may exist as a local-only untracked file. Six pre-existing untracked `Source/output/concepts/starter_avatars/*.png` concept-art files may also remain; never stage them.
+`Source/.claude/settings.local.json` may exist as a local-only untracked file. Other local uncommitted files may also remain and must never be staged by an assistant: six `Source/output/concepts/starter_avatars/*.png` concept-art files and the human PIE-setup assets (`IA_Interact.uasset`, `DA_Test_HP_Small.uasset`, a ThirdPersonMap external-actor `.uasset`, modified `BP_WTBRCharacter.uasset` and `IMC_WTBR_Default.uasset`).
 
 ## Prompt For New Chat
 
@@ -224,9 +231,9 @@ Expected latest baseline:
 We are continuing WTBR / Vaelborne: Dominion UE 5.1.1 C++.
 
 Current baseline:
-4a2c459 Wire BR ground item context interact
+11b9313 Fix third-person ground item focus trace and add interact logs
 
-Working tree should have no tracked changes (six pre-existing untracked concept-art .png files may remain; never stage them).
+Working tree should have no tracked source changes. Local uncommitted files may remain and must never be staged by an assistant: six concept-art .png files and human PIE-setup assets (IA_Interact, DA_Test_HP_Small, a ThirdPersonMap external actor, modified BP_WTBRCharacter and IMC_WTBR_Default). Their commit decision is pending human review.
 
 Recent completed work:
 - S4-A context interact dispatch foundation committed.
@@ -234,17 +241,18 @@ Recent completed work:
 - S5-B inventory component + transactional TryAddItem committed.
 - S5-C ground item actor + server pickup committed.
 - S5-D inventory item use + HP/Vael consumables committed.
-- S6 BR ground item context interact wiring committed.
+- S6 BR ground item context interact wiring committed AND PIE-validated (0c4c447 expose fields, 11b9313 third-person trace fix + logs).
 
 Latest automation:
 WTBR.Inventory + WTBR.CorpseLoot PASS 56/56.
 
 Important current state:
 - RequestContextInteract exists. It handles corpse/container/chest and BR ground item (branch 3).
-- BR Ground Item branch is implemented in S6 and dispatches the existing server pickup RPC/path.
-- Dropped Trigger branch is pending due to target slot ambiguity.
-- Generic interactable branch is pending interface pass.
-- AWTBRGroundItemActor exists, with a query-only Visibility-trace interaction collision.
+- BR Ground Item branch is implemented in S6, PIE-validated, and dispatches the existing server pickup RPC/path.
+- InteractionTraceDistance is 800 (third-person camera reach); server still gates pickup by WTBRGroundItemPickupRange.
+- Dropped Trigger branch is pending due to target slot ambiguity (still parked).
+- Generic interactable branch is pending interface pass (still parked).
+- AWTBRGroundItemActor exists, with a query-only Visibility-trace interaction collision; ItemData/Quantity are EditInstanceOnly.
 - Server_RequestPickupGroundItem exists.
 - UWTBRInventoryComponent exists.
 - Server_RequestUseInventoryItem exists.
@@ -252,11 +260,9 @@ Important current state:
 - Vael Overcharge is design-locked but not implemented.
 - Senku / Escudo / Tuning are design-locked/parked, not implemented.
 
-PIE/manual remainder still to validate:
-- Focus BR ground item, press F, item should pickup if inventory has room.
-- Corpse/container/chest still wins priority.
-- Dropped-trigger F branch remains intentionally not implemented.
-- Ground-item interaction collision is Visibility-query only and does not block movement/projectiles.
+Optional cleanup available:
+- [WTBR Interact] logs are plain Log verbosity; could be gated behind Verbose/CVar/#if !UE_BUILD_SHIPPING.
+- Decide version-control for the local PIE-setup .uasset files.
 
 Start next with:
 Choose the next parked interaction item (dropped-trigger target-slot policy, or generic interactable interface) — or a non-interaction pass.
