@@ -2,22 +2,23 @@
 
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
-Confirmed baseline: a05195f Add inventory consumable use foundation
-Automation confirmed: WTBR.Inventory + WTBR.CorpseLoot PASS 56/56 (32 Inventory + 24 CorpseLoot). This was run before the S5-D commit on the committed working tree; it was not rerun during the docs-only handoff update.
+Confirmed baseline: 4a2c459 Wire BR ground item context interact
+Latest source implementation baseline: 4a2c459 Wire BR ground item context interact
+Automation confirmed: WTBR.Inventory + WTBR.CorpseLoot PASS 56/56 (32 Inventory + 24 CorpseLoot), run on the S6 working tree with `Automation RunTests WTBR.Inventory+WTBR.CorpseLoot;Quit`. PIE/manual remainder was only carried, not completed.
 
 Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` may exist as a local-only untracked file and must never be staged or committed.
 
 ## Recent Commits
 
 ```text
+4a2c459 Wire BR ground item context interact
+f4293f2 Update handoff after inventory foundation
 a05195f Add inventory consumable use foundation
 886c937 Add ground item pickup foundation
 77b67d8 Add inventory component stacking foundation
-de6be18 Add BR inventory item data model
-6b106ce Add context interact dispatch foundation
 ```
 
-Current baseline / `origin/main`: `a05195f`. Working tree should be clean.
+Current baseline / `origin/main`: `4a2c459`. Working tree should have no tracked changes (six pre-existing untracked `Source/output/concepts/starter_avatars/*.png` concept-art files remain and must never be staged).
 
 ## Repo Paths
 
@@ -47,9 +48,9 @@ Current baseline / `origin/main`: `a05195f`. Working tree should be clean.
 
 - `UWTBRInteractionComponent::RequestContextInteract()` exists.
 - `AWTBRCharacter::Interact()` routes through `RequestContextInteract()`.
-- Currently implemented priority: corpse/container/chest path only.
+- Currently implemented priority: corpse/container/chest + BR ground item (branch 3, added in S6).
 - Dropped Trigger branch remains pending due to target slot policy.
-- BR Ground Item branch remains pending until S6 wiring.
+- BR Ground Item branch is implemented in S6 (see below).
 - Generic interactable branch remains pending until interface pass.
 
 ### S5-A — BR Inventory Item Data Model — DONE / committed / pushed (de6be18)
@@ -85,29 +86,36 @@ Current baseline / `origin/main`: `a05195f`. Working tree should be clean.
 - Item is consumed only if the effect actually succeeds.
 - No VaelOvercharge implementation. No tuning/Senku/Escudo. No `RequestContextInteract` wiring.
 
+### S6 — BR Ground Item Context Interact Wiring — DONE / committed / pushed (4a2c459)
+
+- `AWTBRGroundItemActor` now has an asset-free, query-only `USphereComponent` interaction collision.
+- Collision is `QueryOnly`, `ECC_WorldDynamic`, ignores all channels, and blocks `ECC_Visibility` only.
+- It does not block movement, physics, or projectiles, and generates no overlap events.
+- `UWTBRInteractionComponent` now has a focused-ground-item line-trace helper (`GetFocusedGroundItem`, mirrors the corpse/container focus trace).
+- `RequestContextInteract()` branch 3 (BR ground item) now dispatches pickup to the existing `AWTBRCharacter::Server_RequestPickupGroundItem`.
+- Corpse/container/chest priority remains first.
+- Dropped-trigger F branch remains intentionally parked (no locked target-slot policy).
+- Generic interactable branch remains parked.
+- Server authority model unchanged: the client only requests; the server validates and decides.
+
+Validation on the S6 working tree:
+
+- Build: PASS (`WTBREditor Win64 Development`).
+- Automation command: `Automation RunTests WTBR.Inventory+WTBR.CorpseLoot;Quit`.
+- Result: 56/56 PASS, 0 FAIL (32 Inventory + 24 CorpseLoot).
+- PIE/manual was carried as remainder only (not completed).
+
 ## Current Pending Work
 
-Next recommended pass: **S6 — Wire BR Ground Item into `RequestContextInteract` branch 3.**
+No inventory-foundation pass is in flight. The F-context ground-item branch is complete; the next interaction work is the still-parked list below.
 
-S6 scope:
+F context priority (current status):
 
-- Detect focused `AWTBRGroundItemActor`.
-- Call `Server_RequestPickupGroundItem`.
-- Preserve existing corpse/container priority.
-- Do not implement item use UI.
-- Do not implement dropped-trigger F branch.
-- Do not implement generic interactable interface.
-- Do not implement Senku / Escudo / Tuning / VaelOvercharge.
-
-F context priority remains:
-
-1. corpse/container/chest
-2. dropped trigger
-3. BR ground item
-4. generic interactable
+1. corpse/container/chest — implemented
+2. dropped trigger — parked (no locked target-slot policy: active main? active sub? slot-selection UI?)
+3. BR ground item — implemented (S6)
+4. generic interactable — parked (needs interface pass)
 5. no-op
-
-Priority 2 (dropped trigger) is intentionally not implemented because a single F press has no locked target-slot policy (active main? active sub? slot-selection UI?). S6 should wire only the BR Ground Item branch safely without guessing dropped-trigger slot behavior.
 
 ## Parked / Not Implemented
 
@@ -119,6 +127,9 @@ Priority 2 (dropped trigger) is intentionally not implemented because a single F
 - Vael Overcharge effect.
 - Trigger Tuning attach/swap.
 - Player custom preset editor.
+- Composite UI.
+- Q/E hold final UI assets.
+- Final bag / inventory UI.
 - B7 dedicated server / late join validation.
 - Corpse container production default flip (gated on B7).
 
@@ -202,10 +213,10 @@ git log --oneline --decorate -5
 Expected latest baseline:
 
 ```text
-a05195f Add inventory consumable use foundation
+4a2c459 Wire BR ground item context interact
 ```
 
-`Source/.claude/settings.local.json` may exist as a local-only untracked file.
+`Source/.claude/settings.local.json` may exist as a local-only untracked file. Six pre-existing untracked `Source/output/concepts/starter_avatars/*.png` concept-art files may also remain; never stage them.
 
 ## Prompt For New Chat
 
@@ -213,9 +224,9 @@ a05195f Add inventory consumable use foundation
 We are continuing WTBR / Vaelborne: Dominion UE 5.1.1 C++.
 
 Current baseline:
-a05195f Add inventory consumable use foundation
+4a2c459 Wire BR ground item context interact
 
-Working tree should be clean.
+Working tree should have no tracked changes (six pre-existing untracked concept-art .png files may remain; never stage them).
 
 Recent completed work:
 - S4-A context interact dispatch foundation committed.
@@ -223,16 +234,17 @@ Recent completed work:
 - S5-B inventory component + transactional TryAddItem committed.
 - S5-C ground item actor + server pickup committed.
 - S5-D inventory item use + HP/Vael consumables committed.
+- S6 BR ground item context interact wiring committed.
 
 Latest automation:
 WTBR.Inventory + WTBR.CorpseLoot PASS 56/56.
 
 Important current state:
-- RequestContextInteract exists. It currently handles corpse/container/chest path.
+- RequestContextInteract exists. It handles corpse/container/chest and BR ground item (branch 3).
+- BR Ground Item branch is implemented in S6 and dispatches the existing server pickup RPC/path.
 - Dropped Trigger branch is pending due to target slot ambiguity.
-- BR Ground Item branch is pending S6 wiring.
 - Generic interactable branch is pending interface pass.
-- AWTBRGroundItemActor exists.
+- AWTBRGroundItemActor exists, with a query-only Visibility-trace interaction collision.
 - Server_RequestPickupGroundItem exists.
 - UWTBRInventoryComponent exists.
 - Server_RequestUseInventoryItem exists.
@@ -240,17 +252,15 @@ Important current state:
 - Vael Overcharge is design-locked but not implemented.
 - Senku / Escudo / Tuning are design-locked/parked, not implemented.
 
-Start next with:
-S6 Planning/Implementation — wire BR Ground Item pickup into RequestContextInteract branch 3 only.
+PIE/manual remainder still to validate:
+- Focus BR ground item, press F, item should pickup if inventory has room.
+- Corpse/container/chest still wins priority.
+- Dropped-trigger F branch remains intentionally not implemented.
+- Ground-item interaction collision is Visibility-query only and does not block movement/projectiles.
 
-S6 constraints:
-- Do not implement dropped-trigger branch.
-- Do not guess main/sub target slot.
-- Do not implement generic interactable.
-- Do not implement UI.
-- Do not edit .uasset/WBP/Blueprint.
-- Keep gameplay server-authoritative.
-- Run WTBR.Inventory + WTBR.CorpseLoot after changes.
+Start next with:
+Choose the next parked interaction item (dropped-trigger target-slot policy, or generic interactable interface) — or a non-interaction pass.
+Keep gameplay server-authoritative and run WTBR.Inventory + WTBR.CorpseLoot after changes.
 ```
 
 ## Safe Commit And Push Pattern
