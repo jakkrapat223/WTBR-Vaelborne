@@ -1,26 +1,28 @@
-# WTBR Handoff Summary
+# WTBR Handoff Summary — After S8A
 
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
-Confirmed baseline: a1f6aa1 Add dropped-trigger MainOnly SubOnly automation
-Previous baseline: a7e9e81 Update handoff after S7A-Auto
-Latest source implementation baseline: a1f6aa1 Add dropped-trigger MainOnly SubOnly automation
+Latest baseline: 0f43fb4 Add S8A ground item branch3 context interact automation
+Previous handoff baseline: b3e5451 Update handoff after S7B
+Previous source baseline: a1f6aa1 Add dropped-trigger MainOnly SubOnly automation
 Latest supporting asset baseline: 36b599d Add interact input asset binding
-Automation confirmed: WTBR PASS 62/62 (32 Inventory + 24 CorpseLoot + 6 DroppedTrigger), run with `Automation RunTests WTBR.;Quit` (or `Automation RunTests WTBR;Quit`). S6 BR ground-item pickup and S7A dropped-trigger F interact were PIE/manually validated end-to-end; S7A-Auto added headless C++ automation for the dropped-trigger context interact, and S7B added MainOnly/SubOnly dispatch coverage (see S7A-Auto / S7B sections).
+Status: S8A DONE / committed / pushed. Build PASS. `WTBR.Inventory` PASS 36/36. Full `WTBR.*` PASS 66/66.
+Automation confirmed: WTBR PASS 66/66 (36 Inventory + 24 CorpseLoot + 6 DroppedTrigger), run with `Automation RunTests WTBR.;Quit` (or `Automation RunTests WTBR;Quit`). S6 BR ground-item pickup and S7A dropped-trigger F interact were PIE/manually validated end-to-end; S7A-Auto added headless C++ automation for the dropped-trigger context interact, S7B added MainOnly/SubOnly dispatch coverage, and S8A added branch-3 BR ground item context-interact automation (see S7A-Auto / S7B / S8A sections).
 
 Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` may exist as a local-only untracked file and must never be staged or committed. Binary assets (`.uasset`/`.png`) are tracked via Git LFS.
 
 ## Recent Commits
 
 ```text
+0f43fb4 Add S8A ground item branch3 context interact automation
+b3e5451 Update handoff after S7B
 a1f6aa1 Add dropped-trigger MainOnly SubOnly automation
 a7e9e81 Update handoff after S7A-Auto
 c52b484 Add S7A dropped-trigger context interact automation
 ead046d Update handoff after S7A dropped-trigger interact
-c0f7c0c Add S7A dropped-trigger F context interact
 ```
 
-Current baseline / `origin/main` / `origin/HEAD`: `a1f6aa1` (S7B DONE / COMMITTED / PUSHED). Previous baseline: `a7e9e81`. Working tree should have no tracked changes. One local file remains intentionally uncommitted and must never be staged by an assistant without explicit approval: the ThirdPersonMap external-actor `.uasset` (`Content/__ExternalActors__/.../ThirdPersonMap/...uasset`).
+Current baseline / `origin/main` / `origin/HEAD`: `0f43fb4` (S8A DONE / COMMITTED / PUSHED). Previous handoff baseline: `b3e5451`. Previous source baseline: `a1f6aa1`. Working tree should have no tracked changes. One local file remains intentionally uncommitted and must never be staged by an assistant without explicit approval: the ThirdPersonMap external-actor `.uasset` (`Content/__ExternalActors__/.../ThirdPersonMap/...uasset`). `Source/.claude/settings.local.json` may exist as a local-only untracked file and must never be staged or committed.
 
 ## Repo Paths
 
@@ -195,7 +197,7 @@ Validation:
 Deferred (reported, no assets created/modified):
 
 - `MainOnly` / `SubOnly` dropped-trigger dispatch automation — **now covered in S7B** (see S7B section).
-- Real branch-3 ground-item pickup through `RequestContextInteract` — needs a physics-backed visibility-trace fixture (see the NoDroppedTriggerFocus test TODO).
+- Real branch-3 ground-item pickup through `RequestContextInteract` - **now covered in S8A** with a deterministic dev-automation focus seam; dedicated/PIE transport validation remains a later follow-up.
 
 ### S7B — MainOnly/SubOnly Dropped Trigger Automation — DONE / COMMITTED / PUSHED (`a1f6aa1`)
 
@@ -225,17 +227,50 @@ Validation:
 - Staged only the 3 reviewed files (`WTBRCharacter.h`, `WTBRCharacter.cpp`, tests `.cpp`); committed `a1f6aa1`; pushed `a7e9e81..a1f6aa1`.
 - The ThirdPersonMap external-actor `.uasset` remains intentionally untracked and excluded.
 
+### S8A — Ground Item Branch 3 Context Interact Automation — DONE / COMMITTED / PUSHED (`0f43fb4`)
+
+Adds the deferred branch-3 BR ground item context-interact automation, C++-only. No Blueprint/WBP/UMG/.uasset/.umap/binary assets were touched.
+
+New automation in `Source/WTBR/Tests/WTBRGroundItemPickupAutomationTests.cpp`:
+
+- `WTBR.Inventory.ContextInteract.GroundItemBranch3.PicksUpWhenFocused`
+- `WTBR.Inventory.ContextInteract.GroundItemBranch3.RejectsWhenInventoryFullAndItemRemains`
+- `WTBR.Inventory.ContextInteract.GroundItemBranch3.DoesNotOverrideDroppedTriggerPriority`
+- `WTBR.Inventory.ContextInteract.GroundItemBranch3.DoesNotOverrideCorpseContainerPriority`
+
+Coverage:
+
+- Proves `RequestContextInteract` branch 3 routes to BR ground item when no higher-priority focus exists.
+- Proves successful server-authoritative pickup through the existing ground item server pickup path.
+- Proves inventory-full reject keeps the ground item available and does not mutate inventory.
+- Proves branch 3 does not override dropped-trigger priority.
+- Proves branch 3 does not override corpse/container priority.
+- Proves the client/context interact path dispatches only; inventory / ground-item mutation remains on the server-approved path.
+
+Production support change (dev/test-only, guarded):
+
+- `UWTBRInteractionComponent` (`WTBRInteractionComponent.h` / `.cpp`) gained deterministic focused corpse-container and ground-item overrides behind `#if WITH_DEV_AUTOMATION_TESTS`.
+- Default runtime behavior is unchanged. The seam is compiled out outside dev automation tests.
+
+Validation:
+
+- Build: PASS (`WTBREditor Win64 Development`).
+- `Automation RunTests WTBR.Inventory` -> **36/36 PASS**.
+- `Automation RunTests WTBR.` -> **66/66 PASS**, 0 fail, 0 error.
+- Committed and pushed as `0f43fb4`.
+- The ThirdPersonMap external-actor `.uasset` remains intentionally untracked and excluded.
+
 ## Current Pending Work
 
-No inventory-foundation pass is in flight. The F-context dropped-trigger branch (S7A) and ground-item branch (S6) are complete; S7A-Auto + S7B provide headless automation for the dropped-trigger context interact, including MainOnly/SubOnly dispatch.
+No inventory-foundation pass is in flight. The F-context dropped-trigger branch (S7A) and ground-item branch (S6) are complete; S7A-Auto + S7B provide headless automation for the dropped-trigger context interact, including MainOnly/SubOnly dispatch; S8A provides headless automation for BR ground item branch-3 context-interact routing and server-authoritative pickup/reject semantics.
 
-**Next candidates after S7B:**
+**Next candidates after S8A:**
 
-1. Real branch-3 BR ground-item pickup through `RequestContextInteract` with a reliable visibility/physics-backed fixture (PIE or physics world).
-2. Corpse/container priority automation or smoke test.
-3. B7 dedicated server / late-join validation before the corpse-container production-default flip.
-4. Decide whether to keep or discard the untracked ThirdPersonMap external-actor test asset.
-5. Inventory / BR pickup UI spec pass — documentation-only first; no WBP/UMG assets yet.
+1. Corpse/container priority automation or smoke test.
+2. B7 dedicated server / late-join validation before the corpse-container production-default flip.
+3. Decide whether to keep or discard the untracked ThirdPersonMap external-actor test asset.
+4. Inventory / BR pickup UI spec pass - documentation-only first; no WBP/UMG assets yet.
+5. Later: dedicated/PIE transport validation for ground item pickup RPC path.
 
 F context priority (current status):
 
@@ -268,6 +303,7 @@ F context priority (current status):
 - Do not hardcode physical keys (in particular the F interact key); all input bindings are default/remappable.
 - Do not flip corpse container production default until B7 dedicated/late-join validation passes.
 - Do not remove the legacy dropped-trigger path.
+- Build and automation must run from the current working tree only; do not cite old logs as current PASS.
 - Do not use `git add .` / `..` / `-A`; stage only reviewed files.
 - Do not stage `Source/.claude/settings.local.json`.
 - Do not stage the ThirdPersonMap external-actor `.uasset` unless a human explicitly approves.
@@ -276,7 +312,7 @@ F context priority (current status):
 
 - Pass F smoke audit.
 - B7 dedicated server / late join.
-- Real interact implementation: Q/E hold wheel UI; context interact dispatch (ground item pickup, generic interactable) not yet wired to `InteractAction`; corpse loot path done.
+- Real interact implementation: Q/E hold wheel UI and generic interactable branch remain; corpse loot, dropped trigger, and BR ground item context branches are wired.
 - Loot UI.
 - Match flow.
 - Composite input/UI.
@@ -303,7 +339,8 @@ S2/S3 PIE/network required items:
 - `ReplaceTriggerSlotFromDataAsset` end-to-end.
 - Destroy-after-last-pickup through character flow.
 - Focused trace end-to-end.
-- Real interact implementation (Q/E hold wheel, context dispatch to ground item / generic interactable).
+- Real interact implementation (Q/E hold wheel and generic interactable branch).
+- Dedicated/PIE transport validation for ground item pickup RPC path.
 - Replication correctness.
 - Dedicated server / late join.
 - Match rules, travel, reset, and production defaults.
@@ -343,7 +380,7 @@ git log --oneline --decorate -5
 Expected latest baseline (at `HEAD` / `main` / `origin/main` / `origin/HEAD`):
 
 ```text
-a1f6aa1 Add dropped-trigger MainOnly SubOnly automation
+0f43fb4 Add S8A ground item branch3 context interact automation
 ```
 
 `git status` should show only the intentionally excluded ThirdPersonMap external-actor `.uasset` as untracked. `Source/.claude/settings.local.json` may exist as a local-only untracked file. Both must never be staged by an assistant without explicit approval — in particular, do not stage the ThirdPersonMap external-actor `.uasset` (the placed ground item).
@@ -354,7 +391,7 @@ a1f6aa1 Add dropped-trigger MainOnly SubOnly automation
 We are continuing WTBR / Vaelborne: Dominion UE 5.1.1 C++.
 
 Current baseline:
-a1f6aa1 Add dropped-trigger MainOnly SubOnly automation
+0f43fb4 Add S8A ground item branch3 context interact automation
 
 Working tree should have no tracked changes. One local file remains intentionally uncommitted and must never be staged by an assistant without explicit approval: the ThirdPersonMap external-actor .uasset (the placed ground item).
 
@@ -366,15 +403,16 @@ Recent completed work:
 - S7A dropped-trigger F context interact (branch 2) committed AND PIE-validated (c0f7c0c).
 - S7A-Auto dropped-trigger context interact automation committed AND pushed (c52b484): added Source/WTBR/Tests/WTBRDroppedTriggerInteractAutomationTests.cpp with 4 tests (DeathDrop.SpawnsInMatch, Interact.FindsDroppedTrigger, Interact.AnyRejectsAmbiguousTargetSlot, Interact.NoDroppedTriggerFocusDoesNotConsumeInteract); added WITH_DEV_AUTOMATION_TESTS-only seam SpawnDroppedTriggersForEliminatedCharacterForTest() in WTBRHealthComponent.h; updated stale priority-2 comment in WTBRInteractionComponent.h. No binary/asset edits.
 - S7B MainOnly/SubOnly dropped-trigger automation committed AND pushed (a1f6aa1): +2 tests (Interact.MainOnlyDispatchesToActiveMain, Interact.SubOnlyDispatchesToActiveSub) → 6 DroppedTrigger tests total. Phase A proves client routing at the production routing point (MainOnly→active main index, SubOnly→active sub index); Phase B proves server-authoritative mutation via Server_RequestPickupDroppedTrigger_Implementation (wrong slot rejects without consuming, correct slot succeeds, consumed only on success, only the intended slot mutates). Added a WITH_DEV_AUTOMATION_TESTS-only route-capture seam on AWTBRCharacter (default disabled, no shipping/runtime change). Code-only; no binary/asset edits.
+- S8A ground item branch-3 context interact automation committed AND pushed (0f43fb4): added 4 WTBR.Inventory.ContextInteract.GroundItemBranch3 tests (PicksUpWhenFocused, RejectsWhenInventoryFullAndItemRemains, DoesNotOverrideDroppedTriggerPriority, DoesNotOverrideCorpseContainerPriority). Added a WITH_DEV_AUTOMATION_TESTS-only deterministic focus seam in UWTBRInteractionComponent. Proves branch-3 routing, server-authoritative pickup, full-inventory reject without mutation, and priority preservation. Code-only; no binary/asset edits.
 
 Latest automation:
-WTBR PASS 62/62 (32 Inventory + 24 CorpseLoot + 6 DroppedTrigger).
+WTBR PASS 66/66 (36 Inventory + 24 CorpseLoot + 6 DroppedTrigger). WTBR.Inventory PASS 36/36.
 
 Important current state:
 - RequestContextInteract handles corpse/container/chest (1), dropped trigger (2, S7A), and BR ground item (3, S6).
 - Dropped Trigger branch 2 is implemented (S7A) and automation-covered incl. MainOnly/SubOnly dispatch (S7B): constraint-driven single-valid-target. MainOnly -> active main, SubOnly -> active sub, Any -> reject AmbiguousTargetSlot (no blind guess). Client dispatch only; server authoritative; Server_RequestPickupDroppedTrigger and legacy active main/sub paths unchanged.
 - Detection uses collision-independent actor iteration (AWTBRDroppedTriggerActor has no collision/mesh): GetFocusedDroppedTrigger + FindAimedDroppedTriggerForPickup filter by distance + view-cone.
-- BR Ground Item branch is implemented in S6, PIE-validated, dispatches the existing server pickup RPC/path.
+- BR Ground Item branch is implemented in S6, PIE-validated, dispatches the existing server pickup RPC/path, and is covered by S8A branch-3 context-interact automation.
 - InteractionTraceDistance is 800 (third-person camera reach); server still gates pickup by WTBRGroundItemPickupRange.
 - Generic interactable branch is pending interface pass (still parked).
 - Dev-only diagnostics available: WTBRDebugCharacterPrintTriggerSlots, WTBRDebugCharacterListNearbyDroppedTriggers, SpawnLegacyDroppedTriggers_Internal silent-return logs (all non-shipping guarded).
@@ -387,12 +425,12 @@ Optional cleanup available:
 - [WTBR Interact] logs are plain Log verbosity; could be gated behind Verbose/CVar/#if !UE_BUILD_SHIPPING.
 - Decide version-control for the one remaining uncommitted ThirdPersonMap external-actor .uasset (placed ground item).
 
-Start next with one of the S7B follow-up candidates:
-1. Real branch-3 BR ground-item pickup through RequestContextInteract with a reliable visibility/physics-backed fixture (PIE or physics world).
-2. Corpse/container priority automation or smoke test.
-3. B7 dedicated server / late-join validation before the corpse-container production-default flip.
-4. Decide whether to keep or discard the untracked ThirdPersonMap external-actor test asset.
-5. Inventory / BR pickup UI spec pass — documentation-only first; no WBP/UMG assets yet.
+Start next with one of the S8A follow-up candidates:
+1. Corpse/container priority automation or smoke test.
+2. B7 dedicated server / late-join validation before the corpse-container production-default flip.
+3. Decide whether to keep or discard the untracked ThirdPersonMap external-actor test asset.
+4. Inventory / BR pickup UI spec pass - documentation-only first; no WBP/UMG assets yet.
+5. Later: dedicated/PIE transport validation for ground item pickup RPC path.
 Keep gameplay server-authoritative and run WTBR automation after changes.
 ```
 
