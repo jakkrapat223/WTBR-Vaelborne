@@ -54,7 +54,10 @@ private:
     FWTBRHUDQuickItemSnapshot BuildQuickItemSnapshot(const AWTBRCharacter* Character, int32& OutSlotIndex) const;
     FWTBRHUDPickupPromptSnapshot BuildPickupPromptSnapshot(const AWTBRCharacter* Character) const;
     FWTBRHUDMatchSnapshot BuildMatchSnapshot() const;
-    static int32 ResolveQuickItemSlotIndex(const AWTBRCharacter* Character);
+    // bAllowSyncLoad=false (HUD display refresh): non-blocking; slots whose item data
+    // asset is not yet resident are skipped. bAllowSyncLoad=true (use-item request):
+    // force-resolves so a real "use quick item" action never misses a valid slot.
+    static int32 ResolveQuickItemSlotIndex(const AWTBRCharacter* Character, bool bAllowSyncLoad);
     void BindOwnerDelegates();
     void UnbindOwnerDelegates();
 

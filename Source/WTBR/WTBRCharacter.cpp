@@ -2230,7 +2230,10 @@ UTexture2D* AWTBRCharacter::GetMainTriggerHUDIcon() const
         return nullptr;
     }
 
-    return MainDataAsset->HUDIcon.LoadSynchronous();
+    // HUD hot path (rebuilt on every HP/Vael/inventory/trigger refresh): use the
+    // already-resolved texture only. Never force a synchronous streaming load here;
+    // an unloaded icon degrades to null (no icon shown) instead of stalling the frame.
+    return MainDataAsset->HUDIcon.Get();
 }
 
 UTexture2D* AWTBRCharacter::GetSubTriggerHUDIcon() const
@@ -2244,7 +2247,8 @@ UTexture2D* AWTBRCharacter::GetSubTriggerHUDIcon() const
         return nullptr;
     }
 
-    return SubDataAsset->HUDIcon.LoadSynchronous();
+    // HUD hot path (see GetMainTriggerHUDIcon): already-resolved texture only, no sync load.
+    return SubDataAsset->HUDIcon.Get();
 }
 
 int32 AWTBRCharacter::GetActiveMainTriggerSlotIndex() const

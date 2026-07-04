@@ -226,7 +226,8 @@ FWTBRHUDQuickItemSnapshot UWTBRHUDViewModelComponent::BuildQuickItemSnapshot(
     int32& OutSlotIndex) const
 {
     FWTBRHUDQuickItemSnapshot Snapshot;
-    OutSlotIndex = ResolveQuickItemSlotIndex(Character);
+    // Display refresh is a hot path; never force a synchronous asset load here.
+    OutSlotIndex = ResolveQuickItemSlotIndex(Character, /*bAllowSyncLoad=*/false);
     if (!IsValid(Character) || OutSlotIndex == INDEX_NONE || !IsValid(Character->InventoryComponent))
     {
         return Snapshot;
@@ -240,7 +241,8 @@ FWTBRHUDQuickItemSnapshot UWTBRHUDViewModelComponent::BuildQuickItemSnapshot(
     }
 
     const FWTBRInventorySlot& Slot = Slots[OutSlotIndex];
-    const UWTBRItemDataAsset* ItemData = Slot.ItemData.LoadSynchronous();
+    // Already-resident item data only; a not-yet-loaded slot shows no quick item this frame.
+    const UWTBRItemDataAsset* ItemData = Slot.ItemData.Get();
     if (!IsValid(ItemData))
     {
         OutSlotIndex = INDEX_NONE;
@@ -294,7 +296,7 @@ FWTBRHUDMatchSnapshot UWTBRHUDViewModelComponent::BuildMatchSnapshot() const
     return Snapshot;
 }
 
-int32 UWTBRHUDViewModelComponent::ResolveQuickItemSlotIndex(const AWTBRCharacter* Character)
+int32 UWTBRHUDViewModelComponent::ResolveQuickItemSlotIndex(const AWTBRCharacter* Character, bool bAllowSyncLoad)
 {
     if (!IsValid(Character) || !IsValid(Character->InventoryComponent))
     {
@@ -310,7 +312,11 @@ int32 UWTBRHUDViewModelComponent::ResolveQuickItemSlotIndex(const AWTBRCharacter
             continue;
         }
 
-        const UWTBRItemDataAsset* ItemData = Slot.ItemData.LoadSynchronous();
+        // Display refresh passes bAllowSyncLoad=false to stay non-blocking; the use-item
+        // request passes true so a player action never fails to find a valid quick item.
+        const UWTBRItemDataAsset* ItemData = bAllowSyncLoad
+            ? Slot.ItemData.LoadSynchronous()
+            : Slot.ItemData.Get();
         if (!IsValid(ItemData))
         {
             continue;
@@ -334,7 +340,9 @@ bool UWTBRHUDViewModelComponent::RequestUseDisplayedQuickItem()
         return false;
     }
 
-    const int32 ResolvedSlotIndex = ResolveQuickItemSlotIndex(Character);
+    // Real player action (not a display refresh): allow a sync load so a valid quick
+    // item is never missed just because its data asset was not yet resident.
+    const int32 ResolvedSlotIndex = ResolveQuickItemSlotIndex(Character, /*bAllowSyncLoad=*/true);
     CachedQuickItemSlotIndex = ResolvedSlotIndex;
     if (ResolvedSlotIndex == INDEX_NONE)
     {
