@@ -13,6 +13,7 @@
 #include "InputMappingContext.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
+#include "TimerManager.h"
 #include "Net/UnrealNetwork.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Components/WTBRHealthComponent.h"
@@ -47,6 +48,20 @@
 #include "Trigger/WTBRVenyxTrigger.h"
 #include "Trigger/WTBRVexornTrigger.h"
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
+
+#if !UE_BUILD_SHIPPING
+// B7D client-side validation harness trigger. Detected every ~1 s by
+// PollB7ClientValidationCVar on NM_Client characters after BeginPlay; the
+// validation sequence runs this many seconds after the pawn is locally
+// controlled. Default 0 (disabled). Not compiled in Shipping builds.
+static TAutoConsoleVariable<float> CVarWTBRB7ClientValidationDelay(
+    TEXT("WTBR.B7ClientValidationDelaySeconds"),
+    0.0f,
+    TEXT("[Dev] Set > 0 via -ExecCmds on a client to run the B7 client validation "
+         "sequence (container receipt log, focus/priority check, loot RPC, post-state "
+         "log) that many seconds after the local pawn is possessed. Client only. "
+         "Default 0 (disabled). Not compiled in Shipping builds."));
+#endif
 
 namespace
 {
@@ -300,6 +315,20 @@ void AWTBRCharacter::BeginPlay()
     }
 
     RefreshHUDHints();
+
+#if !UE_BUILD_SHIPPING
+    // B7D: ExecCmds processes at tick [1]; client possession happens later. A 1-s
+    // repeating poll catches WTBR.B7ClientValidationDelaySeconds being set and waits
+    // until this character is the locally controlled client pawn before scheduling.
+    if (GetNetMode() == NM_Client)
+    {
+        GetWorldTimerManager().SetTimer(
+            B7ClientValidationPollTimerHandle,
+            FTimerDelegate::CreateUObject(this, &AWTBRCharacter::PollB7ClientValidationCVar),
+            1.0f,
+            /*bLoop=*/true);
+    }
+#endif
 }
 
 void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -2495,3 +2524,260 @@ void AWTBRCharacter::Server_StopVaelSprint_Implementation()
         MovementExtComponent->StopVaelSprint();
     }
 }
+
+#if !UE_BUILD_SHIPPING
+// ─── B7D client-side validation harness ─────────────────────────────────────
+// Read/log, client-side view rotation, and existing server RPC requests only.
+// No client-side inventory/slot/loot/ground-item mutation happens here.
+
+void AWTBRCharacter::PollB7ClientValidationCVar()
+{
+    const float Delay = CVarWTBRB7ClientValidationDelay.GetValueOnGameThread();
+    if (Delay <= 0.0f)
+    {
+        return;
+    }
+
+    // Only the locally controlled client pawn runs the sequence. Remote replicas
+    // and a not-yet-possessed pawn keep polling until possession replicates.
+    if (!IsLocallyControlled() || !IsValid(Controller))
+    {
+        return;
+    }
+
+    GetWorldTimerManager().ClearTimer(B7ClientValidationPollTimerHandle);
+
+    UE_LOG(LogTemp, Log,
+        TEXT("B7ClientValidation: CVar requested client validation delay %.1f s (character %s)."),
+        Delay,
+        *GetNameSafe(this));
+
+    B7ClientValidationRetryCount = 0;
+
+    FTimerDelegate TimerDel;
+    TimerDel.BindUObject(this, &AWTBRCharacter::RunB7ClientValidationSequence);
+    GetWorldTimerManager().SetTimer(B7ClientValidationTimerHandle, TimerDel, Delay, /*bLoop=*/false);
+}
+
+void AWTBRCharacter::RunB7ClientValidationSequence()
+{
+    UE_LOG(LogTemp, Log,
+        TEXT("B7ClientValidation: Sequence attempt (try %d/%d, character %s, HasAuthority=%s)."),
+        B7ClientValidationRetryCount + 1,
+        B7ClientValidationMaxRetries + 1,
+        *GetNameSafe(this),
+        HasAuthority() ? TEXT("true") : TEXT("false"));
+
+    UWorld* World = GetWorld();
+    if (!World || !IsValid(InteractionComponent))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("B7ClientValidation: Sequence failed reason — world or InteractionComponent missing."));
+        return;
+    }
+
+    // Container receipt proof: enumerate the replicated corpse loot containers this
+    // client actually received, with entry counts from the replicated LootEntries.
+    AWTBRCorpseLootContainerActor* NearestContainer = nullptr;
+    float NearestDistanceSq = TNumericLimits<float>::Max();
+    int32 ContainerCount = 0;
+
+    for (TActorIterator<AWTBRCorpseLootContainerActor> It(World); It; ++It)
+    {
+        AWTBRCorpseLootContainerActor* Container = *It;
+        if (!IsValid(Container))
+        {
+            continue;
+        }
+        ++ContainerCount;
+        UE_LOG(LogTemp, Log,
+            TEXT("B7ClientValidation: Container receipt — Actor=%s Location=%s Distance=%.1f HasAuthority=%s Entries=%d HasAvailableLoot=%s"),
+            *GetNameSafe(Container),
+            *Container->GetActorLocation().ToString(),
+            FVector::Dist(GetActorLocation(), Container->GetActorLocation()),
+            Container->HasAuthority() ? TEXT("true") : TEXT("false"),
+            Container->GetLootEntryCount(),
+            Container->HasAvailableLootEntries() ? TEXT("true") : TEXT("false"));
+
+        const float DistSq = FVector::DistSquared(GetActorLocation(), Container->GetActorLocation());
+        if (DistSq < NearestDistanceSq)
+        {
+            NearestContainer = Container;
+            NearestDistanceSq = DistSq;
+        }
+    }
+
+    // LootEntries replicate separately from the actor channel opening, so a
+    // container with 0 replicated entries is retried the same as a missing actor.
+    if (!IsValid(NearestContainer) || NearestContainer->GetLootEntryCount() == 0)
+    {
+        if (B7ClientValidationRetryCount < B7ClientValidationMaxRetries)
+        {
+            ++B7ClientValidationRetryCount;
+            UE_LOG(LogTemp, Log,
+                TEXT("B7ClientValidation: No replicated container with entries yet (found %d actor(s)). Retry %d/%d in 2 s."),
+                ContainerCount,
+                B7ClientValidationRetryCount,
+                B7ClientValidationMaxRetries);
+            FTimerDelegate RetryDel;
+            RetryDel.BindUObject(this, &AWTBRCharacter::RunB7ClientValidationSequence);
+            GetWorldTimerManager().SetTimer(B7ClientValidationTimerHandle, RetryDel, 2.0f, /*bLoop=*/false);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("B7ClientValidation: Sequence failed reason — max retries (%d) reached, no replicated corpse loot container."),
+                B7ClientValidationMaxRetries);
+        }
+        return;
+    }
+
+    LogB7ClientValidationWorldState(TEXT("Pre"));
+
+    // Face the container. Client-side view rotation only — this is the local
+    // player's own control rotation (equivalent to moving the mouse).
+    const FRotator FaceRotation = (NearestContainer->GetActorLocation() - GetActorLocation()).Rotation();
+    Controller->SetControlRotation(FaceRotation);
+    UE_LOG(LogTemp, Log,
+        TEXT("B7ClientValidation: Facing container %s (control rotation %s)."),
+        *GetNameSafe(NearestContainer),
+        *FaceRotation.ToString());
+
+    // Give the camera manager one update so GetPlayerViewPoint reflects the new
+    // control rotation before the focus traces run.
+    FTimerDelegate ContinueDel;
+    ContinueDel.BindUObject(this, &AWTBRCharacter::ContinueB7ClientValidationSequence);
+    GetWorldTimerManager().SetTimer(B7ClientValidationTimerHandle, ContinueDel, 1.0f, /*bLoop=*/false);
+}
+
+void AWTBRCharacter::ContinueB7ClientValidationSequence()
+{
+    if (!IsValid(InteractionComponent))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("B7ClientValidation: Sequence failed reason — InteractionComponent missing at focus step."));
+        return;
+    }
+
+    // Focus + prompt: proves this client can see/focus the replicated container.
+    const FText Prompt = InteractionComponent->GetFocusedInteractionPromptText();
+    UE_LOG(LogTemp, Log,
+        TEXT("B7ClientValidation: Focused prompt='%s' (empty=%s)."),
+        *Prompt.ToString(),
+        Prompt.IsEmpty() ? TEXT("true") : TEXT("false"));
+
+    // Priority: production context-interact resolution with all replicated
+    // candidates present. UWTBRInteractionComponent logs which priority branch
+    // handled it ("Handled by corpse/container/chest focus (priority 1)." when
+    // the container wins over dropped trigger / ground item candidates).
+    const bool bHandled = InteractionComponent->RequestContextInteract();
+    UE_LOG(LogTemp, Log,
+        TEXT("B7ClientValidation: RequestContextInteract handled=%s."),
+        bHandled ? TEXT("true") : TEXT("false"));
+
+    // Interaction RPC chain: existing debug bridge -> Server_RequestPickupCorpseLootEntry.
+    // The server logs the authoritative verdict (accept/swap/reject/rollback).
+    WTBRDebugCharacterLootNearestCorpseContainer(0, 0);
+
+    // Post-state after the server round-trip + replication.
+    FTimerDelegate FinishDel;
+    FinishDel.BindUObject(this, &AWTBRCharacter::FinishB7ClientValidationSequence);
+    GetWorldTimerManager().SetTimer(B7ClientValidationTimerHandle, FinishDel, 3.0f, /*bLoop=*/false);
+}
+
+void AWTBRCharacter::FinishB7ClientValidationSequence()
+{
+    LogB7ClientValidationWorldState(TEXT("Post"));
+
+    // Slot state after the server round-trip (shows a swapped-in entry if the
+    // pickup succeeded server-side).
+    WTBRDebugCharacterPrintTriggerSlots();
+
+    UE_LOG(LogTemp, Log,
+        TEXT("B7ClientValidation: Sequence complete (character %s)."),
+        *GetNameSafe(this));
+}
+
+void AWTBRCharacter::LogB7ClientValidationWorldState(const TCHAR* PhaseTag) const
+{
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    FVector ViewLocation = GetActorLocation();
+    FRotator ViewRotation = GetActorRotation();
+    if (IsValid(Controller))
+    {
+        Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
+    }
+    const FVector ViewForward = ViewRotation.Vector();
+
+    for (TActorIterator<AWTBRCorpseLootContainerActor> It(World); It; ++It)
+    {
+        const AWTBRCorpseLootContainerActor* Container = *It;
+        if (!IsValid(Container))
+        {
+            continue;
+        }
+
+        TArray<FWTBRCorpseLootEntry> Entries;
+        Container->GetLootEntriesForUIReadOnly(Entries);
+        FString EntrySummary;
+        for (int32 Index = 0; Index < Entries.Num(); ++Index)
+        {
+            EntrySummary += FString::Printf(TEXT("[%d]%s=%s "),
+                Index,
+                *Entries[Index].TriggerDataAsset.ToSoftObjectPath().GetAssetName(),
+                Entries[Index].bConsumed ? TEXT("consumed") : TEXT("available"));
+        }
+
+        UE_LOG(LogTemp, Log,
+            TEXT("B7ClientValidation: [%s] Container %s Distance=%.1f Entries=%d %s"),
+            PhaseTag,
+            *GetNameSafe(Container),
+            FVector::Dist(GetActorLocation(), Container->GetActorLocation()),
+            Entries.Num(),
+            *EntrySummary);
+    }
+
+    for (TActorIterator<AWTBRDroppedTriggerActor> It(World); It; ++It)
+    {
+        const AWTBRDroppedTriggerActor* Dropped = *It;
+        if (!IsValid(Dropped))
+        {
+            continue;
+        }
+
+        const FVector ToActor = Dropped->GetActorLocation() - ViewLocation;
+        UE_LOG(LogTemp, Log,
+            TEXT("B7ClientValidation: [%s] DroppedTrigger %s Distance=%.1f ViewDot=%.2f IsConsumed=%s DataAsset=%s"),
+            PhaseTag,
+            *GetNameSafe(Dropped),
+            FVector::Dist(GetActorLocation(), Dropped->GetActorLocation()),
+            FVector::DotProduct(ToActor.GetSafeNormal(), ViewForward),
+            Dropped->IsConsumed() ? TEXT("true") : TEXT("false"),
+            *Dropped->GetDroppedTriggerDataAsset().ToSoftObjectPath().ToString());
+    }
+
+    for (TActorIterator<AWTBRGroundItemActor> It(World); It; ++It)
+    {
+        const AWTBRGroundItemActor* GroundItem = *It;
+        if (!IsValid(GroundItem))
+        {
+            continue;
+        }
+
+        const FVector ToActor = GroundItem->GetActorLocation() - ViewLocation;
+        UE_LOG(LogTemp, Log,
+            TEXT("B7ClientValidation: [%s] GroundItem %s Distance=%.1f ViewDot=%.2f IsConsumed=%s Quantity=%d"),
+            PhaseTag,
+            *GetNameSafe(GroundItem),
+            FVector::Dist(GetActorLocation(), GroundItem->GetActorLocation()),
+            FVector::DotProduct(ToActor.GetSafeNormal(), ViewForward),
+            GroundItem->IsConsumed() ? TEXT("true") : TEXT("false"),
+            GroundItem->GetQuantity());
+    }
+}
+#endif  // !UE_BUILD_SHIPPING

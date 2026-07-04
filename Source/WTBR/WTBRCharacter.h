@@ -421,6 +421,25 @@ private:
     ETriggerSlotConstraint CapturedDroppedTriggerConstraintForTest = ETriggerSlotConstraint::Any;
 #endif
 
+#if !UE_BUILD_SHIPPING
+    // B7D client-side validation harness. Mirrors the B7C server CVar-poll pattern:
+    // WTBR.B7ClientValidationDelaySeconds is set via -ExecCmds on a client process,
+    // a 1-s poll on NM_Client characters detects it once the pawn is locally
+    // controlled, and the sequence runs after the requested delay. Read/log +
+    // client-side view rotation + existing server RPC requests only — no client-side
+    // inventory/slot/loot/ground-item mutation.
+    FTimerHandle B7ClientValidationPollTimerHandle;
+    FTimerHandle B7ClientValidationTimerHandle;
+    int32 B7ClientValidationRetryCount = 0;
+    // 60 retries × 2 s = 120 s window for the validation container to replicate in.
+    static constexpr int32 B7ClientValidationMaxRetries = 60;
+    void PollB7ClientValidationCVar();
+    void RunB7ClientValidationSequence();
+    void ContinueB7ClientValidationSequence();
+    void FinishB7ClientValidationSequence();
+    void LogB7ClientValidationWorldState(const TCHAR* PhaseTag) const;
+#endif
+
     UFUNCTION()
     void OnStaggerExpired();
 };

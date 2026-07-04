@@ -5,6 +5,9 @@
 #include "WTBRGameState.h"
 #include "GameFramework/PlayerController.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
+#include "Interaction/WTBRDroppedTriggerActor.h"
+#include "Inventory/WTBRGroundItemActor.h"
+#include "Inventory/WTBRItemDataAsset.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "EngineUtils.h"
@@ -20,6 +23,28 @@ static TAutoConsoleVariable<float> CVarWTBRB7ValidationSpawnDelay(
 	TEXT("[Dev] Set > 0 via -ExecCmds on a dedicated server to schedule a B7 validation "
 		 "corpse loot container spawn that many seconds after detection. Authority only. "
 		 "Default 0 (disabled). Not compiled in Shipping builds."));
+
+// B7D: runtime-only match override for the validation session. Applied once when
+// the validation spawn finds its authority pawn. Changes nothing in source
+// defaults — the production default rules and phases are untouched.
+static TAutoConsoleVariable<int32> CVarWTBRB7ValidationForceInMatchRules(
+	TEXT("WTBR.B7ValidationForceInMatchRules"),
+	0,
+	TEXT("[Dev] Set 1 together with the B7 validation spawn CVar to apply a runtime "
+		 "match override on the validation server before the spawn: Phase=InMatch and "
+		 "bAllowCorpseLoot/bAllowTriggerPickup/bAllowTriggerSwapDuringMatch=true. "
+		 "Validation session only; production defaults unchanged. Default 0 (disabled). "
+		 "Not compiled in Shipping builds."));
+
+// B7D: lower-priority interaction candidates for the context-interact priority and
+// non-mutation checks after late join.
+static TAutoConsoleVariable<int32> CVarWTBRB7ValidationSpawnLowerPriorityActors(
+	TEXT("WTBR.B7ValidationSpawnLowerPriorityActors"),
+	0,
+	TEXT("[Dev] Set 1 together with the B7 validation spawn CVar to also spawn one "
+		 "dropped trigger and one BR ground item near the validation corpse container "
+		 "as lower-priority context-interact candidates. Authority only. Default 0 "
+		 "(disabled). Not compiled in Shipping builds."));
 #endif
 
 AWTBRGameMode::AWTBRGameMode()
@@ -443,35 +468,91 @@ void AWTBRGameMode::SpawnCorpseLootContainerForValidation_Authority()
 		*GetNameSafe(Pawn),
 		*Pawn->GetActorLocation().ToString());
 
+	// B7D: runtime-only match override so the corpse loot pickup RPC gates
+	// (IsInMatch + AllowsCorpseLoot/TriggerPickup/TriggerSwapDuringMatch) pass in
+	// the validation session. Applied here (once) — retries only re-enter before
+	// the pawn is found. Production defaults in source are unchanged.
+	if (CVarWTBRB7ValidationForceInMatchRules.GetValueOnGameThread() != 0)
+	{
+		if (AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>())
+		{
+			FWTBRMatchModeRules OverrideRules = WTBRGameState->GetCurrentMatchRules();
+			OverrideRules.bAllowCorpseLoot = true;
+			OverrideRules.bAllowTriggerPickup = true;
+			OverrideRules.bAllowTriggerSwapDuringMatch = true;
+			WTBRGameState->SetCurrentMatchRules(OverrideRules);
+			WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::InMatch);
+			UE_LOG(LogTemp, Log,
+				TEXT("B7Validation: Runtime match override applied — Phase=InMatch, corpse loot/trigger pickup/swap enabled (validation session only; production defaults unchanged)."));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("B7Validation: Runtime match override requested but WTBRGameState is missing."));
+		}
+	}
+
 	const FVector SpawnLocation = Pawn->GetActorLocation()
 		+ (Pawn->GetActorForwardVector() * 120.0f)
 		+ FVector(0.0f, 0.0f, 20.0f);
 
-	// Synthetic snapshots — non-null soft paths to non-existent validation assets,
-	// identical in pattern to WTBR.CorpseLoot automation test helpers. No real
-	// DataAsset is loaded; InitializeCorpseLootContainer only requires IsNull()==false
-	// to include an entry. Two slots (main 0, sub 4) give Entries=2 for validation.
-	TArray<FWTBRInstalledTriggerSlotSnapshot> SyntheticSnapshots;
+	// B7D: prefer the found character's real installed trigger snapshots so the
+	// loot pickup RPC can complete against loadable DataAssets. Fall back to the
+	// B7C synthetic non-existent validation paths when no installed trigger exists.
+	TArray<FWTBRInstalledTriggerSlotSnapshot> ValidationSnapshots;
+	if (const AWTBRCharacter* WTBRPawn = Cast<AWTBRCharacter>(Pawn))
 	{
+		if (IsValid(WTBRPawn->TriggerSetComponent))
+		{
+			TArray<FWTBRInstalledTriggerSlotSnapshot> InstalledSnapshots;
+			WTBRPawn->TriggerSetComponent->GetInstalledTriggerSlotSnapshots(InstalledSnapshots);
+			for (const FWTBRInstalledTriggerSlotSnapshot& Snapshot : InstalledSnapshots)
+			{
+				if (Snapshot.IsValid())
+				{
+					ValidationSnapshots.Add(Snapshot);
+					if (ValidationSnapshots.Num() >= 2)
+					{
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	if (ValidationSnapshots.Num() > 0)
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("B7Validation: Created snapshots from installed triggers (%d entries, first=%s). Spawn attempt at %s."),
+			ValidationSnapshots.Num(),
+			*ValidationSnapshots[0].DataAsset.ToSoftObjectPath().ToString(),
+			*SpawnLocation.ToString());
+	}
+	else
+	{
+		// Synthetic snapshots — non-null soft paths to non-existent validation assets,
+		// identical in pattern to WTBR.CorpseLoot automation test helpers. No real
+		// DataAsset is loaded; InitializeCorpseLootContainer only requires IsNull()==false
+		// to include an entry. Two slots (main 0, sub 4) give Entries=2 for validation.
 		FWTBRInstalledTriggerSlotSnapshot S0;
 		S0.SlotIndex = 0;
 		S0.DataAsset = TSoftObjectPtr<UWTBRTriggerDataAsset>(
 			FSoftObjectPath(TEXT("/Game/WTBR/Validation/B7_ValEntry_0.B7_ValEntry_0")));
 		S0.CachedCategory = ETriggerCategory::None;
-		SyntheticSnapshots.Add(S0);
+		ValidationSnapshots.Add(S0);
 
 		FWTBRInstalledTriggerSlotSnapshot S4;
 		S4.SlotIndex = 4;
 		S4.DataAsset = TSoftObjectPtr<UWTBRTriggerDataAsset>(
 			FSoftObjectPath(TEXT("/Game/WTBR/Validation/B7_ValEntry_4.B7_ValEntry_4")));
 		S4.CachedCategory = ETriggerCategory::None;
-		SyntheticSnapshots.Add(S4);
-	}
+		ValidationSnapshots.Add(S4);
 
-	UE_LOG(LogTemp, Log,
-		TEXT("B7Validation: Created synthetic snapshots (%d entries). Spawn attempt at %s."),
-		SyntheticSnapshots.Num(),
-		*SpawnLocation.ToString());
+		UE_LOG(LogTemp, Log,
+			TEXT("B7Validation: Created synthetic snapshots (%d entries). Spawn attempt at %s."),
+			ValidationSnapshots.Num(),
+			*SpawnLocation.ToString());
+	}
 
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
@@ -490,12 +571,73 @@ void AWTBRGameMode::SpawnCorpseLootContainerForValidation_Authority()
 		return;
 	}
 
-	Container->InitializeCorpseLootContainer(SyntheticSnapshots);
+	Container->InitializeCorpseLootContainer(ValidationSnapshots);
 
 	UE_LOG(LogTemp, Log,
 		TEXT("B7Validation: Corpse container spawned — Actor=%s Location=%s Entries=%d. Will replicate to all connected clients."),
 		*GetNameSafe(Container),
 		*SpawnLocation.ToString(),
 		Container->GetLootEntryCount());
+
+	// B7D: lower-priority context-interact candidates for the priority and
+	// non-mutation checks. Both use non-null soft paths to non-existent validation
+	// assets — presence and consumed-state are what the checks read; neither can be
+	// picked up into a slot/inventory, so they cannot mutate the character.
+	if (CVarWTBRB7ValidationSpawnLowerPriorityActors.GetValueOnGameThread() != 0)
+	{
+		// Dropped trigger: lateral offset from the pawn->container axis. Cone-based
+		// focus (dot >= 0.5 within trace range) still sees it when a client faces
+		// the container, so it is a live lower-priority candidate.
+		const FVector DroppedTriggerLocation = SpawnLocation + (Pawn->GetActorRightVector() * 100.0f);
+		AWTBRDroppedTriggerActor* DroppedTrigger = World->SpawnActor<AWTBRDroppedTriggerActor>(
+			AWTBRDroppedTriggerActor::StaticClass(),
+			DroppedTriggerLocation,
+			FRotator::ZeroRotator,
+			SpawnParams);
+		if (IsValid(DroppedTrigger))
+		{
+			DroppedTrigger->InitializeDroppedTrigger(
+				TSoftObjectPtr<UWTBRTriggerDataAsset>(
+					FSoftObjectPath(TEXT("/Game/WTBR/Validation/B7_LowerPrio_Dropped.B7_LowerPrio_Dropped"))),
+				0,
+				ETriggerCategory::None);
+			UE_LOG(LogTemp, Log,
+				TEXT("B7Validation: Lower-priority dropped trigger spawned — Actor=%s Location=%s."),
+				*GetNameSafe(DroppedTrigger),
+				*DroppedTriggerLocation.ToString());
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("B7Validation: Lower-priority dropped trigger spawn returned null at %s."),
+				*DroppedTriggerLocation.ToString());
+		}
+
+		// BR ground item: further along the pawn->container axis, in view behind
+		// the container.
+		const FVector GroundItemLocation = SpawnLocation + (Pawn->GetActorForwardVector() * 150.0f);
+		AWTBRGroundItemActor* GroundItem = World->SpawnActor<AWTBRGroundItemActor>(
+			AWTBRGroundItemActor::StaticClass(),
+			GroundItemLocation,
+			FRotator::ZeroRotator,
+			SpawnParams);
+		if (IsValid(GroundItem))
+		{
+			GroundItem->InitializeGroundItem(
+				TSoftObjectPtr<UWTBRItemDataAsset>(
+					FSoftObjectPath(TEXT("/Game/WTBR/Validation/B7_LowerPrio_GroundItem.B7_LowerPrio_GroundItem"))),
+				1);
+			UE_LOG(LogTemp, Log,
+				TEXT("B7Validation: Lower-priority ground item spawned — Actor=%s Location=%s."),
+				*GetNameSafe(GroundItem),
+				*GroundItemLocation.ToString());
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("B7Validation: Lower-priority ground item spawn returned null at %s."),
+				*GroundItemLocation.ToString());
+		}
+	}
 }
 #endif  // !UE_BUILD_SHIPPING
