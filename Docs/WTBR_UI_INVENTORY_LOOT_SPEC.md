@@ -39,12 +39,33 @@ Visual direction:
 - Avoid wood / metal / fantasy ornament frames.
 - Preserve center-screen gameplay readability.
 
+Final preferred in-match HUD placement:
+
+- Top-left: ALIVE / KILL / Kill Feed.
+- Top-center: ZONE / TIMER / Phase.
+- Top-right: Minimap.
+- Bottom-left: HP / VAEL.
+- Bottom-center: Main Trigger / Sub Trigger cards.
+- Bottom-right: Quick Item / Cancel.
+- Center screen: Crosshair / Interact Prompt / Hit Marker / Damage Feedback / Ping or Focus Marker.
+
+Placement rationale:
+
+- Moving minimap to top-right balances the HUD because HP/VAEL already occupies bottom-left.
+- Top-left should be reserved for fast match-state reading such as alive count, kill count, and kill feed.
+- Bottom-center remains best for Main/Sub Trigger combat readability.
+- Bottom-right remains best for Quick Item and Cancel/context actions.
+- Center screen must remain protected for combat visibility.
+- Final gameplay tuning may still adjust size, padding, and glow intensity after live combat readability testing.
+
 Mockup decisions to keep:
 
-- Top-center ALIVE / ZONE / timer bar.
-- Top-left minimap.
+- Top-left ALIVE / KILL / Kill Feed.
+- Top-center ZONE / TIMER / Phase bar.
+- Top-right minimap as the first implementation target.
 - Bottom-left HP / VAEL block.
 - Bottom-center Main Trigger and Sub Trigger cards.
+- Bottom-right Quick Item / Cancel placement.
 - Cyan vs orange split for Main/Sub identity.
 - Dark sci-fi translucent panel language.
 - Trigger card labels should clearly show input side, such as `LMB` / `RMB`, and trigger name.
@@ -61,7 +82,7 @@ Mockup decisions to adjust before implementation:
   - Critical: strong red/orange warning.
 - Cancel and Quick Item widgets should share the same frame/panel language as the rest of the HUD.
 - Reserve center screen for crosshair, interact prompt, hit marker, damage feedback, ping/focus marker.
-- Minimap may need slight size reduction or thinner frame for live gameplay.
+- Minimap human preference is now top-right for the first implementation target; it may still need slight size reduction or thinner frame for live gameplay.
 - HUD must not compete with target visibility during combat.
 
 HUD hierarchy:
