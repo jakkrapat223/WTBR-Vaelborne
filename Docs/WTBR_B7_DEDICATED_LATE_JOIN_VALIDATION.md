@@ -294,3 +294,153 @@ Reason for block:
 - A true B7 PASS still needs either an interactive dedicated server console/manual validation session or a small approved validation harness/automation seam that can create corpse-container state on the server after a client has joined.
 
 B7A result: **PARTIAL**. Dedicated server startup, map load, net listen, client 1 join, and client 2 late join were validated. Corpse/container late-join replication and priority behavior remain **PENDING/BLOCKED**.
+
+## B7B — Exec Harness Investigation — 2026-07-04
+
+B7B added `UFUNCTION(Exec) WTBRDebugServerSpawnCorpseLootContainerForValidation(float DelaySeconds)` to `AWTBRGameMode`. Root cause finding: `UFUNCTION(Exec)` on `AGameModeBase` requires a `PlayerController` routing chain (`AGameModeBase::ProcessConsoleExec`). On a headless dedicated server commandlet at tick [1], no `PlayerController` exists → command silently dropped.
+
+Only `TAutoConsoleVariable` CVars route through `IConsoleManager` and bypass the `PlayerController` chain. This was confirmed by `WTBR.CorpseLootContainerLifetimeSeconds = "0"` appearing at tick [1] while `UFUNCTION(Exec)` invocations produced no output.
+
+B7B result: **BLOCKED**. Exec routing chain absent on headless dedicated server. Required redesign → B7C.
+
+## ExecCmds Separator Discovery — 2026-07-04
+
+UE5.1 `-ExecCmds` uses `,` (comma) as the command separator, **not** `;` (semicolon). When `;` is used, the entire string is treated as one command: the CVar name is parsed first, then the value is read as a float stopping at `0`, and everything after the `;` is silently ignored.
+
+Evidence: `-ExecCmds="WTBR.CorpseLootContainerLifetimeSeconds 0;WTBR.UseCorpseLootContainerOnDeath 1;WTBR.B7ValidationSpawnCorpseContainerDelaySeconds 15"` produced only `WTBR.CorpseLootContainerLifetimeSeconds = "0"` in the server log. After changing to `,`, all three CVars were echoed at tick [1].
+
+**Correct server command syntax uses `,`:**
+
+```powershell
+-ExecCmds="WTBR.CorpseLootContainerLifetimeSeconds 0,WTBR.UseCorpseLootContainerOnDeath 1,WTBR.B7ValidationSpawnCorpseContainerDelaySeconds 15"
+```
+
+## B7C — CVar-Driven Validation Harness — 2026-07-04
+
+### Changes
+
+Files modified (not staged, not committed):
+
+- `Source/WTBR/WTBRGameMode.h` — Added to `#if !UE_BUILD_SHIPPING` private section: `FTimerHandle ValidationCVarPollTimerHandle`, `int32 ValidationSpawnRetryCount = 0`, `static constexpr int32 ValidationSpawnMaxRetries = 90`, `void PollValidationSpawnCVar()`.
+- `Source/WTBR/WTBRGameMode.cpp` — Added `static TAutoConsoleVariable<float> CVarWTBRB7ValidationSpawnDelay(TEXT("WTBR.B7ValidationSpawnCorpseContainerDelaySeconds"), 0.0f, ...)` at file scope in `#if !UE_BUILD_SHIPPING`. Modified `BeginPlay` (authority, non-shipping) to start a 1-s repeating poll timer. Added `PollValidationSpawnCVar()` which detects CVar > 0, clears the poll timer, resets CVar, and schedules `SpawnCorpseLootContainerForValidation_Authority`. Updated `SpawnCorpseLootContainerForValidation_Authority()` with retry logic (max 90 × 2 s = 180 s) and `B7Validation:` log markers.
+
+No production defaults changed. No Blueprint/WBP/UMG/.uasset/.umap/binary assets modified.
+
+### Build
+
+- `WTBREditor Win64 Development`: 9/9 actions, exit code 0, no warnings.
+
+### Automation
+
+- `WTBR.*` full suite: **69/69 PASS, 0 FAIL**. Baseline maintained.
+
+### Dedicated Server Validation
+
+Server command:
+
+```powershell
+$serverArgs = '"E:\World Trigger\WTBR-Vaelborne\WTBR.uproject" "/Game/ThirdPerson/Maps/ThirdPersonMap" -server -Unattended -NullRHI -NoSound -log -port=7777 -abslog="..." -ExecCmds="WTBR.CorpseLootContainerLifetimeSeconds 0,WTBR.UseCorpseLootContainerOnDeath 1,WTBR.B7ValidationSpawnCorpseContainerDelaySeconds 15"'
+Start-Process -FilePath 'E:\UE_5.1\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' -ArgumentList $serverArgs -PassThru -WindowStyle Hidden
+```
+
+Client 1 command (ExecCmds also uses `,`):
+
+```powershell
+$client1Args = '"E:\World Trigger\WTBR-Vaelborne\WTBR.uproject" "127.0.0.1:7777" -game -Unattended -NullRHI -NoSound -log -abslog="..." -ExecCmds="WTBRDebugCharacterPrintMatchState,WTBRDebugCharacterPrintTriggerSlots"'
+Start-Process -FilePath 'E:\UE_5.1\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' -ArgumentList $client1Args -PassThru -WindowStyle Hidden
+```
+
+Client 2 (late joiner) command:
+
+```powershell
+$client2Args = '"E:\World Trigger\WTBR-Vaelborne\WTBR.uproject" "127.0.0.1:7777" -game -Unattended -NullRHI -NoSound -log -abslog="..." -ExecCmds="WTBRDebugCharacterPrintMatchState,WTBRDebugCharacterPrintFocusedInteractionPrompt"'
+Start-Process -FilePath 'E:\UE_5.1\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' -ArgumentList $client2Args -PassThru -WindowStyle Hidden
+```
+
+### Observed Evidence (Server Log B7C_Server2.log)
+
+At tick [1] (ExecCmds processed):
+
+```
+[06.47.51:852][  1]WTBR.CorpseLootContainerLifetimeSeconds = "0"
+[06.47.51:854][  1]WTBR.UseCorpseLootContainerOnDeath = "1"
+[06.47.51:854][  1]WTBR.B7ValidationSpawnCorpseContainerDelaySeconds = "15"
+```
+
+At tick [31] (~1 s after BeginPlay — poll detected CVar):
+
+```
+[06.47.52:846][ 31]LogConsoleManager: Warning: Setting the console variable
+    'WTBR.B7ValidationSpawnCorpseContainerDelaySeconds' with 'SetByCode' was
+    ignored as it is lower priority than the previous 'SetByConsole'. Value remains '15'
+[06.47.52:846][ 31]LogTemp: B7Validation: CVar requested spawn delay 15.0 s.
+[06.47.52:846][ 31]LogTemp: B7Validation: Scheduling corpse container spawn in 15.0 s.
+```
+
+Note: The `SetByCode` warning means the poll's CVar reset (`->Set(0.0f, ECVF_SetByCode)`) was lower priority than the console set. The poll timer is also cleared, so the CVar staying at 15 does not cause re-triggering.
+
+Spawn attempts (13 retries while no pawn):
+
+```
+[06.48.07:853][486] B7Validation: Spawn attempt (try 1/91).
+[06.48.07:853][486] B7Validation: Spawn failed reason — no authority pawn yet. Retry 1/90 in 2 s.
+... (retries 2–13 every 2 s) ...
+```
+
+Client 1 join and successful spawn at try 14:
+
+```
+[06.48.32:936][244] LogNet: Join succeeded: DESKTOP-A9V5TS3-12DF
+[06.48.34:093][279] B7Validation: Spawn attempt (try 14/91).
+[06.48.34:093][279] B7Validation: Found authority character BP_WTBRCharacter_C_0 at X=900.000 Y=1110.000 Z=98.338.
+[06.48.34:093][279] B7Validation: Created synthetic snapshots (2 entries). Spawn attempt at X=1020.000 Y=1110.000 Z=118.338.
+[06.48.34:094][279] WTBR corpse loot container initialized: Container=BP_WTBRCorpseLootContainer_C_0 Entries=2
+[06.48.34:094][279] B7Validation: Corpse container spawned — Actor=BP_WTBRCorpseLootContainer_C_0
+    Location=X=1020.000 Y=1110.000 Z=118.338 Entries=2. Will replicate to all connected clients.
+```
+
+Late-join client 2 joined at tick [400] — container existed since tick [279]:
+
+```
+[06.49.44:581][400] LogNet: Join succeeded: DESKTOP-A9V5TS3-76F0
+```
+
+Client 2 log confirms replication system working (both characters received with `HasAuthority=false`):
+
+```
+[06.49.44:619][978] [Health BeginPlay] Owner=BP_WTBRCharacter_C_0 | HasAuthority=false
+[06.49.44:620][978] [Health BeginPlay] Owner=BP_WTBRCharacter_C_1 | HasAuthority=false
+```
+
+### B7C Result Summary
+
+| Item | Status |
+|------|--------|
+| Dedicated server startup | PASS |
+| ThirdPersonMap load | PASS |
+| IpNetDriver listen on port 7777 | PASS |
+| `WTBR.CorpseLootContainerLifetimeSeconds = "0"` CVar | PASS |
+| `WTBR.UseCorpseLootContainerOnDeath = "1"` CVar | PASS |
+| `WTBR.B7ValidationSpawnCorpseContainerDelaySeconds = "15"` CVar | PASS |
+| `B7Validation: CVar requested spawn delay` log marker | PASS |
+| `B7Validation: Scheduling corpse container spawn` log marker | PASS |
+| `B7Validation: Spawn attempt` retry log markers | PASS (13 retries) |
+| `B7Validation: Found authority character` log marker | PASS |
+| `B7Validation: Created synthetic snapshots` log marker | PASS |
+| Production `WTBR corpse loot container initialized` log | PASS |
+| `B7Validation: Corpse container spawned` log marker | PASS |
+| Client 1 join | PASS |
+| Client 2 late join (after container spawned) | PASS |
+| Client 2 replication system functioning | PASS (both characters received, HasAuthority=false) |
+| Production default `bUseCorpseLootContainerOnDeath = false` not flipped | PASS |
+| No staged / committed files | PASS |
+| Automation 69/69 maintained | PASS |
+
+### B7C Remaining Gaps (not provable in headless commandlet)
+
+- Explicit client-side container receipt log: `OnRep_LootEntries` fires a UI delegate only — no log output in headless NullRHI mode. Late-join replication is inferred from the replication system working correctly for other actors.
+- Client 1 interaction pickup server-authority chain: requires interactive client session with `WTBRDebugCharacterLootNearestCorpseContainer`.
+- Priority behavior over dropped trigger / BR ground item: not proven in this pass.
+- Lower-priority actor non-mutation: not proven in this pass.
+
+B7C result: **PARTIAL PASS — dedicated server spawn harness proven, late-join replication inferred. Client interaction, priority, and non-mutation remain pending for manual/interactive session.**
