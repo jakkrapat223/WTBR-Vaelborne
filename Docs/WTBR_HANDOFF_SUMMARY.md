@@ -7,7 +7,7 @@ Previous handoff baseline: b287b23 Update handoff after S8B
 Previous code baseline: c3dd314 Add S8B corpse container priority automation
 Latest supporting asset baseline: 36b599d Add interact input asset binding
 Status: B8 PASS / committed / pushed. Build PASS. `WTBR.CorpseLoot` PASS 27/27. `WTBR.Inventory` PASS 36/36. Full WTBR suite PASS 69/69. Dedicated smoke PASS.
-Automation confirmed: WTBR PASS 69/69 (36 Inventory + 27 CorpseLoot + 6 DroppedTrigger), run with `Automation RunTests WTBR;Quit`. S6 BR ground-item pickup and S7A dropped-trigger F interact were PIE/manually validated end-to-end; S7A-Auto added headless C++ automation for the dropped-trigger context interact, S7B added MainOnly/SubOnly dispatch coverage, S8A added branch-3 BR ground item context-interact automation, S8B added corpse/container priority automation, B7 passed dedicated late-join validation, and B8 enabled the corpse-container production default (see S7A-Auto / S7B / S8A / S8B / B7 / B8 sections).
+Automation confirmed: WTBR PASS 69/69 (36 Inventory + 27 CorpseLoot + 6 DroppedTrigger), run with `Automation RunTests WTBR;Quit`. S6 BR ground-item pickup and S7A dropped-trigger F interact were PIE/manually validated end-to-end; S7A-Auto added headless C++ automation for the dropped-trigger context interact, S7B added MainOnly/SubOnly dispatch coverage, S8A added branch-3 BR ground item context-interact automation, S8B added corpse/container priority automation, B7 passed dedicated late-join validation, and B8 enabled the corpse-container production default (see S7A-Auto / S7B / S8A / S8B / B7 / B8 sections). UI spec docs for Inventory / BR pickup / Loot / Quick Item / Drop flow now live in `Docs/WTBR_UI_INVENTORY_LOOT_SPEC.md`.
 
 Competitive multiplayer gameplay must remain server-authoritative. `Source/.claude/settings.local.json` or `.claude/settings.local.json` may exist as a local-only untracked file and must never be staged or committed. Binary assets (`.uasset`/`.png`) are tracked via Git LFS.
 
@@ -342,17 +342,31 @@ Validation:
 - Dedicated smoke: PASS (`ThirdPersonMap` loaded, `BP_WTBRGameMode_C`, `IpNetDriver` listening on port `7777`, `WTBR.UseCorpseLootContainerOnDeath = "-1" LastSetBy: Constructor`).
 - Committed and pushed as `84cda95`.
 
+### UI Spec — Inventory / Loot / Quick Item / Drop Flow — DOCS-ONLY / IN WORKING TREE
+
+Docs-only spec created in `Docs/WTBR_UI_INVENTORY_LOOT_SPEC.md`.
+
+Locked/spec'd behavior:
+
+- Bag / Inventory actions: LMB use consumables, LMB trigger equip/swap target selection, RMB full-slot/full-stack drop, drag outside drop, drag within Bag move/swap, `ESC`/`X` close.
+- Quick Item dialog: tap `QuickItemKey` opens radial, LMB uses selected consumable, RMB cancels/closes, no Drop action.
+- Drop MVP: always full slot/full stack, no amount dialog, RMB and drag-outside share the same request path.
+- Corpse/loot UI remains server-authoritative; UI never directly transfers loot.
+- UI-to-C++ request boundaries are provisional where not implemented.
+- Future UI automation test list documented.
+- No WBP/UMG/Blueprint/.uasset/.umap/binary assets were touched.
+
 ## Current Pending Work
 
-No inventory-foundation pass is in flight. The F-context dropped-trigger branch (S7A) and ground-item branch (S6) are complete; S7A-Auto + S7B provide headless automation for the dropped-trigger context interact, including MainOnly/SubOnly dispatch; S8A provides headless automation for BR ground item branch-3 context-interact routing and server-authoritative pickup/reject semantics; S8B provides corpse/container priority automation proving priority 1 beats dropped trigger and BR ground item candidates without mutating lower-priority targets. B7 passed dedicated late-join validation, and B8 enabled corpse-container backend production defaults.
+No inventory-foundation pass is in flight. The F-context dropped-trigger branch (S7A) and ground-item branch (S6) are complete; S7A-Auto + S7B provide headless automation for the dropped-trigger context interact, including MainOnly/SubOnly dispatch; S8A provides headless automation for BR ground item branch-3 context-interact routing and server-authoritative pickup/reject semantics; S8B provides corpse/container priority automation proving priority 1 beats dropped trigger and BR ground item candidates without mutating lower-priority targets. B7 passed dedicated late-join validation, and B8 enabled corpse-container backend production defaults. Inventory / BR pickup / Loot / Quick Item / Drop flow has a docs-only spec but no player-facing UI implementation yet.
 
-**Next recommended milestone after B8:**
+**Next recommended milestone after UI spec:**
 
-1. UI spec pass for Inventory / BR pickup / Loot / Quick Item / Drop flow — documentation-only first; no WBP/UMG/Blueprint/assets yet.
+1. Human review of `Docs/WTBR_UI_INVENTORY_LOOT_SPEC.md`.
 2. Decide whether to keep or discard the untracked ThirdPersonMap external-actor test asset.
 3. Generic interactable interface / branch-4 design pass.
-4. Later: full BR inventory / drop UI implementation after docs/spec pass.
-5. Later: polish dedicated/PIE transport validation for ground item / corpse interaction RPC paths as the UI matures.
+4. Later: full BR inventory / loot / quick item / drop UI implementation after docs/spec approval.
+5. Later: add UI automation for the documented request boundaries.
 
 F context priority (current status):
 
@@ -393,7 +407,7 @@ F context priority (current status):
 
 - Pass F smoke audit.
 - Real interact implementation: Q/E hold wheel UI and generic interactable branch remain; corpse loot, dropped trigger, and BR ground item context branches are wired.
-- Inventory / BR pickup / loot / quick item / drop UI spec pass (docs-only first).
+- Review and approve Inventory / BR pickup / loot / quick item / drop UI spec.
 - Loot UI implementation after docs/spec approval.
 - Match flow.
 - Composite input/UI.
@@ -500,7 +514,7 @@ Important current state:
 - Generic interactable branch is pending interface pass (still parked).
 - Corpse/container priority 1 is covered by S8B automation against dropped trigger and BR ground item candidates.
 - B7 passed dedicated late-join validation, and B8 enabled corpse-container backend production defaults.
-- Player-facing inventory / BR pickup / loot / quick item / drop UI is still separate and not implemented yet.
+- Player-facing inventory / BR pickup / loot / quick item / drop UI is still separate and not implemented yet; docs-only spec exists at `Docs/WTBR_UI_INVENTORY_LOOT_SPEC.md`.
 - Dev-only diagnostics available: WTBRDebugCharacterPrintTriggerSlots, WTBRDebugCharacterListNearbyDroppedTriggers, SpawnLegacyDroppedTriggers_Internal silent-return logs (all non-shipping guarded).
 - AWTBRGroundItemActor exists, with a query-only Visibility-trace interaction collision; ItemData/Quantity are EditInstanceOnly.
 - Server_RequestPickupGroundItem / Server_RequestUseInventoryItem / RestoreHP / UWTBRInventoryComponent exist.
@@ -511,12 +525,12 @@ Optional cleanup available:
 - [WTBR Interact] logs are plain Log verbosity; could be gated behind Verbose/CVar/#if !UE_BUILD_SHIPPING.
 - Decide version-control for the one remaining uncommitted ThirdPersonMap external-actor .uasset (placed ground item).
 
-Start next with the recommended post-B8 milestone:
-1. UI spec pass for Inventory / BR pickup / Loot / Quick Item / Drop flow - documentation-only first; no WBP/UMG/Blueprint/assets yet.
+Start next with the recommended post-spec milestone:
+1. Human review of Docs/WTBR_UI_INVENTORY_LOOT_SPEC.md.
 2. Decide whether to keep or discard the untracked ThirdPersonMap external-actor test asset.
 3. Generic interactable interface / branch-4 design pass.
-4. Later: full BR inventory / drop UI implementation after docs/spec pass.
-5. Later: polish dedicated/PIE transport validation for ground item / corpse interaction RPC paths as the UI matures.
+4. Later: full BR inventory / loot / quick item / drop UI implementation after docs/spec approval.
+5. Later: add UI automation for the documented request boundaries.
 Keep gameplay server-authoritative and run WTBR automation after changes.
 ```
 
