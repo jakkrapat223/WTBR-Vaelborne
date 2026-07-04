@@ -16,6 +16,90 @@ Status:
 - B8 is complete: corpse loot container backend is now production-default enabled through `MatchModeRules`.
 - Player-facing UI is still separate work and not implemented yet.
 
+## Human Review Addendum - In-match HUD Visual Direction
+
+Status:
+
+- Human-provided in-match HUD mockup direction is approved as the initial visual target.
+- This addendum records visual direction only.
+- This does not approve WBP/UMG/Blueprint/.uasset/.umap implementation work.
+- Actual UI implementation requires a later human-approved UI Implementation pass.
+
+Visual direction:
+
+- Tactical sci-fi battle royale HUD.
+- Dark translucent glass panels.
+- Cyan / teal Vael energy accent.
+- Main Trigger identity = cyan / blue.
+- Sub Trigger identity = orange / red.
+- Thin angular sci-fi frames.
+- Minimal glow by default.
+- Strong glow only for active, warning, critical, or interactable states.
+- Avoid medieval fantasy styling.
+- Avoid wood / metal / fantasy ornament frames.
+- Preserve center-screen gameplay readability.
+
+Mockup decisions to keep:
+
+- Top-center ALIVE / ZONE / timer bar.
+- Top-left minimap.
+- Bottom-left HP / VAEL block.
+- Bottom-center Main Trigger and Sub Trigger cards.
+- Cyan vs orange split for Main/Sub identity.
+- Dark sci-fi translucent panel language.
+- Trigger card labels should clearly show input side, such as `LMB` / `RMB`, and trigger name.
+- VAEL should remain visually distinct from HP.
+
+Mockup decisions to adjust before implementation:
+
+- Reduce Main/Sub trigger card size by around 10-20% from the mockup.
+- Reduce idle glow intensity.
+- LOW VAEL should not show constantly.
+- Define LOW VAEL states:
+  - Normal: no LOW VAEL warning.
+  - Warning: subtle icon/text.
+  - Critical: strong red/orange warning.
+- Cancel and Quick Item widgets should share the same frame/panel language as the rest of the HUD.
+- Reserve center screen for crosshair, interact prompt, hit marker, damage feedback, ping/focus marker.
+- Minimap may need slight size reduction or thinner frame for live gameplay.
+- HUD must not compete with target visibility during combat.
+
+HUD hierarchy:
+
+Tier 1 - must be readable immediately:
+
+- HP.
+- VAEL.
+- Main Trigger.
+- Sub Trigger.
+- Crosshair / interact prompt.
+
+Tier 2 - checked occasionally:
+
+- ALIVE count.
+- ZONE.
+- Timer.
+- Minimap.
+
+Tier 3 - contextual only:
+
+- Quick item.
+- Cancel prompt.
+- Loot panel.
+- Corpse container panel.
+- Drop prompt.
+- Move/swap hint.
+
+Implementation note:
+
+- This visual direction is documentation/spec only.
+- No WBP/UMG/Blueprint/.uasset/.umap work is approved by this addendum.
+- No UI is implemented in this pass.
+- Gameplay remains server-authoritative.
+- Client UI must not mutate inventory, slots, loot, ground items, or dropped triggers directly.
+- UI sends request only; server validates and mutates authoritative state; UI refreshes from replicated state.
+- Do not hardcode physical key F in gameplay logic.
+
 ## Non-Goals
 
 - No WBP/UMG widget creation.
