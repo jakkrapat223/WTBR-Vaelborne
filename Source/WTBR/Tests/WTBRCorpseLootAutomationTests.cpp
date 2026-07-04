@@ -10,9 +10,14 @@
 #include "GameFramework/Actor.h"
 #include "HAL/IConsoleManager.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
+#include "Interaction/WTBRDroppedTriggerActor.h"
+#include "Inventory/WTBRGroundItemActor.h"
+#include "Inventory/WTBRItemDataAsset.h"
+#include "Inventory/WTBRInventoryComponent.h"
 #include "Components/WTBRInteractionComponent.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
+#include "WTBRCharacter.h"
 
 // -----------------------------------------------------------------------------
 // Corpse Loot Automation Tests
@@ -133,6 +138,78 @@ namespace
                 FVector::ZeroVector,
                 FRotator::ZeroRotator)
             : nullptr;
+    }
+
+    AWTBRCharacter* SpawnCorpsePriorityTestCharacter(UWorld* World, const FVector& Loc = FVector::ZeroVector)
+    {
+        if (!World) return nullptr;
+
+        FActorSpawnParameters Params;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        return World->SpawnActor<AWTBRCharacter>(
+            AWTBRCharacter::StaticClass(), Loc, FRotator::ZeroRotator, Params);
+    }
+
+    AWTBRDroppedTriggerActor* SpawnCorpsePriorityTestDroppedTrigger(
+        UWorld* World, const TSoftObjectPtr<UWTBRTriggerDataAsset>& DataAsset, const FVector& Loc)
+    {
+        if (!World) return nullptr;
+
+        AWTBRDroppedTriggerActor* Dropped = World->SpawnActor<AWTBRDroppedTriggerActor>(
+            AWTBRDroppedTriggerActor::StaticClass(), Loc, FRotator::ZeroRotator);
+        if (Dropped)
+        {
+            Dropped->InitializeDroppedTrigger(DataAsset, /*SourceSlotIndex*/ 0, ETriggerCategory::Melee);
+        }
+        return Dropped;
+    }
+
+    UWTBRItemDataAsset* MakeCorpsePriorityGroundItemTestAsset()
+    {
+        UWTBRItemDataAsset* Item = NewObject<UWTBRItemDataAsset>(GetTransientPackage());
+        Item->MaxStackSize = 4;
+        Item->ItemType = EWTBRItemType::Consumable;
+        return Item;
+    }
+
+    AWTBRGroundItemActor* SpawnCorpsePriorityGroundItem(
+        UWorld* World, const TSoftObjectPtr<UWTBRItemDataAsset>& ItemData, int32 Quantity, const FVector& Loc)
+    {
+        if (!World) return nullptr;
+
+        AWTBRGroundItemActor* GroundItem = World->SpawnActor<AWTBRGroundItemActor>(
+            AWTBRGroundItemActor::StaticClass(), Loc, FRotator::ZeroRotator);
+        if (GroundItem)
+        {
+            GroundItem->InitializeGroundItem(ItemData, Quantity);
+        }
+        return GroundItem;
+    }
+
+    FVector CorpsePriorityTestInFrontOfEyes(const AWTBRCharacter* Character, float Distance)
+    {
+        FVector EyeLoc = FVector::ZeroVector;
+        FRotator EyeRot = FRotator::ZeroRotator;
+        Character->GetActorEyesViewPoint(EyeLoc, EyeRot);
+        return EyeLoc + EyeRot.Vector() * Distance;
+    }
+
+    int32 CountFilledInventorySlots(const UWTBRInventoryComponent* Comp)
+    {
+        int32 Filled = 0;
+        if (!Comp)
+        {
+            return Filled;
+        }
+
+        for (const FWTBRInventorySlot& Slot : Comp->GetInventorySlots())
+        {
+            if (!Slot.IsEmpty())
+            {
+                ++Filled;
+            }
+        }
+        return Filled;
     }
 
     void TickTransientWorld(UWorld* World, float TotalSeconds, float StepSeconds = 0.05f)
@@ -1327,6 +1404,189 @@ bool FWTBRContextInteractLootEntriesUnchangedTest::RunTest(const FString& /*Para
     TestEqual(TEXT("Entry 1 validity unchanged"), Container->IsEntryValidForPickup(1), bEntry1ValidBefore);
     TestEqual(TEXT("HasAvailableLoot unchanged"), Container->HasAvailableLootEntries(), bHasAvailableBefore);
 
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRContextInteractCorpsePriorityBeatsDroppedTriggerTest,
+    "WTBR.CorpseLoot.ContextInteract.Priority.BeatsDroppedTrigger",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRContextInteractCorpsePriorityBeatsDroppedTriggerTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpsePriority_BeatsDropped"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCharacter* Character = SpawnCorpsePriorityTestCharacter(World);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!Character || !Character->InteractionComponent) return false;
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse container spawns"), Container);
+    if (!Container) return false;
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("PriorityCorpseBeatsDropped")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+    Character->InteractionComponent->SetFocusedCorpseLootContainerOverrideForTest(Container);
+
+    AWTBRDroppedTriggerActor* Dropped = SpawnCorpsePriorityTestDroppedTrigger(
+        World,
+        MakeSoftTriggerRef(TEXT("PriorityDroppedCandidate")),
+        CorpsePriorityTestInFrontOfEyes(Character, 150.0f));
+    TestNotNull(TEXT("Dropped trigger candidate spawns"), Dropped);
+    if (!Dropped) return false;
+
+    const int32 EntryCountBefore = Container->GetLootEntryCount();
+    const bool bContainerAvailableBefore = Container->HasAvailableLootEntries();
+
+    const bool bHandled = Character->InteractionComponent->RequestContextInteract();
+
+    TestTrue(TEXT("Context interact handled by priority-1 corpse/container focus"), bHandled);
+    TestEqual(TEXT("Corpse container entry count unchanged"), Container->GetLootEntryCount(), EntryCountBefore);
+    TestEqual(TEXT("Corpse container availability unchanged"), Container->HasAvailableLootEntries(), bContainerAvailableBefore);
+    TestTrue(TEXT("Dropped trigger remains valid when priority 1 wins"), IsValid(Dropped));
+    if (IsValid(Dropped))
+    {
+        TestFalse(TEXT("Dropped trigger remains unconsumed when priority 1 wins"), Dropped->IsConsumed());
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRContextInteractCorpsePriorityBeatsGroundItemTest,
+    "WTBR.CorpseLoot.ContextInteract.Priority.BeatsGroundItem",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRContextInteractCorpsePriorityBeatsGroundItemTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpsePriority_BeatsGround"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCharacter* Character = SpawnCorpsePriorityTestCharacter(World);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!Character || !Character->InteractionComponent || !Character->InventoryComponent) return false;
+    Character->InventoryComponent->InitializeServerInventory();
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse container spawns"), Container);
+    if (!Container) return false;
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("PriorityCorpseBeatsGround")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+    Character->InteractionComponent->SetFocusedCorpseLootContainerOverrideForTest(Container);
+
+    UWTBRItemDataAsset* Item = MakeCorpsePriorityGroundItemTestAsset();
+    TestNotNull(TEXT("Ground item data asset created"), Item);
+    if (!Item) return false;
+
+    AWTBRGroundItemActor* GroundItem = SpawnCorpsePriorityGroundItem(
+        World,
+        TSoftObjectPtr<UWTBRItemDataAsset>(Item),
+        2,
+        FVector::ZeroVector);
+    TestNotNull(TEXT("Ground item candidate spawns"), GroundItem);
+    if (!GroundItem) return false;
+    Character->InteractionComponent->SetFocusedGroundItemOverrideForTest(GroundItem);
+
+    const int32 FilledSlotsBefore = CountFilledInventorySlots(Character->InventoryComponent);
+    const bool bGroundConsumedBefore = GroundItem->IsConsumed();
+
+    const bool bHandled = Character->InteractionComponent->RequestContextInteract();
+
+    TestTrue(TEXT("Context interact handled by priority-1 corpse/container focus"), bHandled);
+    TestEqual(TEXT("Inventory slot count unchanged when priority 1 wins"),
+        CountFilledInventorySlots(Character->InventoryComponent), FilledSlotsBefore);
+    TestTrue(TEXT("Ground item remains valid when priority 1 wins"), IsValid(GroundItem));
+    if (IsValid(GroundItem))
+    {
+        TestEqual(TEXT("Ground item consumed state unchanged when priority 1 wins"),
+            GroundItem->IsConsumed(), bGroundConsumedBefore);
+    }
+    TestTrue(TEXT("Corpse container still has available loot entries"), Container->HasAvailableLootEntries());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRContextInteractCorpsePriorityDoesNotMutateLowerTargetsTest,
+    "WTBR.CorpseLoot.ContextInteract.Priority.DoesNotMutateLowerPriorityTargets",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRContextInteractCorpsePriorityDoesNotMutateLowerTargetsTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTransientWorldFixture WorldFixture(TEXT("WTBR_CorpsePriority_NoLowerMutation"));
+    UWorld* World = WorldFixture.GetWorld();
+    TestNotNull(TEXT("Transient world available"), World);
+    if (!World) return false;
+
+    AWTBRCharacter* Character = SpawnCorpsePriorityTestCharacter(World);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!Character || !Character->InteractionComponent || !Character->InventoryComponent || !Character->TriggerSetComponent) return false;
+    Character->InventoryComponent->InitializeServerInventory();
+
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(World);
+    TestNotNull(TEXT("Corpse container spawns"), Container);
+    if (!Container) return false;
+
+    TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+    Snapshots.Add(MakeInstalledTriggerSnapshot(0, TEXT("PriorityCorpseNoLowerMutation")));
+    Container->InitializeCorpseLootContainer(Snapshots);
+    Character->InteractionComponent->SetFocusedCorpseLootContainerOverrideForTest(Container);
+
+    AWTBRDroppedTriggerActor* Dropped = SpawnCorpsePriorityTestDroppedTrigger(
+        World,
+        MakeSoftTriggerRef(TEXT("PriorityLowerDroppedCandidate")),
+        CorpsePriorityTestInFrontOfEyes(Character, 150.0f));
+    TestNotNull(TEXT("Dropped trigger candidate spawns"), Dropped);
+    if (!Dropped) return false;
+
+    UWTBRItemDataAsset* Item = MakeCorpsePriorityGroundItemTestAsset();
+    TestNotNull(TEXT("Ground item data asset created"), Item);
+    if (!Item) return false;
+
+    AWTBRGroundItemActor* GroundItem = SpawnCorpsePriorityGroundItem(
+        World,
+        TSoftObjectPtr<UWTBRItemDataAsset>(Item),
+        2,
+        FVector::ZeroVector);
+    TestNotNull(TEXT("Ground item candidate spawns"), GroundItem);
+    if (!GroundItem) return false;
+    Character->InteractionComponent->SetFocusedGroundItemOverrideForTest(GroundItem);
+
+    const int32 FilledSlotsBefore = CountFilledInventorySlots(Character->InventoryComponent);
+    const int32 ActiveMainBefore = Character->TriggerSetComponent->GetActiveMainIndex();
+    const int32 ActiveSubBefore = Character->TriggerSetComponent->GetActiveSubIndex();
+    const bool bDroppedConsumedBefore = Dropped->IsConsumed();
+    const bool bGroundConsumedBefore = GroundItem->IsConsumed();
+    const int32 EntryCountBefore = Container->GetLootEntryCount();
+    const bool bContainerAvailableBefore = Container->HasAvailableLootEntries();
+
+    const bool bHandled = Character->InteractionComponent->RequestContextInteract();
+
+    TestTrue(TEXT("Context interact handled by priority-1 corpse/container focus"), bHandled);
+    TestEqual(TEXT("Inventory unchanged; ground item branch did not run"),
+        CountFilledInventorySlots(Character->InventoryComponent), FilledSlotsBefore);
+    TestEqual(TEXT("Active main index unchanged; dropped trigger branch did not mutate slots"),
+        Character->TriggerSetComponent->GetActiveMainIndex(), ActiveMainBefore);
+    TestEqual(TEXT("Active sub index unchanged; dropped trigger branch did not mutate slots"),
+        Character->TriggerSetComponent->GetActiveSubIndex(), ActiveSubBefore);
+    TestEqual(TEXT("Corpse container entry count unchanged"), Container->GetLootEntryCount(), EntryCountBefore);
+    TestEqual(TEXT("Corpse container availability unchanged"), Container->HasAvailableLootEntries(), bContainerAvailableBefore);
+    TestTrue(TEXT("Dropped trigger remains valid"), IsValid(Dropped));
+    if (IsValid(Dropped))
+    {
+        TestEqual(TEXT("Dropped trigger consumed state unchanged"), Dropped->IsConsumed(), bDroppedConsumedBefore);
+    }
+    TestTrue(TEXT("Ground item remains valid"), IsValid(GroundItem));
+    if (IsValid(GroundItem))
+    {
+        TestEqual(TEXT("Ground item consumed state unchanged"), GroundItem->IsConsumed(), bGroundConsumedBefore);
+    }
     return true;
 }
 

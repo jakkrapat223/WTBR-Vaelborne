@@ -106,7 +106,7 @@ namespace
         return GameState;
     }
 
-    AWTBRCharacter* SpawnCharacter(UWorld* World, const FVector& Loc)
+    AWTBRCharacter* SpawnGroundItemTestCharacter(UWorld* World, const FVector& Loc)
     {
         if (!World) return nullptr;
         FActorSpawnParameters Params;
@@ -122,7 +122,7 @@ namespace
         return Asset;
     }
 
-    AWTBRDroppedTriggerActor* SpawnDroppedTrigger(
+    AWTBRDroppedTriggerActor* SpawnGroundItemTestDroppedTrigger(
         UWorld* World, const TSoftObjectPtr<UWTBRTriggerDataAsset>& DataAsset, const FVector& Loc)
     {
         if (!World) return nullptr;
@@ -155,7 +155,7 @@ namespace
         return Container;
     }
 
-    FVector InFrontOfEyes(const AWTBRCharacter* Character, float Distance)
+    FVector GroundItemTestInFrontOfEyes(const AWTBRCharacter* Character, float Distance)
     {
         FVector EyeLoc = FVector::ZeroVector;
         FRotator EyeRot = FRotator::ZeroRotator;
@@ -260,7 +260,7 @@ bool FWTBRPickupValidAddsAndConsumesTest::RunTest(const FString& /*Parameters*/)
     if (!GameState) return false;
     TestTrue(TEXT("GameState registered as world GameState"), World->GetGameState<AWTBRGameState>() == GameState);
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
@@ -295,7 +295,7 @@ bool FWTBRPickupFullInventoryRejectsTest::RunTest(const FString& /*Parameters*/)
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent) return false;
 
@@ -334,7 +334,7 @@ bool FWTBRPickupAlreadyConsumedTest::RunTest(const FString& /*Parameters*/)
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
@@ -369,7 +369,7 @@ bool FWTBRPickupNullGroundItemTest::RunTest(const FString& /*Parameters*/)
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
@@ -394,7 +394,7 @@ bool FWTBRPickupNullItemDataTest::RunTest(const FString& /*Parameters*/)
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
@@ -427,7 +427,7 @@ bool FWTBRPickupNonPositiveQuantityTest::RunTest(const FString& /*Parameters*/)
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
@@ -460,7 +460,7 @@ bool FWTBRPickupDistanceGateTest::RunTest(const FString& /*Parameters*/)
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
@@ -494,7 +494,7 @@ bool FWTBRPickupDoesNotMutateTriggerSetTest::RunTest(const FString& /*Parameters
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent || !Character->TriggerSetComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
@@ -535,7 +535,7 @@ bool FWTBRContextGroundItemBranchPicksUpTest::RunTest(const FString& /*Parameter
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent || !Character->InteractionComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
@@ -578,7 +578,7 @@ bool FWTBRContextGroundItemBranchFullInventoryTest::RunTest(const FString& /*Par
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent || !Character->InteractionComponent) return false;
 
@@ -626,7 +626,7 @@ bool FWTBRContextGroundItemBranchDroppedPriorityTest::RunTest(const FString& /*P
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent || !Character->InteractionComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
@@ -639,8 +639,8 @@ bool FWTBRContextGroundItemBranchDroppedPriorityTest::RunTest(const FString& /*P
     Character->InteractionComponent->SetFocusedGroundItemOverrideForTest(GroundItem);
 
     TStrongObjectPtr<UWTBRTriggerDataAsset> DroppedAsset(MakeTriggerTestAsset(ETriggerSlotConstraint::Any));
-    AWTBRDroppedTriggerActor* Dropped = SpawnDroppedTrigger(
-        World, TSoftObjectPtr<UWTBRTriggerDataAsset>(DroppedAsset.Get()), InFrontOfEyes(Character, 150.0f));
+    AWTBRDroppedTriggerActor* Dropped = SpawnGroundItemTestDroppedTrigger(
+        World, TSoftObjectPtr<UWTBRTriggerDataAsset>(DroppedAsset.Get()), GroundItemTestInFrontOfEyes(Character, 150.0f));
     TestNotNull(TEXT("Dropped trigger spawns"), Dropped);
     if (!Dropped) return false;
 
@@ -676,7 +676,7 @@ bool FWTBRContextGroundItemBranchCorpsePriorityTest::RunTest(const FString& /*Pa
     TestNotNull(TEXT("GameState spawns"), GameState);
     if (!GameState) return false;
 
-    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Character = SpawnGroundItemTestCharacter(World, FVector::ZeroVector);
     TestNotNull(TEXT("Character spawns"), Character);
     if (!Character || !Character->InventoryComponent || !Character->InteractionComponent) return false;
     Character->InventoryComponent->InitializeServerInventory();
