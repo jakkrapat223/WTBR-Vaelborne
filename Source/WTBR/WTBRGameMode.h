@@ -27,6 +27,20 @@ public:
 	UFUNCTION(Exec)
 	void WTBRDebugPrintTriggerLoadoutGate() const;
 
+	// B7 validation harness: spawn a corpse loot container with synthetic entries.
+	// Dev/test-only (disabled in Shipping). Safe to call before or after players
+	// join. Pass DelaySeconds > 0 to schedule via timer so the pawn is available
+	// when the spawn fires (useful with -ExecCmds). Does not change production
+	// defaults or normal gameplay behavior.
+	UFUNCTION(Exec)
+	void WTBRDebugServerSpawnCorpseLootContainerForValidation(float DelaySeconds = 0.0f);
+
+	// B7 validation harness: print all AWTBRCorpseLootContainerActor in the world
+	// with actor name, location, authority state, entry count, and available loot.
+	// Dev/test-only (disabled in Shipping).
+	UFUNCTION(Exec)
+	void WTBRDebugServerPrintCorpseLootContainers() const;
+
 	TSubclassOf<AWTBRCorpseLootContainerActor> GetCorpseLootContainerClass() const;
 
 protected:
@@ -48,6 +62,17 @@ private:
 	FWTBRMatchModeRules ResolveDefaultMatchRules() const;
 	static FWTBRMatchModeRules MakeDefaultRulesForMode(EWTBRMatchMode MatchMode);
 	static bool TryParseDebugMatchPhase(const FString& PhaseName, EWTBRMatchPhase& OutPhase);
+
+#if !UE_BUILD_SHIPPING
+	FTimerHandle ValidationSpawnTimerHandle;
+	FTimerHandle ValidationCVarPollTimerHandle;
+	int32 ValidationSpawnRetryCount = 0;
+	// 90 retries × 2 s = 180 s (3 min). Covers the window between the scheduled
+	// spawn attempt and late-joining clients in the commandlet validation setup.
+	static constexpr int32 ValidationSpawnMaxRetries = 90;
+	void PollValidationSpawnCVar();
+	void SpawnCorpseLootContainerForValidation_Authority();
+#endif
 };
 
 
