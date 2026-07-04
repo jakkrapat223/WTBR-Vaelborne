@@ -90,6 +90,33 @@ FText UWTBRInteractionComponent::GetFocusedInteractionPromptText() const
     return FocusedContainer->GetInteractionPromptText();
 }
 
+bool UWTBRInteractionComponent::HasValidFocusedInteractable() const
+{
+    const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(OwnerCharacter))
+    {
+        return false;
+    }
+
+    const AWTBRCorpseLootContainerActor* FocusedContainer = GetFocusedCorpseLootContainer();
+    if (IsValid(FocusedContainer) && FocusedContainer->CanBeInteractedWithBy(OwnerCharacter))
+    {
+        return true;
+    }
+
+    if (IsValid(GetFocusedDroppedTrigger()))
+    {
+        return true;
+    }
+
+    if (IsValid(GetFocusedGroundItem()))
+    {
+        return true;
+    }
+
+    return false;
+}
+
 bool UWTBRInteractionComponent::RequestCorpseLootInteract()
 {
     const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());

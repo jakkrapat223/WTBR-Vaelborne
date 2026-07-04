@@ -19,6 +19,7 @@ class UWTBRMovementExtComponent;
 class UWTBRInputGestureComponent;
 class UWTBRInteractionComponent;
 class UWTBRInventoryComponent;
+class UWTBRHUDViewModelComponent;
 class UTexture2D;
 class AWTBRDroppedTriggerActor;
 class AWTBRCorpseLootContainerActor;
@@ -132,6 +133,9 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
     TObjectPtr<UWTBRInventoryComponent> InventoryComponent;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
+    TObjectPtr<UWTBRHUDViewModelComponent> HUDViewModelComponent;
+
     UPROPERTY(BlueprintAssignable, Category="WTBR | HUD")
     FWTBRHUDHintsChanged OnHUDHintsChanged;
 
@@ -185,6 +189,21 @@ public:
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     float GetActiveSubTriggerEffectiveVaelCostForHUD() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
+    UInputMappingContext* GetDefaultMappingContext() const { return DefaultMappingContext; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
+    UInputAction* GetFireMainInputAction() const { return FireMainAction; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
+    UInputAction* GetFireSubInputAction() const { return FireSubAction; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
+    UInputAction* GetInteractInputAction() const { return InteractAction; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    UWTBRHUDViewModelComponent* GetHUDViewModelComponent() const { return HUDViewModelComponent; }
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     FText GetSwitchMainHintText() const;

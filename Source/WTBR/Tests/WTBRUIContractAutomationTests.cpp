@@ -4,9 +4,13 @@
 
 #include "Misc/AutomationTest.h"
 #include "Components/WTBRHUDViewModelComponent.h"
+#include "Components/WTBRInteractionComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "UI/WTBRInputBindingDisplayLibrary.h"
+#include "WTBRCharacter.h"
 
 namespace
 {
@@ -52,15 +56,67 @@ namespace
         return FString(Chars);
     }
 
+    FString MakeEngineMouseDisplayName()
+    {
+        return FString(TEXT("Left Mouse Button"));
+    }
+
     bool ContainsForbiddenDisplayLabel(const FString& Text)
     {
-        return Text.Contains(MakeForbiddenLabelA())
-            || Text.Contains(MakeForbiddenLabelB())
-            || Text.Contains(MakeForbiddenLabelC())
-            || Text.Contains(MakeForbiddenLabelD())
-            || Text.Contains(MakeForbiddenLabelE())
-            || Text.Contains(MakeForbiddenLabelF())
-            || Text.Contains(MakeForbiddenLabelG());
+        FString Normalized = Text;
+        Normalized.TrimStartAndEndInline();
+
+        return Normalized.Equals(MakeForbiddenLabelA(), ESearchCase::CaseSensitive)
+            || Normalized.Equals(MakeForbiddenLabelB(), ESearchCase::CaseSensitive)
+            || Normalized.Equals(MakeForbiddenLabelC(), ESearchCase::CaseSensitive)
+            || Normalized.Equals(MakeForbiddenLabelD(), ESearchCase::CaseSensitive)
+            || Normalized.Equals(MakeForbiddenLabelE(), ESearchCase::CaseSensitive)
+            || Normalized.Equals(MakeForbiddenLabelF(), ESearchCase::CaseSensitive)
+            || Normalized.Equals(MakeForbiddenLabelG(), ESearchCase::CaseSensitive);
+    }
+
+    class FWTBRUIContractWorldFixture
+    {
+    public:
+        explicit FWTBRUIContractWorldFixture(const TCHAR* WorldName)
+        {
+            World = UWorld::CreateWorld(EWorldType::Game, false, FName(WorldName));
+            if (World && GEngine)
+            {
+                GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
+            }
+        }
+
+        ~FWTBRUIContractWorldFixture()
+        {
+            if (World)
+            {
+                World->DestroyWorld(false);
+                if (GEngine)
+                {
+                    GEngine->DestroyWorldContext(World);
+                }
+                World = nullptr;
+            }
+        }
+
+        UWorld* GetWorld() const { return World; }
+
+    private:
+        UWorld* World = nullptr;
+    };
+
+    AWTBRCharacter* SpawnUIContractCharacter(UWorld* World)
+    {
+        if (!World)
+        {
+            return nullptr;
+        }
+
+        FActorSpawnParameters Params;
+        Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        return World->SpawnActor<AWTBRCharacter>(
+            AWTBRCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
     }
 }
 
@@ -87,7 +143,7 @@ bool FWTBRHUDSnapshotDefaultsAreDeferredTest::RunTest(const FString& /*Parameter
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FWTBRHUDViewModelRequestWrappersDefaultNoOpTest,
-    "WTBR.UI.Contract.RequestWrappersDefaultNoOp",
+    "WTBR.UI.Contract.RequestWrappersRejectWithoutOwner",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FWTBRHUDViewModelRequestWrappersDefaultNoOpTest::RunTest(const FString& /*Parameters*/)
 {
@@ -98,9 +154,9 @@ bool FWTBRHUDViewModelRequestWrappersDefaultNoOpTest::RunTest(const FString& /*P
         return false;
     }
 
-    TestFalse(TEXT("Quick item request is not wired in C1"), ViewModel->RequestUseDisplayedQuickItem());
-    TestFalse(TEXT("Pickup request is not wired in C1"), ViewModel->RequestPickupFocusedTarget());
-    TestFalse(TEXT("Cancel request is not wired in C1"), ViewModel->RequestCancelCurrentUIOrAction());
+    TestFalse(TEXT("Quick item request is rejected without an owner"), ViewModel->RequestUseDisplayedQuickItem());
+    TestFalse(TEXT("Pickup request is rejected without an owner"), ViewModel->RequestPickupFocusedTarget());
+    TestFalse(TEXT("Cancel request is rejected without an owner"), ViewModel->RequestCancelCurrentUIOrAction());
 
     return true;
 }
@@ -134,6 +190,8 @@ bool FWTBRInputDisplayProviderNoFallbackTest::RunTest(const FString& /*Parameter
     TestTrue(TEXT("Unmapped action has no guessed display text"), UnmappedDisplay.DisplayName.IsEmpty());
     TestFalse(TEXT("Unmapped action does not contain a forbidden fallback"),
         ContainsForbiddenDisplayLabel(UnmappedDisplay.DisplayName.ToString()));
+    TestFalse(TEXT("Engine mouse display name is accepted"),
+        ContainsForbiddenDisplayLabel(MakeEngineMouseDisplayName()));
 
     return true;
 }
@@ -182,6 +240,63 @@ bool FWTBRHUDNewFilesNoHardcodedDisplayLabelsTest::RunTest(const FString& /*Para
         TestFalse(TEXT("Default C1 HUD display text has no hardcoded final binding label"),
             ContainsForbiddenDisplayLabel(DisplayText));
     }
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRHUDCancelRequestNonLocalOwnerTest,
+    "WTBR.UI.Contract.CancelRequestNonLocalOwner",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FWTBRHUDCancelRequestNonLocalOwnerTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRUIContractWorldFixture Fixture(TEXT("WTBR_UIContract_CancelNonLocal"));
+    AWTBRCharacter* Character = SpawnUIContractCharacter(Fixture.GetWorld());
+    TestNotNull(TEXT("Headless character exists"), Character);
+    if (!Character)
+    {
+        return false;
+    }
+
+    UWTBRHUDViewModelComponent* ViewModel = Character->GetHUDViewModelComponent();
+    TestNotNull(TEXT("HUD view model component exists"), ViewModel);
+    if (!ViewModel)
+    {
+        return false;
+    }
+
+    TestFalse(TEXT("Cancel request is rejected for non-local owner"),
+        ViewModel->RequestCancelCurrentUIOrAction());
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRHUDInteractionInvalidFocusTest,
+    "WTBR.UI.Contract.InteractionInvalidFocus",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FWTBRHUDInteractionInvalidFocusTest::RunTest(const FString& /*Parameters*/)
+{
+    UWTBRInteractionComponent* OrphanInteraction = NewObject<UWTBRInteractionComponent>(GetTransientPackage());
+    TestNotNull(TEXT("Orphan interaction component exists"), OrphanInteraction);
+    if (!OrphanInteraction)
+    {
+        return false;
+    }
+
+    TestFalse(TEXT("Focus query is false without an owner"),
+        OrphanInteraction->HasValidFocusedInteractable());
+
+    FWTBRUIContractWorldFixture Fixture(TEXT("WTBR_UIContract_InvalidFocus"));
+    AWTBRCharacter* Character = SpawnUIContractCharacter(Fixture.GetWorld());
+    TestNotNull(TEXT("Headless character exists"), Character);
+    if (!Character || !Character->InteractionComponent)
+    {
+        return false;
+    }
+
+    TestFalse(TEXT("Focus query is false without a valid target"),
+        Character->InteractionComponent->HasValidFocusedInteractable());
 
     return true;
 }

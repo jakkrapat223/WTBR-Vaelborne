@@ -22,6 +22,7 @@
 #include "Components/WTBRMovementExtComponent.h"
 #include "Components/WTBRInputGestureComponent.h"
 #include "Components/WTBRInteractionComponent.h"
+#include "Components/WTBRHUDViewModelComponent.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Inventory/WTBRInventoryComponent.h"
@@ -211,6 +212,7 @@ AWTBRCharacter::AWTBRCharacter()
     InteractionComponent  = CreateDefaultSubobject<UWTBRInteractionComponent>(TEXT("InteractionComponent"));
     TriggerSetComponent   = CreateDefaultSubobject<UWTBRTriggerSetComponent>(TEXT("TriggerSetComponent"));
     InventoryComponent    = CreateDefaultSubobject<UWTBRInventoryComponent>(TEXT("InventoryComponent"));
+    HUDViewModelComponent = CreateDefaultSubobject<UWTBRHUDViewModelComponent>(TEXT("HUDViewModelComponent"));
 
     static ConstructorHelpers::FObjectFinder<UInputMappingContext> DefaultMappingContextAsset(
         TEXT("/Game/Input/IMC_WTBR_Default.IMC_WTBR_Default"));

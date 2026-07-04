@@ -26,6 +26,11 @@ public:
     UFUNCTION(BlueprintCallable, Category="WTBR|Interaction")
     FText GetFocusedInteractionPromptText() const;
 
+    // Read-only HUD query. Mirrors context-interact focus priority without
+    // dispatching requests or mutating any gameplay state.
+    UFUNCTION(BlueprintPure, Category="WTBR|Interaction")
+    bool HasValidFocusedInteractable() const;
+
     // Fired on the owning client when the player requests to open a focused corpse
     // loot container. Bind in Blueprint HUD/UI to open the loot widget.
     // Broadcasts only when a valid container passes CanBeInteractedWithBy.
