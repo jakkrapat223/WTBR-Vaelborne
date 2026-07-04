@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vaelborne - In-Match Bag and Loot Container UI Prototype</title>
+  <link rel="stylesheet" href="Vaelborne_InMatch_Bag_Loot.css">
+</head>
+<body>
+  <div class="preview-shell">
+    <div class="bag-stage">
+      <div class="bag-canvas">
+        <div class="world-bg" aria-hidden="true">
+          <span class="skyline skyline-a"></span>
+          <span class="skyline skyline-b"></span>
+          <span class="rain"></span>
+        </div>
+        <div class="vael-beam" aria-hidden="true"></div>
+        <div class="context-dim" aria-hidden="true"></div>
+
+        <div class="panels-group">
+          <div class="loot-panel panel angular" role="region" aria-label="Loot Container">
+            <div class="loot-header">
+              <span class="loot-title">CORPSE LOOT</span>
+              <span class="loot-badge" aria-label="6 items">6</span>
+            </div>
+
+            <div class="loot-list" role="list">
+              <div class="loot-item loot-item--selected" role="listitem" tabindex="0"
+                   aria-selected="true" aria-label="Aegorn Tuner, Trigger Module, Rare, quantity 1">
+                <div class="loot-icon-cell rarity-rare" aria-hidden="true">AT</div>
+                <div class="loot-info">
+                  <div class="loot-name">Aegorn Tuner</div>
+                  <div class="loot-meta">Trigger Module | <span class="rarity-label rarity-rare">Rare</span></div>
+                </div>
+                <div class="loot-qty">x1</div>
+              </div>
+
+              <div class="loot-item" role="listitem" tabindex="0"
+                   aria-label="HP Capsule, Consumable, Common, quantity 3">
+                <div class="loot-icon-cell rarity-common" aria-hidden="true">HP</div>
+                <div class="loot-info">
+                  <div class="loot-name">HP Capsule</div>
+                  <div class="loot-meta">Consumable | <span class="rarity-label rarity-common">Common</span></div>
+                </div>
+                <div class="loot-qty">x3</div>
+              </div>
+
+              <div class="loot-item loot-item--hover" role="listitem" tabindex="0"
+                   aria-label="Vael Ampoule, Consumable, Uncommon, quantity 2">
+                <div class="loot-icon-cell rarity-uncommon" aria-hidden="true">VA</div>
+                <div class="loot-info">
+                  <div class="loot-name">Vael Ampoule</div>
+                  <div class="loot-meta">Consumable | <span class="rarity-label rarity-uncommon">Uncommon</span></div>
+                </div>
+                <div class="loot-qty">x2</div>
+              </div>
+
+              <div class="loot-item" role="listitem" tabindex="0"
+                   aria-label="Scorpion Trigger, Trigger, Epic, quantity 1">
+                <div class="loot-icon-cell rarity-epic" aria-hidden="true">SC</div>
+                <div class="loot-info">
+                  <div class="loot-name">Scorpion Trigger</div>
+                  <div class="loot-meta">Trigger | <span class="rarity-label rarity-epic">Epic</span></div>
+                </div>
+                <div class="loot-qty">x1</div>
+              </div>
+
+              <div class="loot-item" role="listitem" tabindex="0"
+                   aria-label="Kogetsu Fragment, Trigger Part, Rare, quantity 1">
+                <div class="loot-icon-cell rarity-rare" aria-hidden="true">KF</div>
+                <div class="loot-info">
+                  <div class="loot-name">Kogetsu Fragment</div>
+                  <div class="loot-meta">Trigger Part | <span class="rarity-label rarity-rare">Rare</span></div>
+                </div>
+                <div class="loot-qty">x1</div>
+              </div>
+
+              <div class="loot-item" role="listitem" tabindex="0"
+                   aria-label="Ammo Stack, Ammo, Common, quantity 60">
+                <div class="loot-icon-cell rarity-common" aria-hidden="true">AM</div>
+                <div class="loot-info">
+                  <div class="loot-name">Ammo Stack</div>
+                  <div class="loot-meta">Ammo | <span class="rarity-label rarity-common">Common</span></div>
+                </div>
+                <div class="loot-qty">x60</div>
+              </div>
+            </div>
+
+            <div class="loot-footer">
+              <span class="loot-hint-text">Drag items to Bag</span>
+            </div>
+          </div>
+
+          <div class="bag-panel panel angular" role="region" aria-label="Player Bag">
+            <div class="bag-header">
+              <div class="bag-header__left">
+                <span class="bag-glyph" aria-hidden="true">BG</span>
+                <span class="bag-title">BAG</span>
+              </div>
+              <button class="bag-close" aria-label="Close Bag">X</button>
+            </div>
+
+            <div class="bag-cap-row">
+              <span>
+                <span class="cap-cur">12</span><span class="cap-sep">/</span><span class="cap-max">14</span> SLOTS
+              </span>
+              <span class="cap-divider">|</span>
+              <span>
+                <span class="cap-cur">48</span><span class="cap-sep">/</span><span class="cap-max">60</span> VOL
+              </span>
+            </div>
+
+            <div class="active-card active-main">
+              <div class="active-card__label">MAIN ACTIVE</div>
+              <div class="active-card__row">
+                <div class="active-card__icon-wrap" aria-hidden="true">
+                  <div class="trigger-icon-placeholder trigger-icon--slash"></div>
+                </div>
+                <div class="active-card__details">
+                  <div class="active-card__name">Kogetsu</div>
+                  <div class="active-card__sub">Blade | Slot M1</div>
+                </div>
+                <div class="active-card__badge badge-main" aria-label="Main Slot 1">M1</div>
+              </div>
+            </div>
+
+            <div class="active-card active-sub">
+              <div class="active-card__label">SUB ACTIVE</div>
+              <div class="active-card__row">
+                <div class="active-card__icon-wrap" aria-hidden="true">
+                  <div class="trigger-icon-placeholder trigger-icon--claw"></div>
+                </div>
+                <div class="active-card__details">
+                  <div class="active-card__name">Scorpion</div>
+                  <div class="active-card__sub">Blade | Slot S1</div>
+                </div>
+                <div class="active-card__badge badge-sub" aria-label="Sub Slot 1">S1</div>
+              </div>
+            </div>
+
+            <div class="reserve-section">
+              <div class="reserve-label">MAIN RESERVE</div>
+              <div class="reserve-row">
+                <div class="reserve-slot filled reserve-slot--main" tabindex="0" title="Mantis - M2">
+                  <div class="reserve-idx">M2</div>
+                  <div class="reserve-name">Mantis</div>
+                </div>
+                <div class="reserve-slot filled reserve-slot--main" tabindex="0" title="Viper - M3">
+                  <div class="reserve-idx">M3</div>
+                  <div class="reserve-name">Viper</div>
+                </div>
+                <div class="reserve-slot empty" title="Reserved - M4">
+                  <div class="reserve-idx">M4</div>
+                  <div class="reserve-name">RES</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="reserve-section">
+              <div class="reserve-label">SUB RESERVE</div>
+              <div class="reserve-row">
+                <div class="reserve-slot filled reserve-slot--sub" tabindex="0" title="Spider - S2">
+                  <div class="reserve-idx">S2</div>
+                  <div class="reserve-name">Spider</div>
+                </div>
+                <div class="reserve-slot empty" title="Reserved - S3">
+                  <div class="reserve-idx">S3</div>
+                  <div class="reserve-name">RES</div>
+                </div>
+                <div class="reserve-slot empty" title="Reserved - S4">
+                  <div class="reserve-idx">S4</div>
+                  <div class="reserve-name">RES</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-sep" aria-hidden="true"></div>
+            <div class="inv-label">INVENTORY ITEMS</div>
+
+            <div class="bag-grid" role="grid" aria-label="Inventory Slots">
+              <div class="bag-slot filled" role="gridcell" tabindex="0" title="HP Capsule x3 - Common Consumable">
+                <div class="bag-slot__icon rarity-common" aria-hidden="true">HP</div>
+                <div class="bag-slot__count" aria-label="x3">3</div>
+              </div>
+
+              <div class="bag-slot filled bag-slot--hover" role="gridcell" tabindex="0"
+                   title="Vael Ampoule x2 - Uncommon Consumable">
+                <div class="bag-slot__icon rarity-uncommon" aria-hidden="true">VA</div>
+                <div class="bag-slot__count">2</div>
+                <div class="bag-slot__tooltip" aria-hidden="true">Vael Ampoule</div>
+              </div>
+
+              <div class="bag-slot filled bag-slot--selected" role="gridcell" tabindex="0"
+                   aria-selected="true" title="Ammo Stack x60 - Common Ammo">
+                <div class="bag-slot__icon rarity-common" aria-hidden="true">AM</div>
+                <div class="bag-slot__count">60</div>
+              </div>
+
+              <div class="bag-slot filled bag-slot--locked" role="gridcell" tabindex="0"
+                   aria-disabled="true" title="Repair Kit x1 - Locked">
+                <div class="bag-slot__icon rarity-uncommon" aria-hidden="true">RK</div>
+                <div class="bag-slot__count">1</div>
+                <div class="bag-slot__lock-icon" aria-hidden="true">LK</div>
+              </div>
+
+              <div class="bag-slot filled bag-slot--drag-target" role="gridcell" tabindex="0"
+                   title="Trion Crystal x5 - Epic Material">
+                <div class="bag-slot__icon rarity-epic" aria-hidden="true">TC</div>
+                <div class="bag-slot__count">5</div>
+              </div>
+
+              <div class="bag-slot filled" role="gridcell" tabindex="0" title="Stamina Boost x2 - Uncommon Consumable">
+                <div class="bag-slot__icon rarity-uncommon" aria-hidden="true">SB</div>
+                <div class="bag-slot__count">2</div>
+              </div>
+
+              <div class="bag-slot filled" role="gridcell" tabindex="0" title="Kogetsu Fragment x1 - Rare Trigger Part">
+                <div class="bag-slot__icon rarity-rare" aria-hidden="true">KF</div>
+                <div class="bag-slot__count">1</div>
+              </div>
+
+              <div class="bag-slot filled" role="gridcell" tabindex="0" title="Aegorn Tuner x1 - Rare Trigger Module">
+                <div class="bag-slot__icon rarity-rare" aria-hidden="true">AT</div>
+                <div class="bag-slot__count">1</div>
+              </div>
+
+              <div class="bag-slot empty" role="gridcell" tabindex="-1" aria-label="Empty slot 9"></div>
+              <div class="bag-slot empty bag-slot--drag-target-empty" role="gridcell" tabindex="0" aria-label="Cannot transfer to slot 10"></div>
+              <div class="bag-slot empty" role="gridcell" tabindex="-1" aria-label="Empty slot 11"></div>
+              <div class="bag-slot empty" role="gridcell" tabindex="-1" aria-label="Empty slot 12"></div>
+              <div class="bag-slot empty" role="gridcell" tabindex="-1" aria-label="Empty slot 13"></div>
+              <div class="bag-slot empty" role="gridcell" tabindex="-1" aria-label="Empty slot 14"></div>
+
+              <div class="bag-slot reserved" role="presentation" aria-hidden="true">
+                <div class="bag-slot__reserved-label">RES</div>
+              </div>
+              <div class="bag-slot reserved" role="presentation" aria-hidden="true">
+                <div class="bag-slot__reserved-label">RES</div>
+              </div>
+            </div>
+
+            <div class="bag-footer">
+              <div class="cap-bar-header">
+                <span class="cap-bar-label">VOLUME</span>
+                <span class="cap-bar-value">48 / 60</span>
+              </div>
+              <div class="cap-bar-track">
+                <div class="cap-bar-fill" style="--fill: 80%"></div>
+              </div>
+              <!-- Alternate state only: add .warn-visible to .bag-footer for bag-full feedback. -->
+              <div class="cap-warn-row" aria-live="polite" aria-atomic="true">
+                <span aria-hidden="true">!</span>
+                <span class="cap-warn-text">BAG FULL / CANNOT TRANSFER</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
