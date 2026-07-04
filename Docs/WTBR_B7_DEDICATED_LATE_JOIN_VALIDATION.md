@@ -2,8 +2,9 @@
 
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
-Baseline: `ae481d9` — Add B7 dedicated late join validation runbook  
-Latest code baseline: `2461d0a` — Add B7D dedicated late join validation proof  
+Initial runbook baseline: `ae481d9` — Add B7 dedicated late join validation runbook
+B7 proof baseline: `2461d0a` — Add B7D dedicated late join validation proof
+Post-B8 baseline: `84cda95` — B8: Enable corpse loot container production default
 **B7 Status: PASS (2026-07-04)**
 
 ## Purpose
@@ -586,13 +587,16 @@ B7D result: **PASS — all four B7 gaps proven in a live dedicated-server late-j
 
 **B8 — Corpse Container Production Default Flip**
 
-B7 PASS is the prerequisite for flipping the production default. B8 has not been started and is not implied by this document.
+B7 PASS was the prerequisite for flipping the production default. B8 is now complete and committed/pushed as `84cda95` — B8: Enable corpse loot container production default.
 
-Pending before B8:
-- Corpse bag UI / UMG (not implemented).
-- Target slot selection UI (not implemented).
-- Context interact dispatch wiring for remaining branches (generic interactable).
-- Focus trace angle/radius/height tuning for production.
-- Visual readability / placeholder scale.
+Post-B8 production default state:
 
-B8 work item: set `bUseCorpseLootContainerOnDeath = true` as the production default (or equivalent CVar flip) after UI and remaining dispatch branches are complete and playtested.
+- `WTBR.UseCorpseLootContainerOnDeath` default is now `-1`, meaning inherit/use `MatchModeRules`.
+- Battle Royale `MatchModeRules` now enable corpse loot containers by default.
+- The legacy dropped-trigger path and explicit CVar overrides remain available.
+- No Blueprint/WBP/UMG/.uasset/.umap/binary assets were modified for B8.
+
+Next recommended milestone:
+
+- UI spec pass for Inventory / BR pickup / Loot / Quick Item / Drop flow — documentation-only first; no WBP/UMG/Blueprint/assets yet.
+- Player-facing UI remains separate and is not implemented yet.
