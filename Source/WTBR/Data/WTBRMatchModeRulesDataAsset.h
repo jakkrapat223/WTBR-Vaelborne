@@ -43,7 +43,7 @@ struct FWTBRMatchModeRules
     bool bAllowTriggerPickup = false;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode | Loot")
-    bool bUseCorpseLootContainerOnDeath = false;
+    bool bUseCorpseLootContainerOnDeath = true;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode | Loadout")
     bool bAllowTriggerSwapDuringMatch = false;

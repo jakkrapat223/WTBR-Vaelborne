@@ -23,7 +23,7 @@ namespace
 {
 static TAutoConsoleVariable<int32> CVarWTBRUseCorpseLootContainerOnDeath(
     TEXT("WTBR.UseCorpseLootContainerOnDeath"),
-    0,
+    -1,
     TEXT("-1 = use MatchModeRules, 0 = legacy dropped-trigger death loot path, 1 = corpse loot container death loot path."),
     ECVF_Default);
 
