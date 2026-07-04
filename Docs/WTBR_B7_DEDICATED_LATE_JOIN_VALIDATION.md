@@ -2,7 +2,7 @@
 
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
-Baseline: `b287b23` — Update handoff after S8B  
+Baseline: `ae481d9` — Add B7 dedicated late join validation runbook  
 Latest code baseline: `c3dd314` — Add S8B corpse container priority automation
 
 ## Purpose
@@ -224,7 +224,7 @@ B7 can be marked PASS only when all of these are true:
 
 ## Current B7 Status
 
-Status: **manual dedicated/late-join validation required**.
+Status: **PARTIAL / manual corpse-container late-join validation required**.
 
 The code inspection and existing automation show the expected replication and authority hooks:
 
@@ -234,3 +234,63 @@ The code inspection and existing automation show the expected replication and au
 - S8B automation proves priority 1 beats dropped trigger and BR ground item candidates in deterministic headless tests.
 
 This document does not mark B7 PASS by itself because actual dedicated server plus late-join client replication must still be observed.
+
+## B7A Codex Validation Attempt — 2026-07-04
+
+Environment:
+
+- Current baseline: `ae481d9` — Add B7 dedicated late join validation runbook.
+- Working tree validation was run from `E:\World Trigger\WTBR-Vaelborne\Source`.
+- No gameplay code, tests, Blueprint/WBP/UMG/.uasset/.umap/binary assets, or production defaults were modified.
+
+Commands used:
+
+```powershell
+$ArgString = '"E:\World Trigger\WTBR-Vaelborne\WTBR.uproject" "/Game/ThirdPerson/Maps/ThirdPersonMap" -server -Unattended -NullRHI -NoSound -log -port=7777 -ExecCmds="WTBR.CorpseLootContainerLifetimeSeconds 0;WTBR.UseCorpseLootContainerOnDeath 1"'
+Start-Process -FilePath 'E:\UE_5.1\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' -ArgumentList $ArgString -PassThru -WindowStyle Hidden
+```
+
+```powershell
+$ArgString = '"E:\World Trigger\WTBR-Vaelborne\WTBR.uproject" "127.0.0.1:7777" -game -Unattended -NullRHI -NoSound -log -abslog="E:\World Trigger\WTBR-Vaelborne\Source\B7_Client1.log" -ExecCmds="WTBRDebugCharacterPrintMatchState;WTBRDebugCharacterPrintTriggerSlots;Quit"'
+Start-Process -FilePath 'E:\UE_5.1\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' -ArgumentList $ArgString -PassThru -WindowStyle Hidden
+```
+
+```powershell
+$ArgString = '"E:\World Trigger\WTBR-Vaelborne\WTBR.uproject" "127.0.0.1:7777" -game -Unattended -NullRHI -NoSound -log -abslog="E:\World Trigger\WTBR-Vaelborne\Source\B7_Client2.log" -ExecCmds="WTBRDebugCharacterPrintMatchState;WTBRDebugCharacterPrintFocusedInteractionPrompt;Quit"'
+Start-Process -FilePath 'E:\UE_5.1\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' -ArgumentList $ArgString -PassThru -WindowStyle Hidden
+```
+
+Cleanup:
+
+```powershell
+Stop-Process -Id <server/client commandlet pids> -Force
+```
+
+Observed evidence:
+
+- Dedicated server startup: **PASS**.
+- `ThirdPersonMap` load: **PASS**.
+- Server GameMode: **PASS** (`BP_WTBRGameMode_C`).
+- `IpNetDriver` listen on port `7777`: **PASS**.
+- Client 1 connect: **PASS** (`Welcomed by server`; server log `Join succeeded`).
+- Client 2 late join after client 1: **PASS** (`Welcomed by server`; server log second `Join succeeded`).
+- Runtime validation override `WTBR.CorpseLootContainerLifetimeSeconds 0`: **observed in server log**.
+- Runtime validation override `WTBR.UseCorpseLootContainerOnDeath 1`: **passed on command line**, but no corpse-container death/drop path was executed in this commandlet-only attempt.
+- Clean auto-exit: **FAIL / reproduced**. Server and clients did not exit on `Quit` in `-ExecCmds`; processes had to be stopped manually after evidence collection.
+
+Blocked / not proven:
+
+- Corpse/container state was not created on the dedicated server in this attempt.
+- Client 1 corpse/container observation and interaction were not proven.
+- Late-join client 2 corpse/container replication was not proven.
+- Late-join stale/empty-state behavior was not proven.
+- Priority over dropped trigger / BR ground item after late join was not proven.
+- Lower-priority dropped trigger / ground item non-mutation after late join was not proven.
+
+Reason for block:
+
+- The current repo/runbook provides Exec debug commands for server authority and character-local validation, but this commandlet/background setup has no reliable way to send a new authoritative server console command after clients have joined.
+- `WTBRDebugCharacterSpawnCorpseLootContainer` requires an authority character with installed trigger snapshots. Running it from a commandlet client would be client-local and rejected by authority checks; running it from startup `-ExecCmds` happens before a joined player pawn is available.
+- A true B7 PASS still needs either an interactive dedicated server console/manual validation session or a small approved validation harness/automation seam that can create corpse-container state on the server after a client has joined.
+
+B7A result: **PARTIAL**. Dedicated server startup, map load, net listen, client 1 join, and client 2 late join were validated. Corpse/container late-join replication and priority behavior remain **PENDING/BLOCKED**.
