@@ -26,6 +26,13 @@ UWTBRInteractionComponent::UWTBRInteractionComponent()
 
 AWTBRCorpseLootContainerActor* UWTBRInteractionComponent::GetFocusedCorpseLootContainer() const
 {
+#if WITH_DEV_AUTOMATION_TESTS
+    if (FocusedCorpseLootContainerOverrideForTest.IsValid())
+    {
+        return FocusedCorpseLootContainerOverrideForTest.Get();
+    }
+#endif
+
     const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
     if (!IsValid(OwnerCharacter))
     {
@@ -173,6 +180,13 @@ AWTBRDroppedTriggerActor* UWTBRInteractionComponent::GetFocusedDroppedTrigger() 
 
 AWTBRGroundItemActor* UWTBRInteractionComponent::GetFocusedGroundItem() const
 {
+#if WITH_DEV_AUTOMATION_TESTS
+    if (FocusedGroundItemOverrideForTest.IsValid())
+    {
+        return FocusedGroundItemOverrideForTest.Get();
+    }
+#endif
+
     const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
     if (!IsValid(OwnerCharacter))
     {
@@ -288,3 +302,25 @@ bool UWTBRInteractionComponent::RequestContextInteract()
     UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] No valid focus for context interact (no-op)."));
     return false;
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+void UWTBRInteractionComponent::SetFocusedCorpseLootContainerOverrideForTest(AWTBRCorpseLootContainerActor* Container)
+{
+    FocusedCorpseLootContainerOverrideForTest = Container;
+}
+
+void UWTBRInteractionComponent::ClearFocusedCorpseLootContainerOverrideForTest()
+{
+    FocusedCorpseLootContainerOverrideForTest.Reset();
+}
+
+void UWTBRInteractionComponent::SetFocusedGroundItemOverrideForTest(AWTBRGroundItemActor* GroundItem)
+{
+    FocusedGroundItemOverrideForTest = GroundItem;
+}
+
+void UWTBRInteractionComponent::ClearFocusedGroundItemOverrideForTest()
+{
+    FocusedGroundItemOverrideForTest.Reset();
+}
+#endif

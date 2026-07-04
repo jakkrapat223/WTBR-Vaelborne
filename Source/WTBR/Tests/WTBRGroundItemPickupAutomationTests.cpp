@@ -11,8 +11,12 @@
 #include "Inventory/WTBRGroundItemActor.h"
 #include "Inventory/WTBRItemDataAsset.h"
 #include "Inventory/WTBRInventoryComponent.h"
+#include "Components/WTBRInteractionComponent.h"
 #include "Components/WTBRHealthComponent.h"
+#include "Interaction/WTBRCorpseLootContainerActor.h"
+#include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
 
@@ -109,6 +113,54 @@ namespace
         Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
         return World->SpawnActor<AWTBRCharacter>(
             AWTBRCharacter::StaticClass(), Loc, FRotator::ZeroRotator, Params);
+    }
+
+    UWTBRTriggerDataAsset* MakeTriggerTestAsset(ETriggerSlotConstraint Constraint)
+    {
+        UWTBRTriggerDataAsset* Asset = NewObject<UWTBRTriggerDataAsset>(GetTransientPackage());
+        Asset->SlotConstraint = Constraint;
+        return Asset;
+    }
+
+    AWTBRDroppedTriggerActor* SpawnDroppedTrigger(
+        UWorld* World, const TSoftObjectPtr<UWTBRTriggerDataAsset>& DataAsset, const FVector& Loc)
+    {
+        if (!World) return nullptr;
+        AWTBRDroppedTriggerActor* Dropped = World->SpawnActor<AWTBRDroppedTriggerActor>(
+            AWTBRDroppedTriggerActor::StaticClass(), Loc, FRotator::ZeroRotator);
+        if (Dropped)
+        {
+            Dropped->InitializeDroppedTrigger(DataAsset, /*SourceSlotIndex*/ 0, ETriggerCategory::Melee);
+        }
+        return Dropped;
+    }
+
+    AWTBRCorpseLootContainerActor* SpawnCorpseLootContainer(
+        UWorld* World, const TSoftObjectPtr<UWTBRTriggerDataAsset>& DataAsset, const FVector& Loc)
+    {
+        if (!World) return nullptr;
+        AWTBRCorpseLootContainerActor* Container = World->SpawnActor<AWTBRCorpseLootContainerActor>(
+            AWTBRCorpseLootContainerActor::StaticClass(), Loc, FRotator::ZeroRotator);
+        if (Container)
+        {
+            FWTBRInstalledTriggerSlotSnapshot Snapshot;
+            Snapshot.SlotIndex = 0;
+            Snapshot.DataAsset = DataAsset;
+            Snapshot.CachedCategory = ETriggerCategory::Melee;
+
+            TArray<FWTBRInstalledTriggerSlotSnapshot> Snapshots;
+            Snapshots.Add(Snapshot);
+            Container->InitializeCorpseLootContainer(Snapshots);
+        }
+        return Container;
+    }
+
+    FVector InFrontOfEyes(const AWTBRCharacter* Character, float Distance)
+    {
+        FVector EyeLoc = FVector::ZeroVector;
+        FRotator EyeRot = FRotator::ZeroRotator;
+        Character->GetActorEyesViewPoint(EyeLoc, EyeRot);
+        return EyeLoc + EyeRot.Vector() * Distance;
     }
 
     int32 CountFilledGroundSlots(const UWTBRInventoryComponent* Comp)
@@ -463,6 +515,196 @@ bool FWTBRPickupDoesNotMutateTriggerSetTest::RunTest(const FString& /*Parameters
         Character->TriggerSetComponent->GetActiveMainIndex(), MainIndexBefore);
     TestEqual(TEXT("Active sub slot index unchanged"),
         Character->TriggerSetComponent->GetActiveSubIndex(), SubIndexBefore);
+    return true;
+}
+
+// -----------------------------------------------------------------------------
+// S8A: RequestContextInteract branch 3 ground-item routing
+// -----------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRContextGroundItemBranchPicksUpTest,
+    "WTBR.Inventory.ContextInteract.GroundItemBranch3.PicksUpWhenFocused",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRContextGroundItemBranchPicksUpTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRPickupWorldFixture Fixture(TEXT("WTBR_Context_Ground_Pickup"));
+    UWorld* World = Fixture.GetWorld();
+    AWTBRGameState* GameState = SpawnInMatchGameState(World);
+    TestNotNull(TEXT("GameState spawns"), GameState);
+    if (!GameState) return false;
+
+    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!Character || !Character->InventoryComponent || !Character->InteractionComponent) return false;
+    Character->InventoryComponent->InitializeServerInventory();
+
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
+    AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
+        World, TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 2, FVector::ZeroVector);
+    TestNotNull(TEXT("Ground item spawns"), GroundItem);
+    if (!GroundItem) return false;
+
+    Character->InteractionComponent->SetFocusedGroundItemOverrideForTest(GroundItem);
+
+    const bool bHandled = Character->InteractionComponent->RequestContextInteract();
+
+    TestTrue(TEXT("Context interact handled branch 3 ground item focus"), bHandled);
+    TestEqual(TEXT("Branch 3 dispatch does not directly mutate inventory in the client-side path"),
+        CountFilledGroundSlots(Character->InventoryComponent), 0);
+    TestTrue(TEXT("Ground item remains until the server-approved pickup body succeeds"), IsValid(GroundItem));
+
+    Character->Server_RequestPickupGroundItem_Implementation(GroundItem);
+
+    TestEqual(TEXT("One inventory slot filled through the server-approved pickup path"), CountFilledGroundSlots(Character->InventoryComponent), 1);
+    TestEqual(TEXT("Slot 0 holds quantity 2"), Character->InventoryComponent->GetInventorySlots()[0].Quantity, 2);
+    TestTrue(TEXT("Slot 0 identity matches focused item"),
+        Character->InventoryComponent->GetInventorySlots()[0].ItemData.Get() == Item.Get());
+    TestFalse(TEXT("Ground item destroyed only after server pickup succeeds"), IsValid(GroundItem));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRContextGroundItemBranchFullInventoryTest,
+    "WTBR.Inventory.ContextInteract.GroundItemBranch3.RejectsWhenInventoryFullAndItemRemains",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRContextGroundItemBranchFullInventoryTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRPickupWorldFixture Fixture(TEXT("WTBR_Context_Ground_Full"));
+    UWorld* World = Fixture.GetWorld();
+    AWTBRGameState* GameState = SpawnInMatchGameState(World);
+    TestNotNull(TEXT("GameState spawns"), GameState);
+    if (!GameState) return false;
+
+    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!Character || !Character->InventoryComponent || !Character->InteractionComponent) return false;
+
+    Character->InventoryComponent->InventorySlotCount = 1;
+    Character->InventoryComponent->InitializeServerInventory();
+
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(2));
+    TestTrue(TEXT("Pre-fill single slot"), Character->InventoryComponent->TryAddItem(Item.Get(), 2));
+
+    AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
+        World, TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 2, FVector::ZeroVector);
+    TestNotNull(TEXT("Ground item spawns"), GroundItem);
+    if (!GroundItem) return false;
+
+    Character->InteractionComponent->SetFocusedGroundItemOverrideForTest(GroundItem);
+
+    const bool bHandled = Character->InteractionComponent->RequestContextInteract();
+
+    TestTrue(TEXT("Context interact still routes to branch 3 on full inventory"), bHandled);
+    TestEqual(TEXT("Branch 3 dispatch does not directly mutate full inventory"),
+        CountFilledGroundSlots(Character->InventoryComponent), 1);
+
+    Character->Server_RequestPickupGroundItem_Implementation(GroundItem);
+
+    TestTrue(TEXT("Ground item remains valid after rejected server pickup"), IsValid(GroundItem));
+    if (IsValid(GroundItem))
+    {
+        TestFalse(TEXT("Ground item claim rolled back after rejected server pickup"), GroundItem->IsConsumed());
+    }
+    TestEqual(TEXT("Inventory unchanged: still one filled slot"), CountFilledGroundSlots(Character->InventoryComponent), 1);
+    TestEqual(TEXT("Slot 0 unchanged at quantity 2"), Character->InventoryComponent->GetInventorySlots()[0].Quantity, 2);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRContextGroundItemBranchDroppedPriorityTest,
+    "WTBR.Inventory.ContextInteract.GroundItemBranch3.DoesNotOverrideDroppedTriggerPriority",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRContextGroundItemBranchDroppedPriorityTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRPickupWorldFixture Fixture(TEXT("WTBR_Context_Ground_DroppedPriority"));
+    UWorld* World = Fixture.GetWorld();
+    AWTBRGameState* GameState = SpawnInMatchGameState(World);
+    TestNotNull(TEXT("GameState spawns"), GameState);
+    if (!GameState) return false;
+
+    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!Character || !Character->InventoryComponent || !Character->InteractionComponent) return false;
+    Character->InventoryComponent->InitializeServerInventory();
+
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
+    AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
+        World, TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 1, FVector::ZeroVector);
+    TestNotNull(TEXT("Ground item spawns"), GroundItem);
+    if (!GroundItem) return false;
+    Character->InteractionComponent->SetFocusedGroundItemOverrideForTest(GroundItem);
+
+    TStrongObjectPtr<UWTBRTriggerDataAsset> DroppedAsset(MakeTriggerTestAsset(ETriggerSlotConstraint::Any));
+    AWTBRDroppedTriggerActor* Dropped = SpawnDroppedTrigger(
+        World, TSoftObjectPtr<UWTBRTriggerDataAsset>(DroppedAsset.Get()), InFrontOfEyes(Character, 150.0f));
+    TestNotNull(TEXT("Dropped trigger spawns"), Dropped);
+    if (!Dropped) return false;
+
+    AddExpectedError(TEXT("AmbiguousTargetSlot"), EAutomationExpectedErrorFlags::Contains, 1);
+
+    const bool bHandled = Character->InteractionComponent->RequestContextInteract();
+
+    TestTrue(TEXT("Context interact handled higher-priority dropped trigger branch"), bHandled);
+    TestEqual(TEXT("Ground item branch did not mutate inventory"), CountFilledGroundSlots(Character->InventoryComponent), 0);
+    TestTrue(TEXT("Ground item remains valid when dropped trigger has priority"), IsValid(GroundItem));
+    if (IsValid(GroundItem))
+    {
+        TestFalse(TEXT("Ground item remains unconsumed when dropped trigger has priority"), GroundItem->IsConsumed());
+    }
+    TestTrue(TEXT("Dropped trigger remains valid after Any constraint reject"), IsValid(Dropped));
+    if (IsValid(Dropped))
+    {
+        TestFalse(TEXT("Dropped trigger remains unconsumed after Any constraint reject"), Dropped->IsConsumed());
+    }
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRContextGroundItemBranchCorpsePriorityTest,
+    "WTBR.Inventory.ContextInteract.GroundItemBranch3.DoesNotOverrideCorpseContainerPriority",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRContextGroundItemBranchCorpsePriorityTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRPickupWorldFixture Fixture(TEXT("WTBR_Context_Ground_CorpsePriority"));
+    UWorld* World = Fixture.GetWorld();
+    AWTBRGameState* GameState = SpawnInMatchGameState(World);
+    TestNotNull(TEXT("GameState spawns"), GameState);
+    if (!GameState) return false;
+
+    AWTBRCharacter* Character = SpawnCharacter(World, FVector::ZeroVector);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!Character || !Character->InventoryComponent || !Character->InteractionComponent) return false;
+    Character->InventoryComponent->InitializeServerInventory();
+
+    TStrongObjectPtr<UWTBRItemDataAsset> Item(MakeGroundItemTestAsset(4));
+    AWTBRGroundItemActor* GroundItem = SpawnGroundItem(
+        World, TSoftObjectPtr<UWTBRItemDataAsset>(Item.Get()), 1, FVector::ZeroVector);
+    TestNotNull(TEXT("Ground item spawns"), GroundItem);
+    if (!GroundItem) return false;
+    Character->InteractionComponent->SetFocusedGroundItemOverrideForTest(GroundItem);
+
+    TStrongObjectPtr<UWTBRTriggerDataAsset> ContainerAsset(MakeTriggerTestAsset(ETriggerSlotConstraint::Any));
+    AWTBRCorpseLootContainerActor* Container = SpawnCorpseLootContainer(
+        World, TSoftObjectPtr<UWTBRTriggerDataAsset>(ContainerAsset.Get()), FVector::ZeroVector);
+    TestNotNull(TEXT("Corpse loot container spawns"), Container);
+    if (!Container) return false;
+    Character->InteractionComponent->SetFocusedCorpseLootContainerOverrideForTest(Container);
+
+    const bool bHandled = Character->InteractionComponent->RequestContextInteract();
+
+    TestTrue(TEXT("Context interact handled higher-priority corpse/container branch"), bHandled);
+    TestEqual(TEXT("Ground item branch did not mutate inventory"), CountFilledGroundSlots(Character->InventoryComponent), 0);
+    TestTrue(TEXT("Ground item remains valid when corpse/container has priority"), IsValid(GroundItem));
+    if (IsValid(GroundItem))
+    {
+        TestFalse(TEXT("Ground item remains unconsumed when corpse/container has priority"), GroundItem->IsConsumed());
+    }
+    TestTrue(TEXT("Corpse container still has available loot entries"), Container->HasAvailableLootEntries());
     return true;
 }
 

@@ -54,6 +54,13 @@ public:
     UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
     bool RequestContextInteract();
 
+#if WITH_DEV_AUTOMATION_TESTS
+    void SetFocusedCorpseLootContainerOverrideForTest(AWTBRCorpseLootContainerActor* Container);
+    void ClearFocusedCorpseLootContainerOverrideForTest();
+    void SetFocusedGroundItemOverrideForTest(AWTBRGroundItemActor* GroundItem);
+    void ClearFocusedGroundItemOverrideForTest();
+#endif
+
 private:
     // Line-traces from the owner's viewpoint (same model as GetFocusedCorpseLootContainer)
     // and returns the focused dropped trigger, or null. Focus only — no mutation.
@@ -71,4 +78,9 @@ private:
     // pawn. The server still gates pickup independently by WTBRGroundItemPickupRange.
     UPROPERTY(EditDefaultsOnly, Category="WTBR|Interaction")
     float InteractionTraceDistance = 800.0f;
+
+#if WITH_DEV_AUTOMATION_TESTS
+    TWeakObjectPtr<AWTBRCorpseLootContainerActor> FocusedCorpseLootContainerOverrideForTest;
+    TWeakObjectPtr<AWTBRGroundItemActor> FocusedGroundItemOverrideForTest;
+#endif
 };
