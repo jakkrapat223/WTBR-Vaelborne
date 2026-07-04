@@ -39,36 +39,44 @@ Visual direction:
 - Avoid wood / metal / fantasy ornament frames.
 - Preserve center-screen gameplay readability.
 
-Final preferred in-match HUD placement:
+Approved HUD Mockup v1 placement:
 
 - Top-left: ALIVE / KILL / Kill Feed.
-- Top-center: ZONE / TIMER / Phase.
+- Top-center: Empty / reserved for gameplay visibility.
 - Top-right: Minimap.
-- Bottom-left: HP / VAEL.
-- Bottom-center: Main Trigger / Sub Trigger cards.
-- Bottom-right: Quick Item / Cancel.
+- Under Minimap: compact ZONE / TIMER / Phase bar.
+- Bottom-left: HP / VAEL + compact Quick Item chip.
+- Right side: Main Trigger / Sub Trigger cards stacked vertically.
+- Above right-side cards: compact Cancel prompt.
+- Bottom-right: no large Quick Item / Cancel panel; keep reserved / mostly clear.
 - Center screen: Crosshair / Interact Prompt / Hit Marker / Damage Feedback / Ping or Focus Marker.
 
 Placement rationale:
 
 - Moving minimap to top-right balances the HUD because HP/VAEL already occupies bottom-left.
 - Top-left should be reserved for fast match-state reading such as alive count, kill count, and kill feed.
-- Bottom-center remains best for Main/Sub Trigger combat readability.
-- Bottom-right remains best for Quick Item and Cancel/context actions.
+- Moving ZONE / TIMER / Phase under the minimap keeps top-center clear for visibility.
+- Right-side stacked Main/Sub Trigger cards keep combat bindings readable without crowding the center.
+- Quick Item belongs near HP / VAEL because it is survival-resource adjacent.
+- Cancel belongs near the right-side action cards because it is contextual and action-state driven.
+- Bottom-right should stay reserved / mostly clear instead of carrying a large persistent panel.
 - Center screen must remain protected for combat visibility.
 - Final gameplay tuning may still adjust size, padding, and glow intensity after live combat readability testing.
 
 Mockup decisions to keep:
 
 - Top-left ALIVE / KILL / Kill Feed.
-- Top-center ZONE / TIMER / Phase bar.
+- Top-center reserved / empty for gameplay visibility.
 - Top-right minimap as the first implementation target.
+- Compact ZONE / TIMER / Phase bar under the minimap.
 - Bottom-left HP / VAEL block.
-- Bottom-center Main Trigger and Sub Trigger cards.
-- Bottom-right Quick Item / Cancel placement.
+- Compact Quick Item chip near HP / VAEL, slightly to the right of the VAEL panel.
+- Right-side vertically stacked Main Trigger and Sub Trigger cards.
+- Compact Cancel prompt above the right-side Main/Sub cards.
+- Bottom-right mostly clear; no large Quick Item / Cancel panel.
 - Cyan vs orange split for Main/Sub identity.
 - Dark sci-fi translucent panel language.
-- Trigger card labels should clearly show input side, such as `LMB` / `RMB`, and trigger name.
+- Trigger card labels should clearly show current action binding display/glyph and trigger name.
 - VAEL should remain visually distinct from HP.
 
 Mockup decisions to adjust before implementation:
@@ -85,6 +93,47 @@ Mockup decisions to adjust before implementation:
 - Minimap human preference is now top-right for the first implementation target; it may still need slight size reduction or thinner frame for live gameplay.
 - HUD must not compete with target visibility during combat.
 
+Quick Item chip:
+
+- Display as a compact chip near HP / VAEL, slightly to the right of the VAEL panel.
+- Show current auto-selected consumable icon plus total count.
+- Show the current `QuickItem` action binding display name/glyph.
+- Tap `QuickItemKey` uses the displayed item.
+- Hold `QuickItemKey` opens the Quick Item Dialog / Radial.
+- If the preferred item is depleted, fallback to another usable consumable, for example large heal -> small heal.
+- If no usable consumable exists, show empty/disabled state.
+- No Drop action in Quick Item Dialog.
+
+Cancel prompt:
+
+- Display as a compact contextual prompt above the right-side Main/Sub cards.
+- Format should be `[CancelActionKey] Cancel`.
+- Mockup labels such as `[X] Cancel` are examples only.
+- Hidden by default.
+- Show only when a cancelable action, dialog, preview, or hold state is active.
+
+Main/Sub Trigger cards:
+
+- Main/Sub cards are on the right side, stacked vertically.
+- MAIN identity = cyan/blue.
+- SUB identity = orange/red.
+- Each card shows trigger icon, trigger name, action binding display, and active slot indicator.
+- Active slot indicator uses compact diamonds, for example `◇ ◆ ◇ ◇`.
+- Slot indicator should be centered above MAIN/SUB label.
+- Slot indicator should be small and subtle.
+
+Remappable HUD key display rule:
+
+- All HUD key labels must be resolved from current Input Mapping / Enhanced Input binding display names.
+- Mockup labels such as `X`, `Q`, `E`, `4`, `LMB`, and `RMB` are examples only.
+- Do not hardcode final UI text to physical keys.
+- Cancel prompt displays the current Cancel action binding.
+- Quick Item chip displays the current QuickItem action binding.
+- Main Trigger card displays the current Main Use binding.
+- Sub Trigger card displays the current Sub Use binding.
+- Main/Sub slot controls display current slot/select bindings.
+- Future implementation should support keyboard, mouse, and gamepad glyph/display names.
+
 HUD hierarchy:
 
 Tier 1 - must be readable immediately:
@@ -94,17 +143,20 @@ Tier 1 - must be readable immediately:
 - Main Trigger.
 - Sub Trigger.
 - Crosshair / interact prompt.
+- Quick Item chip.
 
 Tier 2 - checked occasionally:
 
 - ALIVE count.
+- KILL count.
+- Kill Feed.
 - ZONE.
 - Timer.
+- Phase.
 - Minimap.
 
 Tier 3 - contextual only:
 
-- Quick item.
 - Cancel prompt.
 - Loot panel.
 - Corpse container panel.

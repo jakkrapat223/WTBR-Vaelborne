@@ -35,6 +35,7 @@ Status:
 - UI refreshes from replicated state or read-only viewmodel snapshots derived from replicated state.
 - Rejected requests must not consume items, remove loot entries, destroy ground items, spawn drops, or alter trigger slots.
 - Do not hardcode physical key F in gameplay logic; input must remain action/remapping based.
+- Do not hardcode HUD key labels to physical keys; display labels/glyphs must resolve from current Input Mapping / Enhanced Input bindings.
 - Do not remove or weaken the legacy dropped-trigger path.
 - Do not use `git add .`; stage only reviewed files in a later approved staging pass.
 
@@ -69,6 +70,10 @@ UI reads:
 - Trigger display name/icon/type data.
 - Trigger availability, cooldown, ammo/charge, and invalid/empty states when exposed.
 - Main identity uses cyan/blue language; Sub identity uses orange/red language.
+- Current Main Use binding display name/glyph.
+- Current Sub Use binding display name/glyph.
+- Current Main/Sub slot/select binding display names/glyphs.
+- Active slot indicator state for compact diamonds such as `◇ ◆ ◇ ◇`.
 
 UI requests:
 
@@ -83,13 +88,18 @@ UI reads:
 
 - Inventory consumable slots from replicated inventory state.
 - Item display data, quantity, availability, and disabled reason when known.
+- Current `QuickItem` action binding display name/glyph.
+- Auto-selected consumable slot, icon, and total count.
 - Local radial selection state as presentation-only data.
 
 UI requests:
 
 - Existing authoritative path: `AWTBRCharacter::Server_RequestUseInventoryItem(SlotIndex)`.
 - Future UI-facing wrapper may be named `RequestUseInventorySlot(SlotIndex)` and route to the authoritative server path.
+- Tap `QuickItemKey` uses the displayed auto-selected consumable.
+- Hold `QuickItemKey` opens the Quick Item Dialog / Radial.
 - Cancel/close is presentation-only and must not call mutation APIs.
+- No Drop action is exposed in the Quick Item Dialog.
 
 ### Inventory / Bag
 
@@ -144,6 +154,21 @@ UI requests:
 - Existing authoritative path: `AWTBRCharacter::Server_RequestPickupGroundItem(GroundItem)`.
 - UI must not destroy, hide, or consume the ground item locally.
 
+### Cancel Prompt
+
+Purpose: show contextual cancel affordance only while a cancelable action, dialog, preview, or hold state is active.
+
+UI reads:
+
+- Current Cancel action binding display name/glyph.
+- Whether the current presentation/gameplay interaction state is cancelable.
+- Optional short label text, normally `Cancel`.
+
+UI requests:
+
+- Cancel request is presentation-only unless the active flow defines a specific server-authoritative cancel request.
+- UI must not undo or roll back authoritative gameplay state locally.
+
 ### Drop / Move / Swap Flow
 
 Purpose: keep drag/drop UX deterministic while routing all mutation through server validation.
@@ -175,6 +200,7 @@ UI-facing data should be read-only snapshots or const accessors derived from rep
 - HP / VAEL current and max values.
 - Derived warning states such as Low VAEL Warning or Critical.
 - Context prompt text and focused target type.
+- Current HUD action binding display names/glyphs for Cancel, QuickItem, Main Use, Sub Use, and Main/Sub slot controls.
 
 Read-only UI data must not expose mutable references that let UI directly edit authoritative arrays, actors, entries, or slot structs.
 
@@ -206,6 +232,19 @@ Wrapper expectations:
 - Wrappers must not mutate replicated inventory, trigger slots, loot entries, or ground item actors on the client.
 - Wrappers should resolve UI-stable ids to authoritative actors/indices server-side where possible.
 - Wrappers should preserve existing server validation and rollback behavior.
+
+## Remappable Key / Glyph Display Contract
+
+- All HUD key labels must be resolved from current Input Mapping / Enhanced Input binding display names.
+- Mockup labels such as `X`, `Q`, `E`, `4`, `LMB`, and `RMB` are examples only.
+- Final UI text must not be hardcoded to physical keys.
+- Cancel prompt displays the current Cancel action binding.
+- Quick Item chip displays the current QuickItem action binding.
+- Main Trigger card displays the current Main Use binding.
+- Sub Trigger card displays the current Sub Use binding.
+- Main/Sub slot controls display current slot/select bindings.
+- Future implementation should support keyboard, mouse, and gamepad glyph/display names.
+- If a binding is missing, UI should show a safe unbound/disabled presentation state instead of guessing a physical key.
 
 ## Rejection / Failure Behavior
 
