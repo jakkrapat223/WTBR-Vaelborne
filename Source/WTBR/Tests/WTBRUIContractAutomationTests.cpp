@@ -8,8 +8,10 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "InputAction.h"
+#include "InputCoreTypes.h"
 #include "InputMappingContext.h"
 #include "UI/WTBRInputBindingDisplayLibrary.h"
+#include "UObject/UnrealType.h"
 #include "WTBRCharacter.h"
 
 namespace
@@ -61,9 +63,9 @@ namespace
         return FString(TEXT("Left Mouse Button"));
     }
 
-    bool ContainsForbiddenDisplayLabel(const FString& Text)
+    bool IsForbiddenDisplayLabel(const FString& Label)
     {
-        FString Normalized = Text;
+        FString Normalized = Label;
         Normalized.TrimStartAndEndInline();
 
         return Normalized.Equals(MakeForbiddenLabelA(), ESearchCase::CaseSensitive)
@@ -73,6 +75,79 @@ namespace
             || Normalized.Equals(MakeForbiddenLabelE(), ESearchCase::CaseSensitive)
             || Normalized.Equals(MakeForbiddenLabelF(), ESearchCase::CaseSensitive)
             || Normalized.Equals(MakeForbiddenLabelG(), ESearchCase::CaseSensitive);
+    }
+
+    bool IsDisplayLabelDelimiter(const TCHAR Character)
+    {
+        return FChar::IsWhitespace(Character)
+            || Character == TCHAR('[')
+            || Character == TCHAR(']')
+            || Character == TCHAR('(')
+            || Character == TCHAR(')')
+            || Character == TCHAR('+')
+            || Character == TCHAR('-')
+            || Character == TCHAR(':')
+            || Character == TCHAR(',');
+    }
+
+    bool ContainsForbiddenDisplayLabel(const FString& Text)
+    {
+        FString Token;
+        const auto FlushToken = [&Token]()
+        {
+            const bool bIsForbidden = IsForbiddenDisplayLabel(Token);
+            Token.Reset();
+            return bIsForbidden;
+        };
+
+        for (const TCHAR Character : Text)
+        {
+            if (IsDisplayLabelDelimiter(Character))
+            {
+                if (FlushToken())
+                {
+                    return true;
+                }
+                continue;
+            }
+
+            Token.AppendChar(Character);
+        }
+
+        return FlushToken();
+    }
+
+    bool SetObjectPropertyForTest(UObject* Object, const FName PropertyName, UObject* Value)
+    {
+        if (!Object)
+        {
+            return false;
+        }
+
+        FObjectPropertyBase* Property = CastField<FObjectPropertyBase>(
+            Object->GetClass()->FindPropertyByName(PropertyName));
+        if (!Property)
+        {
+            return false;
+        }
+
+        Property->SetObjectPropertyValue_InContainer(Object, Value);
+        return true;
+    }
+
+    bool SetCharacterInputForTest(
+        AWTBRCharacter* Character,
+        UInputMappingContext* MappingContext,
+        UInputAction* MainAction,
+        UInputAction* SubAction,
+        UInputAction* SwitchMainAction,
+        UInputAction* SwitchSubAction)
+    {
+        return SetObjectPropertyForTest(Character, TEXT("DefaultMappingContext"), MappingContext)
+            && SetObjectPropertyForTest(Character, TEXT("FireMainAction"), MainAction)
+            && SetObjectPropertyForTest(Character, TEXT("FireSubAction"), SubAction)
+            && SetObjectPropertyForTest(Character, TEXT("SwitchMainAction"), SwitchMainAction)
+            && SetObjectPropertyForTest(Character, TEXT("SwitchSubAction"), SwitchSubAction);
     }
 
     class FWTBRUIContractWorldFixture
@@ -190,8 +265,128 @@ bool FWTBRInputDisplayProviderNoFallbackTest::RunTest(const FString& /*Parameter
     TestTrue(TEXT("Unmapped action has no guessed display text"), UnmappedDisplay.DisplayName.IsEmpty());
     TestFalse(TEXT("Unmapped action does not contain a forbidden fallback"),
         ContainsForbiddenDisplayLabel(UnmappedDisplay.DisplayName.ToString()));
+    TestTrue(TEXT("Exact forbidden display label is rejected"),
+        ContainsForbiddenDisplayLabel(MakeForbiddenLabelA()));
+    TestTrue(TEXT("Bracketed forbidden display label is rejected"),
+        ContainsForbiddenDisplayLabel(FString::Printf(TEXT("[%s]"), *MakeForbiddenLabelF())));
     TestFalse(TEXT("Engine mouse display name is accepted"),
         ContainsForbiddenDisplayLabel(MakeEngineMouseDisplayName()));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRHUDHintTextUsesResolvedInputDisplayNamesTest,
+    "WTBR.UI.Contract.HintTextUsesResolvedInputDisplayNames",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FWTBRHUDHintTextUsesResolvedInputDisplayNamesTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRUIContractWorldFixture Fixture(TEXT("WTBR_UIContract_HintTextResolvedInput"));
+    AWTBRCharacter* Character = SpawnUIContractCharacter(Fixture.GetWorld());
+    TestNotNull(TEXT("Headless character exists"), Character);
+    if (!Character)
+    {
+        return false;
+    }
+
+    UInputMappingContext* MappingContext = NewObject<UInputMappingContext>(GetTransientPackage());
+    UInputAction* MainAction = NewObject<UInputAction>(GetTransientPackage());
+    UInputAction* SubAction = NewObject<UInputAction>(GetTransientPackage());
+    UInputAction* SwitchMainAction = NewObject<UInputAction>(GetTransientPackage());
+    UInputAction* SwitchSubAction = NewObject<UInputAction>(GetTransientPackage());
+    TestNotNull(TEXT("Mapping context exists"), MappingContext);
+    TestNotNull(TEXT("Main action exists"), MainAction);
+    TestNotNull(TEXT("Sub action exists"), SubAction);
+    TestNotNull(TEXT("Switch main action exists"), SwitchMainAction);
+    TestNotNull(TEXT("Switch sub action exists"), SwitchSubAction);
+    if (!MappingContext || !MainAction || !SubAction || !SwitchMainAction || !SwitchSubAction)
+    {
+        return false;
+    }
+
+    MappingContext->MapKey(MainAction, EKeys::SpaceBar);
+    MappingContext->MapKey(SubAction, EKeys::SpaceBar);
+    MappingContext->MapKey(SwitchMainAction, EKeys::SpaceBar);
+    MappingContext->MapKey(SwitchSubAction, EKeys::SpaceBar);
+    TestTrue(TEXT("Character input properties are overridden for test"),
+        SetCharacterInputForTest(Character, MappingContext, MainAction, SubAction, SwitchMainAction, SwitchSubAction));
+
+    const TArray<FString> HintTexts = {
+        Character->GetMainTriggerHintText().ToString(),
+        Character->GetSubTriggerHintText().ToString(),
+        Character->GetSwitchMainHintText().ToString(),
+        Character->GetSwitchSubHintText().ToString(),
+    };
+
+    for (const FString& HintText : HintTexts)
+    {
+        TestFalse(TEXT("HUD hint text does not contain an exact forbidden key label"),
+            ContainsForbiddenDisplayLabel(HintText));
+    }
+
+    TestFalse(TEXT("Cancel hint does not contain an exact forbidden key label"),
+        ContainsForbiddenDisplayLabel(Character->GetCancelHintText().ToString()));
+    TestEqual(TEXT("Cancel hint is semantic only"), Character->GetCancelHintText().ToString(), FString(TEXT("Cancel")));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRHUDHintTextUnboundInputDoesNotGuessKeysTest,
+    "WTBR.UI.Contract.HintTextUnboundInputDoesNotGuessKeys",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FWTBRHUDHintTextUnboundInputDoesNotGuessKeysTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRUIContractWorldFixture Fixture(TEXT("WTBR_UIContract_HintTextUnboundInput"));
+    AWTBRCharacter* Character = SpawnUIContractCharacter(Fixture.GetWorld());
+    TestNotNull(TEXT("Headless character exists"), Character);
+    if (!Character)
+    {
+        return false;
+    }
+
+    UInputMappingContext* MappingContext = NewObject<UInputMappingContext>(GetTransientPackage());
+    UInputAction* MainAction = NewObject<UInputAction>(GetTransientPackage());
+    UInputAction* SubAction = NewObject<UInputAction>(GetTransientPackage());
+    UInputAction* SwitchMainAction = NewObject<UInputAction>(GetTransientPackage());
+    UInputAction* SwitchSubAction = NewObject<UInputAction>(GetTransientPackage());
+    TestNotNull(TEXT("Mapping context exists"), MappingContext);
+    TestNotNull(TEXT("Main action exists"), MainAction);
+    TestNotNull(TEXT("Sub action exists"), SubAction);
+    TestNotNull(TEXT("Switch main action exists"), SwitchMainAction);
+    TestNotNull(TEXT("Switch sub action exists"), SwitchSubAction);
+    if (!MappingContext || !MainAction || !SubAction || !SwitchMainAction || !SwitchSubAction)
+    {
+        return false;
+    }
+
+    TestTrue(TEXT("Character input properties are overridden for test"),
+        SetCharacterInputForTest(Character, MappingContext, MainAction, SubAction, SwitchMainAction, SwitchSubAction));
+
+    TestEqual(TEXT("Unbound main hint is semantic only"),
+        Character->GetMainTriggerHintText().ToString(), FString(TEXT("Main None")));
+    TestEqual(TEXT("Unbound sub hint is semantic only"),
+        Character->GetSubTriggerHintText().ToString(), FString(TEXT("Sub None")));
+    TestEqual(TEXT("Unbound switch main hint is semantic only"),
+        Character->GetSwitchMainHintText().ToString(), FString(TEXT("Switch Main")));
+    TestEqual(TEXT("Unbound switch sub hint is semantic only"),
+        Character->GetSwitchSubHintText().ToString(), FString(TEXT("Switch Sub")));
+    TestEqual(TEXT("Cancel hint remains semantic only"),
+        Character->GetCancelHintText().ToString(), FString(TEXT("Cancel")));
+
+    const TArray<FString> HintTexts = {
+        Character->GetMainTriggerHintText().ToString(),
+        Character->GetSubTriggerHintText().ToString(),
+        Character->GetSwitchMainHintText().ToString(),
+        Character->GetSwitchSubHintText().ToString(),
+        Character->GetCancelHintText().ToString(),
+    };
+
+    for (const FString& HintText : HintTexts)
+    {
+        TestFalse(TEXT("Unbound HUD hint text does not guess physical keys"),
+            ContainsForbiddenDisplayLabel(HintText));
+    }
 
     return true;
 }

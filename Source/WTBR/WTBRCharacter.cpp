@@ -49,6 +49,7 @@
 #include "Trigger/WTBRVenyxTrigger.h"
 #include "Trigger/WTBRVexornTrigger.h"
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
+#include "UI/WTBRInputBindingDisplayLibrary.h"
 
 #if !UE_BUILD_SHIPPING
 // B7D client-side validation harness trigger. Detected every ~1 s by
@@ -152,6 +153,47 @@ namespace
         }
 
         return GetHUDTriggerDataAssetName(DataAsset);
+    }
+
+    FText FormatHUDTriggerHintText(
+        const FText& SlotLabel,
+        const FText& TriggerName,
+        const UInputMappingContext* MappingContext,
+        const UInputAction* InputAction)
+    {
+        const FWTBRHUDBindingDisplay BindingDisplay =
+            UWTBRInputBindingDisplayLibrary::ResolveInputActionDisplayName(MappingContext, InputAction);
+        if (BindingDisplay.bIsBound && !BindingDisplay.DisplayName.IsEmpty())
+        {
+            return FText::Format(
+                NSLOCTEXT("WTBRCharacter", "HUDTriggerHintWithBinding", "{0} [{1}] {2}"),
+                SlotLabel,
+                BindingDisplay.DisplayName,
+                TriggerName);
+        }
+
+        return FText::Format(
+            NSLOCTEXT("WTBRCharacter", "HUDTriggerHintWithoutBinding", "{0} {1}"),
+            SlotLabel,
+            TriggerName);
+    }
+
+    FText FormatHUDActionHintText(
+        const FText& ActionLabel,
+        const UInputMappingContext* MappingContext,
+        const UInputAction* InputAction)
+    {
+        const FWTBRHUDBindingDisplay BindingDisplay =
+            UWTBRInputBindingDisplayLibrary::ResolveInputActionDisplayName(MappingContext, InputAction);
+        if (BindingDisplay.bIsBound && !BindingDisplay.DisplayName.IsEmpty())
+        {
+            return FText::Format(
+                NSLOCTEXT("WTBRCharacter", "HUDActionHintWithBinding", "[{0}] {1}"),
+                BindingDisplay.DisplayName,
+                ActionLabel);
+        }
+
+        return ActionLabel;
     }
 
     bool IsKnownPerUseVaelTriggerForHUD(const UWTBRTriggerBase* Trigger)
@@ -2130,9 +2172,11 @@ FText AWTBRCharacter::GetMainTriggerHintText() const
         ? TriggerSetComponent->GetActiveMainDataAsset()
         : nullptr;
 
-    return FText::FromString(FString::Printf(
-        TEXT("Main [LMB] %s"),
-        *GetHUDTriggerNameWithFallback(MainTrigger, MainDataAsset).ToString()));
+    return FormatHUDTriggerHintText(
+        NSLOCTEXT("WTBRCharacter", "HUDMainTriggerSlotLabel", "Main"),
+        GetHUDTriggerNameWithFallback(MainTrigger, MainDataAsset),
+        DefaultMappingContext,
+        FireMainAction);
 }
 
 FText AWTBRCharacter::GetMainTriggerNameText() const
@@ -2156,9 +2200,11 @@ FText AWTBRCharacter::GetSubTriggerHintText() const
         ? TriggerSetComponent->GetActiveSubDataAsset()
         : nullptr;
 
-    return FText::FromString(FString::Printf(
-        TEXT("Sub [RMB] %s"),
-        *GetHUDTriggerNameWithFallback(SubTrigger, SubDataAsset).ToString()));
+    return FormatHUDTriggerHintText(
+        NSLOCTEXT("WTBRCharacter", "HUDSubTriggerSlotLabel", "Sub"),
+        GetHUDTriggerNameWithFallback(SubTrigger, SubDataAsset),
+        DefaultMappingContext,
+        FireSubAction);
 }
 
 FText AWTBRCharacter::GetSubTriggerNameText() const
@@ -2333,17 +2379,23 @@ FWTBRHUDTriggerVaelAffordability AWTBRCharacter::GetActiveTriggerVaelAffordabili
 
 FText AWTBRCharacter::GetSwitchMainHintText() const
 {
-    return FText::FromString(TEXT("Q Switch Main"));
+    return FormatHUDActionHintText(
+        NSLOCTEXT("WTBRCharacter", "HUDSwitchMainHintLabel", "Switch Main"),
+        DefaultMappingContext,
+        SwitchMainAction);
 }
 
 FText AWTBRCharacter::GetSwitchSubHintText() const
 {
-    return FText::FromString(TEXT("E Switch Sub"));
+    return FormatHUDActionHintText(
+        NSLOCTEXT("WTBRCharacter", "HUDSwitchSubHintLabel", "Switch Sub"),
+        DefaultMappingContext,
+        SwitchSubAction);
 }
 
 FText AWTBRCharacter::GetCancelHintText() const
 {
-    return FText::FromString(TEXT("X Cancel"));
+    return NSLOCTEXT("WTBRCharacter", "HUDCancelHintLabel", "Cancel");
 }
 
 void AWTBRCharacter::RefreshHUDHints()

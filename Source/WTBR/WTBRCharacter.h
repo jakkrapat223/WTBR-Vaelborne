@@ -83,10 +83,10 @@ class AWTBRCharacter : public ACharacter
     TObjectPtr<UInputAction> LookAction;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
-    TObjectPtr<UInputAction> FireMainAction;   // LMB — Main Trigger (Lock)
+    TObjectPtr<UInputAction> FireMainAction;   // Main Trigger (Lock)
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
-    TObjectPtr<UInputAction> FireSubAction;    // RMB — Sub Trigger (Lock)
+    TObjectPtr<UInputAction> FireSubAction;    // Sub Trigger (Lock)
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
     TObjectPtr<UInputAction> DodgeAction;
@@ -198,6 +198,12 @@ public:
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
     UInputAction* GetFireSubInputAction() const { return FireSubAction; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
+    UInputAction* GetSwitchMainInputAction() const { return SwitchMainAction; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
+    UInputAction* GetSwitchSubInputAction() const { return SwitchSubAction; }
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
     UInputAction* GetInteractInputAction() const { return InteractAction; }
