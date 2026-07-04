@@ -3,7 +3,8 @@
 Project: WTBR / Vaelborne: Dominion  
 Engine: Unreal Engine 5.1.1 C++  
 Baseline: `ae481d9` — Add B7 dedicated late join validation runbook  
-Latest code baseline: `c3dd314` — Add S8B corpse container priority automation
+Latest code baseline: `2461d0a` — Add B7D dedicated late join validation proof  
+**B7 Status: PASS (2026-07-04)**
 
 ## Purpose
 
@@ -224,16 +225,20 @@ B7 can be marked PASS only when all of these are true:
 
 ## Current B7 Status
 
-Status: **PARTIAL / manual corpse-container late-join validation required**.
+Status: **PASS** — as of `2461d0a` (Add B7D dedicated late join validation proof, 2026-07-04).
 
-The code inspection and existing automation show the expected replication and authority hooks:
+All six B7 pass criteria were observed in the B7D dedicated-server + late-join session:
 
-- `AWTBRCorpseLootContainerActor` replicates and replicates `LootEntries`.
-- `OnRep_LootEntries` broadcasts read-only UI state refresh.
-- `Server_RequestPickupCorpseLootEntry_Implementation` re-validates authority, alive state, match rules, range, entry validity, target replacement, consume, and rollback.
-- S8B automation proves priority 1 beats dropped trigger and BR ground item candidates in deterministic headless tests.
+- Dedicated server started and served the ThirdPersonMap validation session.
+- Corpse container spawned on authority with real installed trigger entries.
+- Client 1 interaction was server-authoritative (RPC chain confirmed).
+- Late-join client 2 received correct non-empty container state.
+- Corpse/container priority 1 was confirmed above dropped trigger and BR ground item after late join.
+- Lower-priority actors were not mutated when corpse/container won.
+- Production default `bUseCorpseLootContainerOnDeath = false` was not flipped.
+- No Blueprint/WBP/UMG/.uasset/.umap/binary assets were modified.
 
-This document does not mark B7 PASS by itself because actual dedicated server plus late-join client replication must still be observed.
+Prior B7C result (PARTIAL PASS) is preserved as historical record. See the B7D section below for full evidence.
 
 ## B7A Codex Validation Attempt — 2026-07-04
 
@@ -444,3 +449,150 @@ Client 2 log confirms replication system working (both characters received with 
 - Lower-priority actor non-mutation: not proven in this pass.
 
 B7C result: **PARTIAL PASS — dedicated server spawn harness proven, late-join replication inferred. Client interaction, priority, and non-mutation remain pending for manual/interactive session.**
+
+## B7D — Interactive Client Validation — 2026-07-04
+
+### Changes
+
+Files committed (`2461d0a` — Add B7D dedicated late join validation proof):
+
+- `Source/WTBR/WTBRCharacter.h` — `#if !UE_BUILD_SHIPPING` private section: `FTimerHandle B7ClientValidationPollTimerHandle`, `B7ClientValidationTimerHandle`, `int32 B7ClientValidationRetryCount = 0`, `static constexpr int32 B7ClientValidationMaxRetries = 60`, `PollB7ClientValidationCVar()`, `RunB7ClientValidationSequence()`, `ContinueB7ClientValidationSequence()`, `FinishB7ClientValidationSequence()`, `LogB7ClientValidationWorldState()`.
+- `Source/WTBR/WTBRCharacter.cpp` — `TAutoConsoleVariable<float> CVarWTBRB7ClientValidationDelay` (`WTBR.B7ClientValidationDelaySeconds`, default 0, `#if !UE_BUILD_SHIPPING`). `BeginPlay` on `NM_Client` starts a 1-s poll timer. Sequence: detect CVar, wait for local control, face container, `GetFocusedInteractionPromptText`, `RequestContextInteract`, `WTBRDebugCharacterLootNearestCorpseContainer`, pre/post world-state log. Retry bounded at `B7ClientValidationMaxRetries = 60` (120 s). Read/log + client-side view rotation + server RPC requests only — no client-side inventory/slot/loot/ground-item mutation.
+- `Source/WTBR/WTBRGameMode.cpp` — Two new `#if !UE_BUILD_SHIPPING` CVars: `WTBR.B7ValidationForceInMatchRules` (runtime-only match override: `Phase=InMatch`, `bAllowCorpseLoot/TriggerPickup/TriggerSwapDuringMatch=true`; default 0) and `WTBR.B7ValidationSpawnLowerPriorityActors` (spawns one dropped trigger + one BR ground item as lower-priority context-interact candidates; default 0). Spawn path now prefers the authority pawn's real installed trigger snapshots; falls back to synthetic paths when no installed trigger exists.
+
+No production defaults changed. No Blueprint/WBP/UMG/.uasset/.umap/binary assets modified.
+
+### Build
+
+- `WTBREditor Win64 Development`: 9/9 actions, exit code 0, no warnings.
+
+### Automation
+
+- `WTBR.*` full suite: **69/69 PASS, 0 FAIL**. Baseline maintained.
+
+### Validation Commands
+
+```powershell
+$serverArgs = '"E:\World Trigger\WTBR-Vaelborne\WTBR.uproject" "/Game/ThirdPerson/Maps/ThirdPersonMap" -server -Unattended -NullRHI -NoSound -log -port=7777 -abslog="..." -ExecCmds="WTBR.CorpseLootContainerLifetimeSeconds 0,WTBR.UseCorpseLootContainerOnDeath 1,WTBR.B7ValidationForceInMatchRules 1,WTBR.B7ValidationSpawnLowerPriorityActors 1,WTBR.B7ValidationSpawnCorpseContainerDelaySeconds 15"'
+Start-Process -FilePath 'E:\UE_5.1\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' -ArgumentList $serverArgs -PassThru -WindowStyle Hidden
+```
+
+```powershell
+$client1Args = '"E:\World Trigger\WTBR-Vaelborne\WTBR.uproject" "127.0.0.1:7777" -game -Unattended -NullRHI -NoSound -log -abslog="..." -ExecCmds="WTBR.B7ClientValidationDelaySeconds 20"'
+Start-Process -FilePath 'E:\UE_5.1\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' -ArgumentList $client1Args -PassThru -WindowStyle Hidden
+```
+
+```powershell
+# Start client 2 approximately 60 s after client 1 to ensure late-join after container spawn.
+$client2Args = '"E:\World Trigger\WTBR-Vaelborne\WTBR.uproject" "127.0.0.1:7777" -game -Unattended -NullRHI -NoSound -log -abslog="..." -ExecCmds="WTBR.B7ClientValidationDelaySeconds 15"'
+Start-Process -FilePath 'E:\UE_5.1\Engine\Binaries\Win64\UnrealEditor-Cmd.exe' -ArgumentList $client2Args -PassThru -WindowStyle Hidden
+```
+
+### Observed Evidence (B7D_Server.log, B7D_Client1.log, B7D_Client2.log)
+
+Server — container spawn with real triggers at tick [483]:
+
+```
+[08.00.43:683][ 31] B7Validation: CVar requested spawn delay 15.0 s.
+[08.00.43:683][ 31] B7Validation: Scheduling corpse container spawn in 15.0 s.
+[08.00.48:931][189] LogNet: Join succeeded: DESKTOP-A9V5TS3-5EF7   (client 1)
+[08.00.58:714][483] B7Validation: Spawn attempt (try 1/91).
+[08.00.58:714][483] B7Validation: Found authority character BP_WTBRCharacter_C_0 at X=900.000 Y=1110.000 Z=98.338.
+[08.00.58:714][483] B7Validation: Runtime match override applied — Phase=InMatch, corpse loot/trigger pickup/swap enabled (validation session only; production defaults unchanged).
+[08.00.58:714][483] B7Validation: Created snapshots from installed triggers (2 entries, first=/Game/Data/Triggers/DA_Serpveil.DA_Serpveil).
+[08.00.58:715][483] WTBR corpse loot container initialized: Container=BP_WTBRCorpseLootContainer_C_0 Entries=2
+[08.00.58:715][483] B7Validation: Corpse container spawned — Actor=BP_WTBRCorpseLootContainer_C_0 Location=X=1020.000 Y=1110.000 Z=118.338 Entries=2. Will replicate to all connected clients.
+[08.00.58:715][483] B7Validation: Lower-priority dropped trigger spawned — Actor=WTBRDroppedTriggerActor_0 Location=X=1020.000 Y=1210.000 Z=118.338.
+[08.00.58:715][483] B7Validation: Lower-priority ground item spawned — Actor=WTBRGroundItemActor_0 Location=X=1170.000 Y=1110.000 Z=118.338.
+```
+
+Server — client 2 late join and both pickup RPCs accepted:
+
+```
+[08.01.10:509][837] WTBR corpse loot pickup swapped: character BP_WTBRCharacter_C_0 took container BP_WTBRCorpseLootContainer_C_0 entry 0 into slot 0 and returned previous slot trigger to same entry
+[08.01.49:253][  4] LogNet: Join succeeded: DESKTOP-A9V5TS3-45B5   (client 2 — late join)
+[08.02.06:282][513] WTBR corpse loot pickup swapped: character BP_WTBRCharacter_C_1 took container BP_WTBRCorpseLootContainer_C_0 entry 0 into slot 0 and returned previous slot trigger to same entry
+```
+
+Client 1 — container receipt, priority proof, RPC chain:
+
+```
+B7ClientValidation: Container receipt — Actor=BP_WTBRCorpseLootContainer_C_0 Distance=121.6 HasAuthority=false Entries=2 HasAvailableLoot=true
+B7ClientValidation: [Pre] Container BP_WTBRCorpseLootContainer_C_0 Entries=2 [0]DA_Serpveil=available [1]DA_Acervyn=available
+B7ClientValidation: [Pre] DroppedTrigger WTBRDroppedTriggerActor_0 Distance=157.4 ViewDot=0.98 IsConsumed=false
+B7ClientValidation: [Pre] GroundItem WTBRGroundItemActor_0 Distance=270.7 ViewDot=1.00 IsConsumed=false Quantity=1
+B7ClientValidation: Focused prompt='Open Trigger Cache' (empty=false).
+[WTBR Interact] Handled by corpse/container/chest focus (priority 1).
+B7ClientValidation: RequestContextInteract handled=true.
+WTBRDebugCharacterLootNearestCorpseContainer: requesting container BP_WTBRCorpseLootContainer_C_0 entry 0 into slot 0 for character BP_WTBRCharacter_C_0.
+B7ClientValidation: [Post] DroppedTrigger WTBRDroppedTriggerActor_0 IsConsumed=false
+B7ClientValidation: [Post] GroundItem WTBRGroundItemActor_0 IsConsumed=false Quantity=1
+B7ClientValidation: Sequence complete (character BP_WTBRCharacter_C_0).
+```
+
+Client 2 (late join) — container receipt after joining post-spawn, priority proof:
+
+```
+B7ClientValidation: Container receipt — Actor=BP_WTBRCorpseLootContainer_C_0 Distance=147.9 HasAuthority=false Entries=2 HasAvailableLoot=true
+B7ClientValidation: [Pre] Container BP_WTBRCorpseLootContainer_C_0 Entries=2 [0]DA_Serpveil=available [1]DA_Acervyn=available
+B7ClientValidation: [Pre] DroppedTrigger WTBRDroppedTriggerActor_0 Distance=220.7 ViewDot=0.94 IsConsumed=false
+B7ClientValidation: [Pre] GroundItem WTBRGroundItemActor_0 Distance=283.5 ViewDot=0.99 IsConsumed=false Quantity=1
+B7ClientValidation: Focused prompt='Open Trigger Cache' (empty=false).
+[WTBR Interact] Handled by corpse/container/chest focus (priority 1).
+B7ClientValidation: RequestContextInteract handled=true.
+WTBRDebugCharacterLootNearestCorpseContainer: requesting container BP_WTBRCorpseLootContainer_C_0 entry 0 into slot 0 for character BP_WTBRCharacter_C_0.
+B7ClientValidation: [Post] DroppedTrigger WTBRDroppedTriggerActor_0 IsConsumed=false
+B7ClientValidation: [Post] GroundItem WTBRGroundItemActor_0 IsConsumed=false Quantity=1
+B7ClientValidation: Sequence complete (character BP_WTBRCharacter_C_0).
+```
+
+Server cross-check — no dropped-trigger or ground-item pickup occurred:
+
+- No `dropped trigger pickup` log in server log.
+- No `ground item pickup` log in server log.
+- No reject/error/rollback log in server log.
+
+### B7D Result Summary
+
+| Item | Status |
+|------|--------|
+| Build 9/9 | PASS |
+| Automation 69/69 | PASS |
+| Dedicated server startup | PASS |
+| IpNetDriver listen on port 7777 | PASS |
+| Runtime match override (InMatch, corpse loot/trigger pickup/swap) | PASS (validation session only; production defaults unchanged) |
+| Container spawned on authority with real installed triggers (DA_Serpveil + DA_Acervyn) | PASS |
+| Lower-priority dropped trigger spawned | PASS |
+| Lower-priority ground item spawned | PASS |
+| Client 1 join | PASS |
+| **Client 1 container receipt** (`Entries=2 HasAvailableLoot=true HasAuthority=false`) | **PASS** |
+| **Client 1 focused prompt** (`'Open Trigger Cache'`) | **PASS** |
+| **Client 1 priority 1 win** (`Handled by corpse/container/chest focus (priority 1)`) | **PASS** |
+| **Client 1 loot RPC chain** (server: `corpse loot pickup swapped`) | **PASS** |
+| Client 2 late join (after container existed) | PASS |
+| **Client 2 container receipt** (`Entries=2 HasAvailableLoot=true HasAuthority=false`) | **PASS** |
+| **Client 2 focused prompt** (`'Open Trigger Cache'`) | **PASS** |
+| **Client 2 priority 1 win after late join** (dropped trigger + ground item in view cone, priority 1 still wins) | **PASS** |
+| **Client 2 loot RPC chain** (server: `corpse loot pickup swapped`) | **PASS** |
+| **Lower-priority dropped trigger not mutated** (`[Post] IsConsumed=false`) | **PASS** |
+| **Lower-priority ground item not mutated** (`[Post] IsConsumed=false Quantity=1`) | **PASS** |
+| No dropped-trigger / ground-item pickup on server | PASS |
+| Production default `bUseCorpseLootContainerOnDeath = false` not flipped | PASS |
+| No staged / committed assets/logs/binaries | PASS |
+
+B7D result: **PASS — all four B7 gaps proven in a live dedicated-server late-join session. B7 overall is PASS.**
+
+## Next Pass
+
+**B8 — Corpse Container Production Default Flip**
+
+B7 PASS is the prerequisite for flipping the production default. B8 has not been started and is not implied by this document.
+
+Pending before B8:
+- Corpse bag UI / UMG (not implemented).
+- Target slot selection UI (not implemented).
+- Context interact dispatch wiring for remaining branches (generic interactable).
+- Focus trace angle/radius/height tuning for production.
+- Visual readability / placeholder scale.
+
+B8 work item: set `bUseCorpseLootContainerOnDeath = true` as the production default (or equivalent CVar flip) after UI and remaining dispatch branches are complete and playtested.
