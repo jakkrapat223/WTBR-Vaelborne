@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vaelborne In-Match HUD Prototype v1</title>
+  <link rel="stylesheet" href="Vaelborne_InMatch_HUD.css">
+</head>
+<body>
+  <!--
+    WTBR / Vaelborne: Dominion - In-Match HUD Prototype v1
+
+    Visual reference only:
+    - This does NOT approve Web Browser Widget as production in-match HUD.
+    - This does NOT approve WBP/UMG/Blueprint/.uasset/.umap work.
+    - Production UI must follow the C++ UI Contract and server-authoritative request-only rules.
+    - Client UI must not mutate inventory, slots, loot, ground items, or dropped triggers directly.
+
+    Remappable key display rule:
+    - Visible labels such as E, X, Q, S, 4, LMB, and RMB are mock examples only.
+    - Production UI must resolve display names/glyphs from Input Mapping / Enhanced Input.
+    - Future implementation should support keyboard, mouse, and gamepad glyph/display names.
+
+    Quick Item behavior:
+    - Tap QuickItemKey = use displayed item.
+    - Hold QuickItemKey = open Quick Item Dialog / Radial.
+    - If preferred item is depleted, fallback to another usable consumable.
+    - If no usable consumable exists, show empty/disabled state.
+    - No Drop action in Quick Item Dialog.
+  -->
+
+  <main class="preview-shell" aria-label="Vaelborne in-match HUD prototype">
+    <section class="hud-stage" aria-label="1920 by 1080 HUD preview">
+      <div class="hud-canvas">
+      <div class="world-bg" aria-hidden="true">
+        <span class="skyline skyline-a"></span>
+        <span class="skyline skyline-b"></span>
+        <span class="rain"></span>
+        <span class="vael-beam beam-a"></span>
+        <span class="vael-beam beam-b"></span>
+        <span class="enemy-ping ping-a" aria-hidden="true"></span>
+        <span class="enemy-ping ping-b" aria-hidden="true"></span>
+      </div>
+
+      <aside class="match-cluster top-left" aria-label="Match state and kill feed">
+        <div class="match-summary panel angular" aria-label="Match summary">
+          <div class="match-stat match-stat--alive">
+            <span class="stat-icon">A</span>
+            <span class="stat-label">ALIVE</span>
+            <span class="stat-value">42</span>
+          </div>
+          <div class="match-stat match-stat--kill">
+            <span class="stat-icon">K</span>
+            <span class="stat-label">KILL</span>
+            <span class="stat-value">03</span>
+          </div>
+        </div>
+        <!-- Production should show this only for death/elimination events, then hide or fade it after a short duration. -->
+        <div class="kill-feed visible" aria-label="Kill feed sample">
+          <div class="kill-feed__entry"><span class="killer">Vaelborn</span><span class="verb">eliminated</span><span class="victim">ShadowRogue</span></div>
+          <div class="kill-feed__entry"><span class="killer">Nyx_07</span><span class="verb">eliminated</span><span class="victim">IronVoid</span></div>
+          <div class="kill-feed__entry"><span class="killer">Vaelborn</span><span class="verb">eliminated</span><span class="victim">SilentEdge</span></div>
+        </div>
+      </aside>
+
+      <div class="top-center-reserve" aria-hidden="true"></div>
+
+      <aside class="navigation-stack top-right" aria-label="Map and zone state">
+        <div class="minimap panel angular">
+          <div class="map-grid"></div>
+          <div class="safe-zone"></div>
+          <div class="player-arrow"></div>
+          <span class="map-marker marker-a"></span>
+          <span class="map-marker marker-b"></span>
+          <span class="map-marker marker-c"></span>
+          <div class="compass">N</div>
+        </div>
+        <div class="zone-strip panel">
+          <span><b>ZONE</b> 2</span>
+          <span>01:24</span>
+          <span><b>PHASE</b> 3</span>
+        </div>
+      </aside>
+
+      <section class="vitals-stack bottom-left" aria-label="HP VAEL and quick item">
+        <div class="vital-card panel hp-card">
+          <div class="vital-icon hp-icon">+</div>
+          <div class="vital-body">
+            <div class="vital-top">
+              <span>HP</span>
+              <strong>820 / 1000</strong>
+            </div>
+            <div class="bar-track"><span class="bar-fill hp-fill"></span></div>
+          </div>
+        </div>
+
+        <div class="vital-row">
+          <div class="vital-card panel vael-card">
+            <div class="vital-icon vael-icon">◆</div>
+            <div class="vital-body">
+              <div class="vital-top">
+                <span>VAEL</span>
+                <strong>64%</strong>
+              </div>
+              <div class="bar-track"><span class="bar-fill vael-fill"></span></div>
+            </div>
+          </div>
+
+          <button class="quick-item normal" aria-label="Quick Item consumable x3">
+            <!-- "4" is a remappable QuickItem action binding display example only; production resolves it from Input Mapping / Enhanced Input. -->
+            <span class="quick-item__icon-wrap" aria-hidden="true">
+              <span class="quick-item__icon">+</span>
+              <span class="quick-item__count">x3</span>
+            </span>
+            <span class="quick-item__key binding">4</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="right-combat-stack" aria-label="Trigger and cancel state">
+        <button class="cancel-prompt visible">
+          <!-- "X" is a remappable Cancel action binding display example only. -->
+          <span class="binding">X</span>
+          <span>Cancel</span>
+        </button>
+
+        <article class="trigger-card panel angular main-trigger" aria-label="Main Trigger Lacern">
+          <div class="slot-diamonds" aria-label="Active Main slot indicator">◇ ◆ ◇ ◇</div>
+          <div class="trigger-content">
+            <div class="trigger-icon slash-icon"></div>
+            <div class="trigger-copy">
+              <span>MAIN</span>
+              <strong>Lacern</strong>
+            </div>
+            <!-- "Q" is a remappable Main Use binding display example only. -->
+            <div class="binding trigger-binding">Q</div>
+          </div>
+        </article>
+
+        <article class="trigger-card panel angular sub-trigger" aria-label="Sub Trigger Aegorn">
+          <div class="slot-diamonds" aria-label="Active Sub slot indicator">◇ ◇ ◆ ◇</div>
+          <div class="trigger-content">
+            <div class="trigger-icon shield-icon"></div>
+            <div class="trigger-copy">
+              <span>SUB</span>
+              <strong>Aegorn</strong>
+            </div>
+            <!-- "S" is a remappable Sub Use binding display example only. -->
+            <div class="binding trigger-binding">S</div>
+          </div>
+        </article>
+      </section>
+
+      <section class="center-combat" aria-label="Center combat readability area">
+        <div class="crosshair">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div class="pickup-prompt hidden">
+          <!-- "E" is a remappable Pick Up binding display example only; production resolves it from Input Mapping / Enhanced Input. -->
+          <span class="binding">E</span>
+          <span>Pick Up</span>
+        </div>
+        <!-- Future enemy/focus/hit markers are contextual only and hidden by default. -->
+        <div class="hit-marker" aria-hidden="true"></div>
+        <div class="focus-marker" aria-hidden="true">◇</div>
+      </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
