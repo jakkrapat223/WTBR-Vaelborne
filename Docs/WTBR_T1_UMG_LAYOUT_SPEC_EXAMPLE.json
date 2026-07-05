@@ -1,0 +1,53 @@
+{
+  "widget": "WBP_WTBRToolingSpike_Test",
+  "description": "Sandbox test widget for T1 UMG Layout Tooling Spike. NOT a production asset.",
+  "ue_path": "/Game/UI/Sandbox/WBP_WTBRToolingSpike_Test",
+  "parent_class": "UserWidget",
+  "root": {
+    "type": "CanvasPanel",
+    "name": "RootCanvas",
+    "children": [
+      {
+        "type": "Border",
+        "name": "Panel_Test",
+        "slot": {
+          "anchor": "center",
+          "alignment": [0.5, 0.5],
+          "position": [0, 0],
+          "size": [500, 300],
+          "size_to_content": false
+        },
+        "style": {
+          "background_color": [0.0, 0.0, 0.0, 0.75],
+          "padding": [16, 16, 16, 16]
+        },
+        "children": [
+          {
+            "type": "TextBlock",
+            "name": "Text_Title",
+            "text": "UMG Tooling Spike",
+            "font_size": 24,
+            "color": [0.0, 0.85, 0.85, 1.0],
+            "justification": "center",
+            "slot": {
+              "horizontal_alignment": "center",
+              "vertical_alignment": "top",
+              "padding": [0, 0, 0, 0]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "_notes": {
+    "usage": "This JSON spec is a human-readable layout definition. It is parsed by Tools/Editor/WTBR_UMGLayoutSpike.py to create the sandbox WBP via Unreal Python.",
+    "ue_mapping": {
+      "CanvasPanel": "UCanvasPanel / SConstraintCanvas",
+      "Border": "UBorder",
+      "TextBlock": "UTextBlock",
+      "anchor_center": "FAnchors(0.5, 0.5, 0.5, 0.5)",
+      "background_color": "FSlateColor (RGBA linear)"
+    },
+    "python_limitations": "UE5.1.1 Python can create WidgetBlueprint asset but WidgetTree structural editing (adding children) is limited. See WTBR_T1_UMG_LAYOUT_TOOLING_SPIKE.md Section 3."
+  }
+}
