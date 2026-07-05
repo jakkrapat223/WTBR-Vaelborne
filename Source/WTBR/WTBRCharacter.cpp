@@ -124,24 +124,26 @@ namespace
 
     FText GetHUDTriggerName(const UWTBRTriggerBase* Trigger)
     {
+        const FText NoTriggerText = NSLOCTEXT("WTBRCharacter", "HUDNoTriggerFallback", "No Trigger");
         if (!IsValid(Trigger))
         {
-            return FText::FromString(TEXT("None"));
+            return NoTriggerText;
         }
 
         const FText FunctionalName = Trigger->GetFunctionalName();
-        return FunctionalName.IsEmpty() ? FText::FromString(TEXT("None")) : FunctionalName;
+        return FunctionalName.IsEmpty() ? NoTriggerText : FunctionalName;
     }
 
     FText GetHUDTriggerDataAssetName(const UWTBRTriggerDataAsset* DataAsset)
     {
+        const FText NoTriggerText = NSLOCTEXT("WTBRCharacter", "HUDNoTriggerFallback", "No Trigger");
         if (!IsValid(DataAsset))
         {
-            return FText::FromString(TEXT("None"));
+            return NoTriggerText;
         }
 
         return DataAsset->FunctionalName.IsEmpty()
-            ? FText::FromString(TEXT("None"))
+            ? NoTriggerText
             : DataAsset->FunctionalName;
     }
 

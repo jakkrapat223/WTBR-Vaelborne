@@ -363,16 +363,26 @@ bool FWTBRHUDHintTextUnboundInputDoesNotGuessKeysTest::RunTest(const FString& /*
     TestTrue(TEXT("Character input properties are overridden for test"),
         SetCharacterInputForTest(Character, MappingContext, MainAction, SubAction, SwitchMainAction, SwitchSubAction));
 
+    TestEqual(TEXT("Unbound main card text is player-facing"),
+        Character->GetMainTriggerNameText().ToString(), FString(TEXT("No Trigger")));
+    TestEqual(TEXT("Unbound sub card text is player-facing"),
+        Character->GetSubTriggerNameText().ToString(), FString(TEXT("No Trigger")));
     TestEqual(TEXT("Unbound main hint is semantic only"),
-        Character->GetMainTriggerHintText().ToString(), FString(TEXT("Main None")));
+        Character->GetMainTriggerHintText().ToString(), FString(TEXT("Main No Trigger")));
     TestEqual(TEXT("Unbound sub hint is semantic only"),
-        Character->GetSubTriggerHintText().ToString(), FString(TEXT("Sub None")));
+        Character->GetSubTriggerHintText().ToString(), FString(TEXT("Sub No Trigger")));
     TestEqual(TEXT("Unbound switch main hint is semantic only"),
         Character->GetSwitchMainHintText().ToString(), FString(TEXT("Switch Main")));
     TestEqual(TEXT("Unbound switch sub hint is semantic only"),
         Character->GetSwitchSubHintText().ToString(), FString(TEXT("Switch Sub")));
     TestEqual(TEXT("Cancel hint remains semantic only"),
         Character->GetCancelHintText().ToString(), FString(TEXT("Cancel")));
+    TestEqual(TEXT("Main hint fallback matches card fallback"),
+        Character->GetMainTriggerHintText().ToString(),
+        FString::Printf(TEXT("Main %s"), *Character->GetMainTriggerNameText().ToString()));
+    TestEqual(TEXT("Sub hint fallback matches card fallback"),
+        Character->GetSubTriggerHintText().ToString(),
+        FString::Printf(TEXT("Sub %s"), *Character->GetSubTriggerNameText().ToString()));
 
     const TArray<FString> HintTexts = {
         Character->GetMainTriggerHintText().ToString(),
