@@ -191,6 +191,24 @@ Three pipeline upgrades landed together:
 
 ---
 
+## Manual Smoke Tests
+
+`Examples/SmokeTest/` holds minimal single-widget JSON fixtures for manually
+re-verifying the `parentClass` importer path in the Unreal Editor after touching
+`UMGJsonImporter.cpp`/`UMGWidgetFactory.cpp`. Import each via **Tools → Import UMG
+JSON...** and check the Output Log (`LogUMGJsonImporter`):
+
+| File | Proves |
+|------|--------|
+| `WBP_PluginSmoke_ParentClass.json` | `parentClass: "/Script/WTBR.WTBRBagLootWidget"` resolves — the generated WBP's parent class is set to `WTBRBagLootWidget`, no warning logged. |
+| `WBP_PluginSmoke_InvalidParent.json` | An unresolvable `parentClass` (`/Script/WTBR.DoesNotExistWidget`) warns and falls back to the default `UserWidget` parent instead of failing the import. |
+
+Both fixtures import successfully; only the second should log a `parentClass`
+resolution warning. Neither is wired into automation — they are manual, editor-only
+checks for a code path that needs a live Unreal Editor session to exercise.
+
+---
+
 ## Examples
 
 | File | Widgets | Purpose |

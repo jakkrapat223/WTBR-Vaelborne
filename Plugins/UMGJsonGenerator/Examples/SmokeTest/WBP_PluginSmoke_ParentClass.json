@@ -1,0 +1,33 @@
+﻿{
+  "name": "WBP_PluginSmoke_ParentClass",
+  "widgetName": "WBP_PluginSmoke_ParentClass",
+  "parentClass": "/Script/WTBR.WTBRBagLootWidget",
+  "resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "root": {
+    "type": "CanvasPanel",
+    "name": "RootCanvas"
+  },
+  "widgets": [
+    {
+      "type": "TextBlock",
+      "name": "Txt_SmokeVariable",
+      "parent": "RootCanvas",
+      "text": "SMOKE_REIMPORT_TEST_777",
+      "position": {
+        "x": 123,
+        "y": 77
+      },
+      "size": {
+        "width": 520,
+        "height": 48
+      },
+      "fontSize": 24,
+      "color": "#20D9FF",
+      "zOrder": 1,
+      "isVariable": true
+    }
+  ]
+}
