@@ -156,6 +156,8 @@ public:
     FWTBRCorpseLootEntriesChanged OnCorpseLootEntriesChanged;
 
 protected:
+    virtual void BeginPlay() override;
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="WTBR | Corpse Loot")
     TObjectPtr<USceneComponent> SceneRoot;
 

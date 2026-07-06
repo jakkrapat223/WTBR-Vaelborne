@@ -8,6 +8,7 @@
 #include "HAL/IConsoleManager.h"
 #include "Net/UnrealNetwork.h"
 #include "Internationalization/Text.h"
+#include "WTBRValidationLog.h"
 
 namespace
 {
@@ -39,6 +40,20 @@ AWTBRCorpseLootContainerActor::AWTBRCorpseLootContainerActor()
     InteractionCollision->SetCollisionResponseToAllChannels(ECR_Ignore);
     InteractionCollision->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
     InteractionCollision->SetGenerateOverlapEvents(false);
+}
+
+void AWTBRCorpseLootContainerActor::BeginPlay()
+{
+    Super::BeginPlay();
+
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("WTBR corpse loot container BeginPlay: Container=%s Location=%s HasAuthority=%s LocalRole=%d RemoteRole=%d NetMode=%d"),
+        *GetNameSafe(this),
+        *GetActorLocation().ToString(),
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        (int32)GetLocalRole(),
+        (int32)GetRemoteRole(),
+        (int32)GetNetMode());
 }
 
 void AWTBRCorpseLootContainerActor::InitializeCorpseLootContainer(
@@ -285,11 +300,18 @@ void AWTBRCorpseLootContainerActor::BuildTargetSlotOptionsForEntry(
 
 void AWTBRCorpseLootContainerActor::OnRep_LootEntries()
 {
+    WTBR_VALIDATION_LOG(Log, TEXT("WTBR corpse loot container OnRep_LootEntries (client): Container=%s Entries=%d"),
+        *GetNameSafe(this),
+        LootEntries.Num());
     NotifyLootEntriesChanged();
 }
 
 void AWTBRCorpseLootContainerActor::NotifyLootEntriesChanged()
 {
+    WTBR_VALIDATION_LOG(Log, TEXT("WTBR corpse loot container entries changed: Container=%s Entries=%d HasAuthority=%s"),
+        *GetNameSafe(this),
+        LootEntries.Num(),
+        HasAuthority() ? TEXT("true") : TEXT("false"));
     OnCorpseLootEntriesChanged.Broadcast();
 }
 

@@ -9,6 +9,15 @@
 #include "Inventory/WTBRInventorySlot.h"
 #include "Inventory/WTBRItemDataAsset.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
+#include "WTBRValidationLog.h"
+#include "TimerManager.h"
+
+namespace
+{
+    // 5 Hz is enough for a pickup-prompt/panel focus update and costs at most one
+    // extra line trace per interval for the single locally controlled character.
+    constexpr float WTBRBagLootFocusPollIntervalSeconds = 0.2f;
+}
 
 UWTBRBagLootViewModelComponent::UWTBRBagLootViewModelComponent()
 {
@@ -20,12 +29,51 @@ void UWTBRBagLootViewModelComponent::BeginPlay()
     Super::BeginPlay();
     BindOwnerDelegates();
     RefreshBagLootSnapshot();
+
+    if (UWorld* World = GetWorld())
+    {
+        if (World->GetNetMode() != NM_DedicatedServer)
+        {
+            World->GetTimerManager().SetTimer(
+                FocusPollTimerHandle,
+                this, &UWTBRBagLootViewModelComponent::PollFocusedContainerChange,
+                WTBRBagLootFocusPollIntervalSeconds,
+                /*bLoop=*/true);
+        }
+    }
 }
 
 void UWTBRBagLootViewModelComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(FocusPollTimerHandle);
+    }
     UnbindOwnerDelegates();
     Super::EndPlay(EndPlayReason);
+}
+
+void UWTBRBagLootViewModelComponent::PollFocusedContainerChange()
+{
+    AWTBRCharacter* Character = ResolveOwnerCharacter();
+    if (!IsValid(Character) || !Character->IsLocallyControlled())
+    {
+        return;
+    }
+
+    AWTBRCorpseLootContainerActor* FocusedContainer = ResolveFocusedCorpseLootContainer(Character);
+    const bool bHasFocus = (FocusedContainer != nullptr);
+    // The had-focus flag also catches "focused container was destroyed while aimed
+    // elsewhere" (weak ptr and fresh resolve both null, but the panel is stale).
+    if (FocusedContainer == LastPolledFocusedContainer.Get()
+        && bHasFocus == bLastPolledHadFocusedContainer)
+    {
+        return;
+    }
+
+    LastPolledFocusedContainer = FocusedContainer;
+    bLastPolledHadFocusedContainer = bHasFocus;
+    RefreshBagLootSnapshot();
 }
 
 void UWTBRBagLootViewModelComponent::BindOwnerDelegates()
@@ -115,6 +163,14 @@ void UWTBRBagLootViewModelComponent::RefreshBagLootSnapshot()
     RebindFocusedCorpseLootContainerDelegate(FocusedContainer);
 
     CachedSnapshot = BuildLiveSnapshot(Character, FocusedContainer);
+
+    WTBR_VALIDATION_LOG(Verbose,
+        TEXT("[WTBR BagLoot] RefreshBagLootSnapshot: Owner=%s FocusedContainer=%s CorpseLootVisible=%s EntryCount=%d"),
+        *GetNameSafe(Character),
+        *GetNameSafe(FocusedContainer),
+        CachedSnapshot.bCorpseLootVisible ? TEXT("true") : TEXT("false"),
+        CachedSnapshot.CorpseLoot.Entries.Num());
+
     OnBagLootSnapshotChanged.Broadcast();
 }
 

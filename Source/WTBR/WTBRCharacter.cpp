@@ -1549,11 +1549,19 @@ void AWTBRCharacter::Server_RequestPickupCorpseLootEntry_Implementation(
     {
         if (!LootContainer->ReplaceEntryWithSnapshot(LootEntryIndex, ReplacedTargetSlotSnapshot))
         {
-            UE_LOG(LogTemp, Error, TEXT("WTBR corpse loot pickup swap failed after replacement: character %s container %s entry %d slot %d"),
+            // Roll the whole transaction back — without this the player's previous
+            // trigger exists nowhere (not in the slot, not in the container) and is
+            // permanently lost.
+            const bool bSlotRestored = TriggerSetComponent->ReplaceTriggerSlotFromDataAsset(
+                TargetSlotIndex, ReplacedTargetSlotSnapshot.DataAsset);
+            LootContainer->ClearEntryConsumedForFailedPickup(LootEntryIndex);
+
+            UE_LOG(LogTemp, Error, TEXT("WTBR corpse loot pickup swap failed after replacement, rolled back: character %s container %s entry %d slot %d SlotRestored=%s"),
                 *GetNameSafe(this),
                 *GetNameSafe(LootContainer),
                 LootEntryIndex,
-                TargetSlotIndex);
+                TargetSlotIndex,
+                bSlotRestored ? TEXT("true") : TEXT("false"));
             return;
         }
 
@@ -1972,6 +1980,9 @@ void AWTBRCharacter::Server_CycleTrigger_Implementation(bool bIsMain)
 
 void AWTBRCharacter::Server_DebugConsumeVaelFailTest_Implementation()
 {
+#if UE_BUILD_SHIPPING || UE_BUILD_TEST
+    return; // Debug-only RPC; no-op in Shipping/Test builds.
+#endif
     if (!WTBRShouldLogValidation()) return;
     if (!HasAuthority()) return;
 
@@ -2015,6 +2026,9 @@ void AWTBRCharacter::Server_DebugConsumeVaelFailTest_Implementation()
 
 void AWTBRCharacter::Server_DebugStartBelowThresholdTest_Implementation()
 {
+#if UE_BUILD_SHIPPING || UE_BUILD_TEST
+    return; // Debug-only RPC; no-op in Shipping/Test builds.
+#endif
     if (!WTBRShouldLogValidation()) return;
     if (!HasAuthority()) return;
 
@@ -2059,6 +2073,9 @@ void AWTBRCharacter::Server_DebugStartBelowThresholdTest_Implementation()
 
 void AWTBRCharacter::Server_DebugRefillVaelNoDesperationReset_Implementation()
 {
+#if UE_BUILD_SHIPPING || UE_BUILD_TEST
+    return; // Debug-only RPC; no-op in Shipping/Test builds.
+#endif
     if (!WTBRShouldLogValidation()) return;
     if (!HasAuthority()) return;
 
@@ -2104,6 +2121,9 @@ void AWTBRCharacter::Server_DebugRefillVaelNoDesperationReset_Implementation()
 
 void AWTBRCharacter::Server_DebugResetDesperationStateTest_Implementation()
 {
+#if UE_BUILD_SHIPPING || UE_BUILD_TEST
+    return; // Debug-only RPC; no-op in Shipping/Test builds.
+#endif
     if (!WTBRShouldLogValidation()) return;
     if (!HasAuthority()) return;
 
@@ -2570,6 +2590,21 @@ void AWTBRCharacter::ShowBagLootLayer()
     if (IsValid(BagLootWidgetInstance))
     {
         BagLootWidgetInstance->SetVisibility(ESlateVisibility::Visible);
+
+        // Phase 6D: force a fresh snapshot now, rather than waiting for the next
+        // reactive trigger (OnInventoryChanged / the previously-focused
+        // container's OnCorpseLootEntriesChanged). UWTBRBagLootViewModelComponent
+        // has no focus-changed delegate (documented TODO in
+        // WTBRBagLootViewModelComponent.h) and only re-resolves the focused
+        // corpse loot container when RefreshBagLootSnapshot() runs — without this
+        // call, showing the panel right after an interact could display a stale
+        // snapshot from before this container was focused. Read-only refresh;
+        // does not mutate inventory, loot, or trigger state.
+        if (IsValid(BagLootViewModelComponent))
+        {
+            BagLootViewModelComponent->RefreshBagLootSnapshot();
+        }
+
         WTBR_VALIDATION_LOG(Verbose,
             TEXT("[UI] ShowBagLootLayer: Bag/Loot layer now visible | Owner=%s"),
             *GetNameSafe(this));
@@ -2645,8 +2680,12 @@ bool AWTBRCharacter::IsAnyLocalUIPanelOpen() const
     return IsBagLootLayerVisible();
 }
 
-void AWTBRCharacter::OnCorpseLootInteractRequestedHandler(AWTBRCorpseLootContainerActor* /*Container*/)
+void AWTBRCharacter::OnCorpseLootInteractRequestedHandler(AWTBRCorpseLootContainerActor* Container)
 {
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("[UI] OnCorpseLootInteractRequestedHandler: received for container %s | Owner=%s"),
+        *GetNameSafe(Container), *GetNameSafe(this));
+
     // Presentation-only: shows the existing Bag/Loot layer. Does not request
     // loot or mutate any gameplay state — the player still confirms pickup via
     // the existing server-authoritative RequestPickupCorpseLootEntry path.

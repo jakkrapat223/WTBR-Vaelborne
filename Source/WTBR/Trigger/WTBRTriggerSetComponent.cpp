@@ -923,6 +923,9 @@ void UWTBRTriggerSetComponent::Server_FireSerpveil_Implementation(
 
 void UWTBRTriggerSetComponent::Server_TEMP_TEST46_PlaceAegornWall_Implementation(bool bIsMain)
 {
+#if UE_BUILD_SHIPPING
+    return; // Debug-only RPC — no-op in Shipping builds.
+#endif
     if (!WTBRShouldLogValidation()) return;
     if (!HasServerAuthority()) return;
 

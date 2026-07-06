@@ -9,6 +9,7 @@
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Inventory/WTBRGroundItemActor.h"
 #include "WTBRCharacter.h"
+#include "WTBRValidationLog.h"
 
 namespace
 {
@@ -70,7 +71,37 @@ AWTBRCorpseLootContainerActor* UWTBRInteractionComponent::GetFocusedCorpseLootCo
         ECC_Visibility,
         QueryParams);
 
-    return bHit ? Cast<AWTBRCorpseLootContainerActor>(Hit.GetActor()) : nullptr;
+    // Verbose + CVar-gated: this trace runs on every HUD snapshot refresh, which can
+    // fire per damage tick in combat — must never log at default settings.
+    if (!bHit)
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[WTBR Interact] Corpse loot focus trace hit nothing (start=%s end=%s range=%.0f)."),
+            *TraceStart.ToString(),
+            *TraceEnd.ToString(),
+            InteractionTraceDistance);
+        return nullptr;
+    }
+
+    AWTBRCorpseLootContainerActor* Container = Cast<AWTBRCorpseLootContainerActor>(Hit.GetActor());
+    if (!Container)
+    {
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[WTBR Interact] Corpse loot focus trace hit %s (component=%s profile=%s) — not a corpse loot container, rejected. Distance=%.0f/%.0f."),
+            *GetNameSafe(Hit.GetActor()),
+            *GetNameSafe(Hit.GetComponent()),
+            Hit.GetComponent() ? *Hit.GetComponent()->GetCollisionProfileName().ToString() : TEXT("None"),
+            (Hit.Location - TraceStart).Size(),
+            InteractionTraceDistance);
+        return nullptr;
+    }
+
+    WTBR_VALIDATION_LOG(Verbose,
+        TEXT("[WTBR Interact] Corpse loot focus trace hit container %s (component=%s) at %.0f/%.0f units."),
+        *GetNameSafe(Container),
+        *GetNameSafe(Hit.GetComponent()),
+        (Hit.Location - TraceStart).Size(),
+        InteractionTraceDistance);
+    return Container;
 }
 
 FText UWTBRInteractionComponent::GetFocusedInteractionPromptText() const
@@ -128,14 +159,19 @@ bool UWTBRInteractionComponent::RequestCorpseLootInteract()
     AWTBRCorpseLootContainerActor* FocusedContainer = GetFocusedCorpseLootContainer();
     if (!IsValid(FocusedContainer))
     {
+        WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] RequestCorpseLootInteract: no focused container (see focus trace log above)."));
         return false;
     }
 
     if (!FocusedContainer->CanBeInteractedWithBy(OwnerCharacter))
     {
+        WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] RequestCorpseLootInteract: container %s focused but CanBeInteractedWithBy rejected it (likely no available loot entries left)."),
+            *GetNameSafe(FocusedContainer));
         return false;
     }
 
+    WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] RequestCorpseLootInteract: broadcasting OnCorpseLootInteractRequested for container %s."),
+        *GetNameSafe(FocusedContainer));
     OnCorpseLootInteractRequested.Broadcast(FocusedContainer);
     return true;
 }
@@ -253,13 +289,13 @@ AWTBRGroundItemActor* UWTBRInteractionComponent::GetFocusedGroundItem() const
 
     if (!bHit)
     {
-        UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] Ground focus trace hit nothing (range=%.0f)."),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[WTBR Interact] Ground focus trace hit nothing (range=%.0f)."),
             InteractionTraceDistance);
         return nullptr;
     }
 
     AWTBRGroundItemActor* GroundItem = Cast<AWTBRGroundItemActor>(Hit.GetActor());
-    UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] Ground focus trace hit %s (isGroundItem=%s) at %.0f/%.0f units."),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[WTBR Interact] Ground focus trace hit %s (isGroundItem=%s) at %.0f/%.0f units."),
         *GetNameSafe(Hit.GetActor()),
         GroundItem ? TEXT("true") : TEXT("false"),
         (Hit.Location - TraceStart).Size(),
@@ -269,14 +305,14 @@ AWTBRGroundItemActor* UWTBRInteractionComponent::GetFocusedGroundItem() const
 
 bool UWTBRInteractionComponent::RequestContextInteract()
 {
-    UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] RequestContextInteract called (owner=%s)."),
+    WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] RequestContextInteract called (owner=%s)."),
         *GetNameSafe(GetOwner()));
 
     // Priority 1 — corpse / container / chest.
     // Reuses the existing client-side loot request bridge (no gameplay mutation).
     if (RequestCorpseLootInteract())
     {
-        UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] Handled by corpse/container/chest focus (priority 1)."));
+        WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] Handled by corpse/container/chest focus (priority 1)."));
         return true;
     }
 
@@ -291,7 +327,7 @@ bool UWTBRInteractionComponent::RequestContextInteract()
     {
         if (AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner()))
         {
-            UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] Dropped trigger %s focused (priority 2); routing to RequestPickupAimedDroppedTriggerByConstraint."),
+            WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] Dropped trigger %s focused (priority 2); routing to RequestPickupAimedDroppedTriggerByConstraint."),
                 *GetNameSafe(FocusedDroppedTrigger));
             OwnerCharacter->RequestPickupAimedDroppedTriggerByConstraint();
             return true;
@@ -310,7 +346,7 @@ bool UWTBRInteractionComponent::RequestContextInteract()
     {
         if (AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner()))
         {
-            UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] Ground item %s focused (priority 3); dispatching Server_RequestPickupGroundItem."),
+            WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] Ground item %s focused (priority 3); dispatching Server_RequestPickupGroundItem."),
                 *GetNameSafe(FocusedGroundItem));
             OwnerCharacter->Server_RequestPickupGroundItem(FocusedGroundItem);
             return true;
@@ -326,7 +362,7 @@ bool UWTBRInteractionComponent::RequestContextInteract()
     // (no interactable interface exists yet).
 
     // Priority 5 — no valid focus: no-op.
-    UE_LOG(LogTemp, Log, TEXT("[WTBR Interact] No valid focus for context interact (no-op)."));
+    WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] No valid focus for context interact (no-op)."));
     return false;
 }
 

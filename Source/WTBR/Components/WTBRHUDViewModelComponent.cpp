@@ -11,6 +11,13 @@
 #include "Inventory/WTBRInventorySlot.h"
 #include "Inventory/WTBRItemDataAsset.h"
 #include "UI/WTBRInputBindingDisplayLibrary.h"
+#include "TimerManager.h"
+
+namespace
+{
+    // 5 Hz focus poll for the pickup prompt — see PollFocusedInteractionChange().
+    constexpr float WTBRHUDFocusPollIntervalSeconds = 0.2f;
+}
 
 UWTBRHUDViewModelComponent::UWTBRHUDViewModelComponent()
 {
@@ -22,12 +29,52 @@ void UWTBRHUDViewModelComponent::BeginPlay()
     Super::BeginPlay();
     BindOwnerDelegates();
     RefreshHUDSnapshot();
+
+    if (UWorld* World = GetWorld())
+    {
+        if (World->GetNetMode() != NM_DedicatedServer)
+        {
+            World->GetTimerManager().SetTimer(
+                FocusPollTimerHandle,
+                this, &UWTBRHUDViewModelComponent::PollFocusedInteractionChange,
+                WTBRHUDFocusPollIntervalSeconds,
+                /*bLoop=*/true);
+        }
+    }
 }
 
 void UWTBRHUDViewModelComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(FocusPollTimerHandle);
+    }
     UnbindOwnerDelegates();
     Super::EndPlay(EndPlayReason);
+}
+
+void UWTBRHUDViewModelComponent::PollFocusedInteractionChange()
+{
+    const AWTBRCharacter* Character = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(Character) || !Character->IsLocallyControlled() || !IsValid(Character->InteractionComponent))
+    {
+        return;
+    }
+
+    const bool bHasFocus = Character->InteractionComponent->HasValidFocusedInteractable();
+    const FString PromptString = bHasFocus
+        ? Character->InteractionComponent->GetFocusedInteractionPromptText().ToString()
+        : FString();
+
+    if (bHasFocus == bLastPolledHasFocusedInteractable
+        && PromptString.Equals(LastPolledPromptText, ESearchCase::CaseSensitive))
+    {
+        return;
+    }
+
+    bLastPolledHasFocusedInteractable = bHasFocus;
+    LastPolledPromptText = PromptString;
+    RefreshHUDSnapshot();
 }
 
 void UWTBRHUDViewModelComponent::BindOwnerDelegates()

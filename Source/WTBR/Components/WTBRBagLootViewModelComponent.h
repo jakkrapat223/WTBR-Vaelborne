@@ -97,6 +97,15 @@ private:
     // focus-tracking TODO in RebindFocusedCorpseLootContainerDelegate()).
     TWeakObjectPtr<AWTBRCorpseLootContainerActor> BoundCorpseLootContainer;
 
+    // Focus polling: UWTBRInteractionComponent has no focus-changed delegate, so a
+    // local-player-only timer re-resolves the focused container and refreshes the
+    // snapshot ONLY when it actually changed. Read-only — resolves + rebuilds, never
+    // mutates gameplay state.
+    FTimerHandle FocusPollTimerHandle;
+    TWeakObjectPtr<AWTBRCorpseLootContainerActor> LastPolledFocusedContainer;
+    bool bLastPolledHadFocusedContainer = false;
+    void PollFocusedContainerChange();
+
     void BindOwnerDelegates();
     void UnbindOwnerDelegates();
 

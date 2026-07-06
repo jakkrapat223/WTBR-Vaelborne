@@ -61,6 +61,14 @@ private:
     void BindOwnerDelegates();
     void UnbindOwnerDelegates();
 
+    // Interaction focus (pickup prompt) has no change delegate on
+    // UWTBRInteractionComponent, so a local-player-only timer polls it and refreshes
+    // the snapshot ONLY when prompt visibility/text actually changed. Read-only.
+    FTimerHandle FocusPollTimerHandle;
+    bool bLastPolledHasFocusedInteractable = false;
+    FString LastPolledPromptText;
+    void PollFocusedInteractionChange();
+
     UFUNCTION()
     void OnHPChangedHandler(float NewHP, float MaxHP);
 
