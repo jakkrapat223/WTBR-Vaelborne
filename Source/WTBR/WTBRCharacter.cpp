@@ -427,6 +427,10 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         {
             EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &AWTBRCharacter::Interact);
         }
+        if (IsValid(CancelAction))
+        {
+            EIC->BindAction(CancelAction, ETriggerEvent::Started, this, &AWTBRCharacter::HandleCancelInput);
+        }
 
     }
 }
@@ -504,6 +508,26 @@ void AWTBRCharacter::Interact(const FInputActionValue& /*Value*/)
     {
         InteractionComponent->RequestContextInteract();
     }
+}
+
+void AWTBRCharacter::HandleCancelInput()
+{
+    if (!IsLocallyControlled())
+    {
+        return;
+    }
+
+    if (IsAnyLocalUIPanelOpen())
+    {
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[UI] HandleCancelInput: local UI panel open — closing it instead of cancelling trigger action | Owner=%s"),
+            *GetNameSafe(this));
+        CloseAnyOpenLocalUI();
+        return;
+    }
+
+    // No UI panel open — preserve existing trigger-charge cancel behavior.
+    CancelCurrentAction();
 }
 
 void AWTBRCharacter::Dodge(const FInputActionValue& Value)

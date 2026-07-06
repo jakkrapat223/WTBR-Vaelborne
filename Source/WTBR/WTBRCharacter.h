@@ -107,6 +107,14 @@ class AWTBRCharacter : public ACharacter
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
     TObjectPtr<UInputAction> InteractAction;
 
+    // Optional — assign IA_Cancel in BP_WTBRCharacter or IMC (IA_Cancel already
+    // exists and is mapped in IMC_WTBR_Default; only the CDO/BP reference needs
+    // assigning). Defaults null; binding is skipped if not assigned, so the game
+    // runs identically without it. Priority-chain behavior: closes local UI if a
+    // panel is open, otherwise falls back to the existing trigger-charge cancel.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
+    TObjectPtr<UInputAction> CancelAction;
+
 public:
     AWTBRCharacter();
 
@@ -465,6 +473,12 @@ protected:
     void SwitchSubTrigger(const FInputActionValue& Value);
     void DebugConsumeVaelFailTest();
     void Interact(const FInputActionValue& Value);
+
+    // IA_Cancel handler: closes any open local UI panel (e.g. Bag/Loot) if one is
+    // open; otherwise falls back to the existing CancelCurrentAction() trigger-
+    // charge cancel. Presentation-only routing — no new gameplay mutation, no
+    // change to Server_CancelCurrentAction's existing behavior.
+    void HandleCancelInput();
 
     // ─── Server RPCs ──────────────────────────────────────────────────────────
     UFUNCTION(Server, Reliable)
