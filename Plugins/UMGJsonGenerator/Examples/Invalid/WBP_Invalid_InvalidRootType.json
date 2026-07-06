@@ -1,0 +1,15 @@
+{
+  "widgetName": "WBP_Invalid_InvalidRootType",
+  "resolution": { "width": 1920, "height": 1080 },
+  "root": { "type": "Button", "name": "RootButton" },
+  "widgets": [
+    {
+      "type": "TextBlock",
+      "name": "Text_ShouldNotImport",
+      "parent": "RootButton",
+      "text": "Invalid root type should fail before asset creation",
+      "position": { "x": 40, "y": 40 },
+      "size": { "width": 520, "height": 40 }
+    }
+  ]
+}

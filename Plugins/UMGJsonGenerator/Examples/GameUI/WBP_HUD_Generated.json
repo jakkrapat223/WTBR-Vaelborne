@@ -1,5 +1,6 @@
 {
   "widgetName": "WBP_HUD_Generated",
+  "parentClass": "/Script/WTBR.WTBRGeneratedHUDWidget",
   "resolution": { "width": 1920, "height": 1080 },
   "root": {
     "type": "CanvasPanel",

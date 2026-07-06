@@ -1,0 +1,25 @@
+{
+  "widgetName": "WBP_Invalid_WrongParent",
+  "resolution": { "width": 1920, "height": 1080 },
+  "root": { "type": "CanvasPanel", "name": "RootCanvas" },
+  "widgets": [
+    {
+      "type": "TextBlock",
+      "name": "Text_Valid",
+      "parent": "RootCanvas",
+      "text": "This valid widget should still import",
+      "position": { "x": 40, "y": 40 },
+      "size": { "width": 500, "height": 40 },
+      "color": "#E9FBFF"
+    },
+    {
+      "type": "TextBlock",
+      "name": "Text_MissingParent",
+      "parent": "NotExistParent",
+      "text": "This widget should be skipped",
+      "position": { "x": 40, "y": 90 },
+      "size": { "width": 500, "height": 40 },
+      "color": "#FF4B2F"
+    }
+  ]
+}

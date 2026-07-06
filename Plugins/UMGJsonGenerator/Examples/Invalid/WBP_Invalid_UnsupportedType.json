@@ -1,0 +1,23 @@
+{
+  "widgetName": "WBP_Invalid_UnsupportedType",
+  "resolution": { "width": 1920, "height": 1080 },
+  "root": { "type": "CanvasPanel", "name": "RootCanvas" },
+  "widgets": [
+    {
+      "type": "TextBlock",
+      "name": "Text_Valid",
+      "parent": "RootCanvas",
+      "text": "Unsupported widget type should be skipped",
+      "position": { "x": 40, "y": 40 },
+      "size": { "width": 520, "height": 40 },
+      "color": "#E9FBFF"
+    },
+    {
+      "type": "SuperCustomWidget",
+      "name": "Widget_Unsupported",
+      "parent": "RootCanvas",
+      "position": { "x": 40, "y": 90 },
+      "size": { "width": 240, "height": 80 }
+    }
+  ]
+}

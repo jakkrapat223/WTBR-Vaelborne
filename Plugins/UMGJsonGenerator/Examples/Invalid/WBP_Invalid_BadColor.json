@@ -1,0 +1,33 @@
+{
+  "widgetName": "WBP_Invalid_BadColor",
+  "resolution": { "width": 1920, "height": 1080 },
+  "root": { "type": "CanvasPanel", "name": "RootCanvas" },
+  "widgets": [
+    {
+      "type": "TextBlock",
+      "name": "Text_InvalidColor",
+      "parent": "RootCanvas",
+      "text": "Invalid color should warn and fall back",
+      "position": { "x": 40, "y": 40 },
+      "size": { "width": 520, "height": 40 },
+      "color": "red"
+    },
+    {
+      "type": "Button",
+      "name": "Button_InvalidNormalColor",
+      "parent": "RootCanvas",
+      "text": "Bad Normal Color",
+      "position": { "x": 40, "y": 100 },
+      "size": { "width": 240, "height": 56 },
+      "normalColor": "#GGGGGG"
+    },
+    {
+      "type": "Image",
+      "name": "Image_InvalidTintColor",
+      "parent": "RootCanvas",
+      "position": { "x": 40, "y": 180 },
+      "size": { "width": 120, "height": 80 },
+      "tintColor": "#12345"
+    }
+  ]
+}

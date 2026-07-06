@@ -1,0 +1,30 @@
+{
+  "widgetName": "WBP_Invalid_MissingPositionOrSize",
+  "resolution": { "width": 1920, "height": 1080 },
+  "root": { "type": "CanvasPanel", "name": "RootCanvas" },
+  "widgets": [
+    {
+      "type": "TextBlock",
+      "name": "Text_MissingPosition",
+      "parent": "RootCanvas",
+      "text": "Missing position should warn and use x=0,y=0",
+      "size": { "width": 520, "height": 40 },
+      "color": "#E9FBFF"
+    },
+    {
+      "type": "TextBlock",
+      "name": "Text_MissingSize",
+      "parent": "RootCanvas",
+      "text": "Missing size should warn and use 100x30",
+      "position": { "x": 40, "y": 90 },
+      "color": "#FFC02E"
+    },
+    {
+      "type": "TextBlock",
+      "name": "Text_MissingBoth",
+      "parent": "RootCanvas",
+      "text": "Missing both should warn twice",
+      "color": "#FF4B2F"
+    }
+  ]
+}

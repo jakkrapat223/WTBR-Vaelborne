@@ -1,0 +1,25 @@
+{
+  "widgetName": "WBP_Invalid_DuplicateNames",
+  "resolution": { "width": 1920, "height": 1080 },
+  "root": { "type": "CanvasPanel", "name": "RootCanvas" },
+  "widgets": [
+    {
+      "type": "TextBlock",
+      "name": "Text_Duplicate",
+      "parent": "RootCanvas",
+      "text": "First duplicate name should import",
+      "position": { "x": 40, "y": 40 },
+      "size": { "width": 520, "height": 40 },
+      "color": "#E9FBFF"
+    },
+    {
+      "type": "TextBlock",
+      "name": "Text_Duplicate",
+      "parent": "RootCanvas",
+      "text": "Second duplicate name should be skipped",
+      "position": { "x": 40, "y": 90 },
+      "size": { "width": 520, "height": 40 },
+      "color": "#FFC02E"
+    }
+  ]
+}

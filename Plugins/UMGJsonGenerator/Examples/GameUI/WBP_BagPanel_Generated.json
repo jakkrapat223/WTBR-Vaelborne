@@ -1,5 +1,6 @@
 {
   "widgetName": "WBP_BagPanel_Generated",
+  "parentClass": "/Script/WTBR.WTBRBagLootWidget",
   "resolution": {
     "width": 1920,
     "height": 1080
