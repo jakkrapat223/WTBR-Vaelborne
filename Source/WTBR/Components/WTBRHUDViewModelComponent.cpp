@@ -205,9 +205,14 @@ FWTBRHUDTriggerCardSnapshot UWTBRHUDViewModelComponent::BuildTriggerCardSnapshot
     Snapshot.ActiveSlotIndex = bIsMain
         ? Character->GetActiveMainTriggerSlotIndex()
         : Character->GetActiveSubTriggerSlotIndex();
-    Snapshot.bCanAffordVaelCost = bIsMain
-        ? Character->CanAffordActiveMainTriggerForHUD()
-        : Character->CanAffordActiveSubTriggerForHUD();
+
+    const FWTBRHUDTriggerVaelAffordability Affordability = bIsMain
+        ? Character->GetActiveMainTriggerVaelAffordabilityForHUD()
+        : Character->GetActiveSubTriggerVaelAffordabilityForHUD();
+    Snapshot.bCanAffordVaelCost = Affordability.bCanAfford;
+    Snapshot.bIsCostKnownForHUD = Affordability.bIsCostKnownForHUD;
+    Snapshot.bHasVaelCost = Affordability.bHasVaelCost;
+    Snapshot.EffectiveVaelCost = Affordability.EffectiveVaelCost;
 
     UInputAction* InputAction = bIsMain
         ? Character->GetFireMainInputAction()
@@ -250,6 +255,7 @@ FWTBRHUDQuickItemSnapshot UWTBRHUDViewModelComponent::BuildQuickItemSnapshot(
     }
 
     Snapshot.bHasItem = true;
+    Snapshot.ItemName = ItemData->DisplayName;
     Snapshot.Icon = ItemData->HUDIcon;
     Snapshot.Count = Slot.Quantity;
     Snapshot.State = Slot.Quantity <= 1

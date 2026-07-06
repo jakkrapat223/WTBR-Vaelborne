@@ -1,0 +1,1166 @@
+{
+  "widgetName": "WBP_BagPanel_Generated",
+  "resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "root": {
+    "type": "CanvasPanel",
+    "name": "RootCanvas"
+  },
+  "widgets": [
+    {
+      "type": "Border",
+      "name": "Border_BagPanel",
+      "parent": "RootCanvas",
+      "color": "#02080EBD",
+      "position": {
+        "x": 1538,
+        "y": 16
+      },
+      "size": {
+        "width": 356,
+        "height": 1048
+      },
+      "zOrder": 10
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagHeaderBG",
+      "parent": "RootCanvas",
+      "color": "#20D9FF0F",
+      "position": {
+        "x": 1538,
+        "y": 16
+      },
+      "size": {
+        "width": 356,
+        "height": 49
+      },
+      "zOrder": 11
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagTitle",
+      "parent": "RootCanvas",
+      "text": "BAG",
+      "position": {
+        "x": 1591,
+        "y": 31
+      },
+      "size": {
+        "width": 100,
+        "height": 20
+      },
+      "fontSize": 15,
+      "color": "#20D9FF",
+      "zOrder": 12
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagHeaderDivider",
+      "parent": "RootCanvas",
+      "color": "#20D9FF38",
+      "position": {
+        "x": 1538,
+        "y": 65
+      },
+      "size": {
+        "width": 356,
+        "height": 1
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagCapRowBG",
+      "parent": "RootCanvas",
+      "color": "#0000002E",
+      "position": {
+        "x": 1538,
+        "y": 66
+      },
+      "size": {
+        "width": 356,
+        "height": 25
+      },
+      "zOrder": 11
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagCapacity",
+      "parent": "RootCanvas",
+      "text": "12 / 14",
+      "position": {
+        "x": 1555,
+        "y": 70
+      },
+      "size": {
+        "width": 322,
+        "height": 18
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "center",
+      "zOrder": 12
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagHint",
+      "parent": "RootCanvas",
+      "text": "Drag / [Input] action later",
+      "position": {
+        "x": 1555,
+        "y": 442
+      },
+      "size": {
+        "width": 322,
+        "height": 14
+      },
+      "fontSize": 8,
+      "color": "#8AB1BA",
+      "justify": "right",
+      "zOrder": 12
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSectionSeparator",
+      "parent": "RootCanvas",
+      "color": "#20D9FF1F",
+      "position": {
+        "x": 1555,
+        "y": 441
+      },
+      "size": {
+        "width": 322,
+        "height": 1
+      },
+      "zOrder": 11
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagInventoryLabel",
+      "parent": "RootCanvas",
+      "text": "INVENTORY ITEMS",
+      "position": {
+        "x": 1555,
+        "y": 442
+      },
+      "size": {
+        "width": 200,
+        "height": 18
+      },
+      "fontSize": 8,
+      "color": "#8AB1BA",
+      "zOrder": 11
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot01",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1555,
+        "y": 468
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot01Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1565,
+        "y": 478
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot01Name",
+      "parent": "RootCanvas",
+      "text": "HP Small",
+      "position": {
+        "x": 1557,
+        "y": 470
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot01Count",
+      "parent": "RootCanvas",
+      "text": "x2",
+      "position": {
+        "x": 1600,
+        "y": 518
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot02",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1638,
+        "y": 468
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot02Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1648,
+        "y": 478
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot02Name",
+      "parent": "RootCanvas",
+      "text": "Vael Ampoule",
+      "position": {
+        "x": 1640,
+        "y": 470
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot02Count",
+      "parent": "RootCanvas",
+      "text": "x2",
+      "position": {
+        "x": 1683,
+        "y": 518
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot03",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1721,
+        "y": 468
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot03Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1731,
+        "y": 478
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot03Name",
+      "parent": "RootCanvas",
+      "text": "Ammo Stack",
+      "position": {
+        "x": 1723,
+        "y": 470
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot03Count",
+      "parent": "RootCanvas",
+      "text": "x60",
+      "position": {
+        "x": 1766,
+        "y": 518
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot04",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1804,
+        "y": 468
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot04Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1814,
+        "y": 478
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot04Name",
+      "parent": "RootCanvas",
+      "text": "Repair Kit",
+      "position": {
+        "x": 1806,
+        "y": 470
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot04Count",
+      "parent": "RootCanvas",
+      "text": "x1",
+      "position": {
+        "x": 1849,
+        "y": 518
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot05",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1555,
+        "y": 551
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot05Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1565,
+        "y": 561
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot05Name",
+      "parent": "RootCanvas",
+      "text": "Trion Crystal",
+      "position": {
+        "x": 1557,
+        "y": 553
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot05Count",
+      "parent": "RootCanvas",
+      "text": "x5",
+      "position": {
+        "x": 1600,
+        "y": 601
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot06",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1638,
+        "y": 551
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot06Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1648,
+        "y": 561
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot06Name",
+      "parent": "RootCanvas",
+      "text": "Stamina Boost",
+      "position": {
+        "x": 1640,
+        "y": 553
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot06Count",
+      "parent": "RootCanvas",
+      "text": "x2",
+      "position": {
+        "x": 1683,
+        "y": 601
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot07",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1721,
+        "y": 551
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot07Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1731,
+        "y": 561
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot07Name",
+      "parent": "RootCanvas",
+      "text": "Kogetsu Fragment",
+      "position": {
+        "x": 1723,
+        "y": 553
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot07Count",
+      "parent": "RootCanvas",
+      "text": "x1",
+      "position": {
+        "x": 1766,
+        "y": 601
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot08",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1804,
+        "y": 551
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot08Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1814,
+        "y": 561
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot08Name",
+      "parent": "RootCanvas",
+      "text": "Aegorn Tuner",
+      "position": {
+        "x": 1806,
+        "y": 553
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot08Count",
+      "parent": "RootCanvas",
+      "text": "x1",
+      "position": {
+        "x": 1849,
+        "y": 601
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot09",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1555,
+        "y": 634
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot09Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1565,
+        "y": 644
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot09Name",
+      "parent": "RootCanvas",
+      "text": "HP Small",
+      "position": {
+        "x": 1557,
+        "y": 636
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot09Count",
+      "parent": "RootCanvas",
+      "text": "x2",
+      "position": {
+        "x": 1600,
+        "y": 684
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot10",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1638,
+        "y": 634
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot10Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1648,
+        "y": 644
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot10Name",
+      "parent": "RootCanvas",
+      "text": "Vael Ampoule",
+      "position": {
+        "x": 1640,
+        "y": 636
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot10Count",
+      "parent": "RootCanvas",
+      "text": "x1",
+      "position": {
+        "x": 1683,
+        "y": 684
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot11",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1721,
+        "y": 634
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot11Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1731,
+        "y": 644
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot11Name",
+      "parent": "RootCanvas",
+      "text": "HP Small",
+      "position": {
+        "x": 1723,
+        "y": 636
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot11Count",
+      "parent": "RootCanvas",
+      "text": "x1",
+      "position": {
+        "x": 1766,
+        "y": 684
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot12",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1804,
+        "y": 634
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot12Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1814,
+        "y": 644
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot12Name",
+      "parent": "RootCanvas",
+      "text": "",
+      "position": {
+        "x": 1806,
+        "y": 636
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot12Count",
+      "parent": "RootCanvas",
+      "text": "",
+      "position": {
+        "x": 1849,
+        "y": 684
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot13",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1555,
+        "y": 717
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot13Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1565,
+        "y": 727
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot13Name",
+      "parent": "RootCanvas",
+      "text": "",
+      "position": {
+        "x": 1557,
+        "y": 719
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot13Count",
+      "parent": "RootCanvas",
+      "text": "",
+      "position": {
+        "x": 1600,
+        "y": 767
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlot14",
+      "parent": "RootCanvas",
+      "color": "#0F1E26",
+      "position": {
+        "x": 1638,
+        "y": 717
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_BagSlot14Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1648,
+        "y": 727
+      },
+      "size": {
+        "width": 55,
+        "height": 38
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot14Name",
+      "parent": "RootCanvas",
+      "text": "",
+      "position": {
+        "x": 1640,
+        "y": 719
+      },
+      "size": {
+        "width": 40,
+        "height": 10
+      },
+      "fontSize": 6,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagSlot14Count",
+      "parent": "RootCanvas",
+      "text": "",
+      "position": {
+        "x": 1683,
+        "y": 767
+      },
+      "size": {
+        "width": 28,
+        "height": 20
+      },
+      "fontSize": 11,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 14
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlotReserved1",
+      "parent": "RootCanvas",
+      "color": "#0000004D",
+      "position": {
+        "x": 1721,
+        "y": 717
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagSlotReserved2",
+      "parent": "RootCanvas",
+      "color": "#0000004D",
+      "position": {
+        "x": 1804,
+        "y": 717
+      },
+      "size": {
+        "width": 75,
+        "height": 75
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagVolumeLabel",
+      "parent": "RootCanvas",
+      "text": "VOLUME",
+      "position": {
+        "x": 1555,
+        "y": 1022
+      },
+      "size": {
+        "width": 140,
+        "height": 14
+      },
+      "fontSize": 9,
+      "color": "#8AB1BA",
+      "zOrder": 11
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagWeight",
+      "parent": "RootCanvas",
+      "text": "48 / 60",
+      "position": {
+        "x": 1695,
+        "y": 1022
+      },
+      "size": {
+        "width": 182,
+        "height": 14
+      },
+      "fontSize": 9,
+      "color": "#E9FBFF",
+      "justify": "right",
+      "zOrder": 11
+    },
+    {
+      "type": "Border",
+      "name": "Border_BagVolumeBarTrack",
+      "parent": "RootCanvas",
+      "color": "#FFFFFF1A",
+      "position": {
+        "x": 1555,
+        "y": 1040
+      },
+      "size": {
+        "width": 322,
+        "height": 4
+      },
+      "zOrder": 11
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_BagWarning",
+      "parent": "RootCanvas",
+      "text": "BAG FULL / CANNOT TRANSFER",
+      "position": {
+        "x": 1555,
+        "y": 1048
+      },
+      "size": {
+        "width": 322,
+        "height": 14
+      },
+      "fontSize": 9,
+      "color": "#FFC02E",
+      "justify": "center",
+      "zOrder": 11
+    }
+  ]
+}

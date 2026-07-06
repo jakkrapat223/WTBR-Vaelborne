@@ -23,6 +23,8 @@
 #include "Components/WTBRInputGestureComponent.h"
 #include "Components/WTBRInteractionComponent.h"
 #include "Components/WTBRHUDViewModelComponent.h"
+#include "Components/WTBRBagLootViewModelComponent.h"
+#include "Blueprint/UserWidget.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Inventory/WTBRInventoryComponent.h"
@@ -257,6 +259,7 @@ AWTBRCharacter::AWTBRCharacter()
     TriggerSetComponent   = CreateDefaultSubobject<UWTBRTriggerSetComponent>(TEXT("TriggerSetComponent"));
     InventoryComponent    = CreateDefaultSubobject<UWTBRInventoryComponent>(TEXT("InventoryComponent"));
     HUDViewModelComponent = CreateDefaultSubobject<UWTBRHUDViewModelComponent>(TEXT("HUDViewModelComponent"));
+    BagLootViewModelComponent = CreateDefaultSubobject<UWTBRBagLootViewModelComponent>(TEXT("BagLootViewModelComponent"));
 
     static ConstructorHelpers::FObjectFinder<UInputMappingContext> DefaultMappingContextAsset(
         TEXT("/Game/Input/IMC_WTBR_Default.IMC_WTBR_Default"));
@@ -359,8 +362,14 @@ void AWTBRCharacter::BeginPlay()
         TriggerSetComponent->OnActiveTriggerChanged.AddDynamic(
             this, &AWTBRCharacter::OnActiveTriggerChangedHandler);
     }
+    if (InteractionComponent)
+    {
+        InteractionComponent->OnCorpseLootInteractRequested.AddDynamic(
+            this, &AWTBRCharacter::OnCorpseLootInteractRequestedHandler);
+    }
 
     RefreshHUDHints();
+    CreateLocalPlayerUI();
 
 #if !UE_BUILD_SHIPPING
     // B7D: ExecCmds processes at tick [1]; client possession happens later. A 1-s
@@ -375,6 +384,13 @@ void AWTBRCharacter::BeginPlay()
             /*bLoop=*/true);
     }
 #endif
+}
+
+void AWTBRCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    DestroyLocalPlayerUI();
+
+    Super::EndPlay(EndPlayReason);
 }
 
 void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -2448,6 +2464,193 @@ void AWTBRCharacter::RefreshHUDHints()
         *SubHint.ToString());
 
     OnHUDHintsChanged.Broadcast();
+}
+
+// ─── Runtime UI (Phase 6A smoke-test scaffold) ───────────────────────────────
+// TEMPORARY: Character-owned UI, accepted only for the first PIE smoke test
+// because no custom APlayerController/AHUD subclass exists yet. Migrate to a
+// PlayerController/HUD/UI-manager owner once BR respawn/pawn-swap exists.
+
+bool AWTBRCharacter::ValidateLocalUISetup(bool bLogIfMissing) const
+{
+    const bool bHUDReady = IsValid(HUDWidgetClass);
+    const bool bBagLootReady = IsValid(BagLootWidgetClass);
+
+    if (bLogIfMissing)
+    {
+        if (!bHUDReady)
+        {
+            WTBR_VALIDATION_LOG(Warning,
+                TEXT("[UI] ValidateLocalUISetup: HUDWidgetClass is not assigned yet (assign it on the Character Blueprint/CDO once WBP_HUD_Generated's Parent Class is set) | Owner=%s"),
+                *GetNameSafe(this));
+        }
+        if (!bBagLootReady)
+        {
+            WTBR_VALIDATION_LOG(Warning,
+                TEXT("[UI] ValidateLocalUISetup: BagLootWidgetClass is not assigned yet (assign it on the Character Blueprint/CDO once WBP_BagLootLayer_Generated's Parent Class is set) | Owner=%s"),
+                *GetNameSafe(this));
+        }
+    }
+
+    return bHUDReady && bBagLootReady;
+}
+
+void AWTBRCharacter::CreateLocalPlayerUI()
+{
+    if (!IsLocallyControlled())
+    {
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[UI] CreateLocalPlayerUI: skipped (not locally controlled) | Owner=%s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    APlayerController* PC = Cast<APlayerController>(Controller);
+    if (!IsValid(PC))
+    {
+        WTBR_VALIDATION_LOG(Warning,
+            TEXT("[UI] CreateLocalPlayerUI: skipped (locally controlled but no valid PlayerController yet) | Owner=%s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    // Logs which widget classes (if any) are still unassigned; never blocks
+    // creation of whichever widget class IS already set.
+    ValidateLocalUISetup(/*bLogIfMissing=*/true);
+
+    if (!IsValid(HUDWidgetInstance) && IsValid(HUDWidgetClass))
+    {
+        HUDWidgetInstance = CreateWidget<UUserWidget>(PC, HUDWidgetClass);
+        if (IsValid(HUDWidgetInstance))
+        {
+            HUDWidgetInstance->AddToViewport(0);
+            WTBR_VALIDATION_LOG(Log,
+                TEXT("[UI] CreateLocalPlayerUI: HUD widget created and added to viewport | Class=%s | Owner=%s"),
+                *GetNameSafe(HUDWidgetClass), *GetNameSafe(this));
+        }
+    }
+
+    if (!IsValid(BagLootWidgetInstance) && IsValid(BagLootWidgetClass))
+    {
+        BagLootWidgetInstance = CreateWidget<UUserWidget>(PC, BagLootWidgetClass);
+        if (IsValid(BagLootWidgetInstance))
+        {
+            // Higher Z-order than the HUD so the Bag/Loot layer draws on top.
+            BagLootWidgetInstance->AddToViewport(10);
+            BagLootWidgetInstance->SetVisibility(ESlateVisibility::Collapsed);
+            WTBR_VALIDATION_LOG(Log,
+                TEXT("[UI] CreateLocalPlayerUI: BagLoot widget created, added to viewport, hidden initially | Class=%s | Owner=%s"),
+                *GetNameSafe(BagLootWidgetClass), *GetNameSafe(this));
+        }
+    }
+}
+
+void AWTBRCharacter::DestroyLocalPlayerUI()
+{
+    if (IsValid(HUDWidgetInstance))
+    {
+        HUDWidgetInstance->RemoveFromParent();
+    }
+    HUDWidgetInstance = nullptr;
+
+    if (IsValid(BagLootWidgetInstance))
+    {
+        BagLootWidgetInstance->RemoveFromParent();
+    }
+    BagLootWidgetInstance = nullptr;
+}
+
+void AWTBRCharacter::ShowBagLootLayer()
+{
+    if (!IsValid(BagLootWidgetInstance))
+    {
+        CreateLocalPlayerUI();
+    }
+
+    if (IsValid(BagLootWidgetInstance))
+    {
+        BagLootWidgetInstance->SetVisibility(ESlateVisibility::Visible);
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[UI] ShowBagLootLayer: Bag/Loot layer now visible | Owner=%s"),
+            *GetNameSafe(this));
+    }
+    else if (!IsLocallyControlled())
+    {
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[UI] ShowBagLootLayer: skipped (not locally controlled) | Owner=%s"),
+            *GetNameSafe(this));
+    }
+    else if (!IsValid(BagLootWidgetClass))
+    {
+        WTBR_VALIDATION_LOG(Warning,
+            TEXT("[UI] ShowBagLootLayer: BagLootWidgetClass is not assigned — nothing to show | Owner=%s"),
+            *GetNameSafe(this));
+    }
+    else
+    {
+        WTBR_VALIDATION_LOG(Warning,
+            TEXT("[UI] ShowBagLootLayer: BagLootWidgetInstance still invalid after CreateLocalPlayerUI (unexpected) | Owner=%s"),
+            *GetNameSafe(this));
+    }
+}
+
+void AWTBRCharacter::HideBagLootLayer()
+{
+    if (IsValid(BagLootWidgetInstance))
+    {
+        BagLootWidgetInstance->SetVisibility(ESlateVisibility::Collapsed);
+    }
+}
+
+void AWTBRCharacter::ToggleBagLootLayer()
+{
+    if (IsBagLootLayerVisible())
+    {
+        HideBagLootLayer();
+        return;
+    }
+
+    if (!IsValid(BagLootWidgetInstance) && !IsValid(BagLootWidgetClass))
+    {
+        WTBR_VALIDATION_LOG(Warning,
+            TEXT("[UI] ToggleBagLootLayer: no BagLootWidgetInstance and no BagLootWidgetClass assigned — nothing to toggle | Owner=%s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    ShowBagLootLayer();
+}
+
+bool AWTBRCharacter::IsBagLootLayerVisible() const
+{
+    return IsValid(BagLootWidgetInstance)
+        && BagLootWidgetInstance->IsInViewport()
+        && BagLootWidgetInstance->GetVisibility() != ESlateVisibility::Collapsed;
+}
+
+void AWTBRCharacter::CloseAnyOpenLocalUI()
+{
+    // Today, Bag/Loot is the only local panel this scaffold owns. Written as a
+    // single entry point (rather than callers calling HideBagLootLayer()
+    // directly) so a future second panel (e.g. the Q/E hold trigger-selection
+    // wheel) only needs to be added here, not at every call site.
+    if (IsBagLootLayerVisible())
+    {
+        HideBagLootLayer();
+    }
+}
+
+bool AWTBRCharacter::IsAnyLocalUIPanelOpen() const
+{
+    return IsBagLootLayerVisible();
+}
+
+void AWTBRCharacter::OnCorpseLootInteractRequestedHandler(AWTBRCorpseLootContainerActor* /*Container*/)
+{
+    // Presentation-only: shows the existing Bag/Loot layer. Does not request
+    // loot or mutate any gameplay state — the player still confirms pickup via
+    // the existing server-authoritative RequestPickupCorpseLootEntry path.
+    ShowBagLootLayer();
 }
 
 void AWTBRCharacter::OnRep_ActionPing()

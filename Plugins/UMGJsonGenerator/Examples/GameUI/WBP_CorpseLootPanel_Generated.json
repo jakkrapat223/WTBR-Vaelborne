@@ -1,0 +1,782 @@
+{
+  "widgetName": "WBP_CorpseLootPanel_Generated",
+  "resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "root": {
+    "type": "CanvasPanel",
+    "name": "RootCanvas"
+  },
+  "widgets": [
+    {
+      "type": "Border",
+      "name": "Border_CorpseLootPanel",
+      "parent": "RootCanvas",
+      "color": "#02080EBD",
+      "position": {
+        "x": 1250,
+        "y": 120
+      },
+      "size": {
+        "width": 276,
+        "height": 520
+      },
+      "zOrder": 10
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootHeaderBG",
+      "parent": "RootCanvas",
+      "color": "#20D9FF0F",
+      "position": {
+        "x": 1250,
+        "y": 120
+      },
+      "size": {
+        "width": 276,
+        "height": 42
+      },
+      "zOrder": 11
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_CorpseLootTitle",
+      "parent": "RootCanvas",
+      "text": "TRIGGER CACHE",
+      "position": {
+        "x": 1265,
+        "y": 133
+      },
+      "size": {
+        "width": 180,
+        "height": 16
+      },
+      "fontSize": 12,
+      "color": "#20D9FF",
+      "zOrder": 12
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_CorpseLootSubtitle",
+      "parent": "RootCanvas",
+      "text": "6 ITEMS",
+      "position": {
+        "x": 1448,
+        "y": 131
+      },
+      "size": {
+        "width": 64,
+        "height": 18
+      },
+      "fontSize": 9,
+      "color": "#20D9FF",
+      "justify": "center",
+      "zOrder": 12
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootHeaderDivider",
+      "parent": "RootCanvas",
+      "color": "#20D9FF38",
+      "position": {
+        "x": 1250,
+        "y": 162
+      },
+      "size": {
+        "width": 276,
+        "height": 1
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootEntry01",
+      "parent": "RootCanvas",
+      "color": "#20D9FF1F",
+      "position": {
+        "x": 1257,
+        "y": 168
+      },
+      "size": {
+        "width": 262,
+        "height": 52
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_LootEntry01Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1266,
+        "y": 176
+      },
+      "size": {
+        "width": 36,
+        "height": 36
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry01Name",
+      "parent": "RootCanvas",
+      "text": "Feryx",
+      "position": {
+        "x": 1314,
+        "y": 178
+      },
+      "size": {
+        "width": 169,
+        "height": 17
+      },
+      "fontSize": 13,
+      "color": "#E9FBFF",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry01Type",
+      "parent": "RootCanvas",
+      "text": "Main Slot",
+      "position": {
+        "x": 1314,
+        "y": 197
+      },
+      "size": {
+        "width": 169,
+        "height": 14
+      },
+      "fontSize": 10,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry01Action",
+      "parent": "RootCanvas",
+      "text": "Request",
+      "position": {
+        "x": 1491,
+        "y": 185
+      },
+      "size": {
+        "width": 28,
+        "height": 19
+      },
+      "fontSize": 12,
+      "color": "#20D9FF",
+      "justify": "center",
+      "zOrder": 13
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootEntry02",
+      "parent": "RootCanvas",
+      "color": "#FFFFFF06",
+      "position": {
+        "x": 1257,
+        "y": 223
+      },
+      "size": {
+        "width": 262,
+        "height": 52
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_LootEntry02Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1266,
+        "y": 231
+      },
+      "size": {
+        "width": 36,
+        "height": 36
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry02Name",
+      "parent": "RootCanvas",
+      "text": "Kogetsu",
+      "position": {
+        "x": 1314,
+        "y": 233
+      },
+      "size": {
+        "width": 169,
+        "height": 17
+      },
+      "fontSize": 13,
+      "color": "#E9FBFF",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry02Type",
+      "parent": "RootCanvas",
+      "text": "Main Slot",
+      "position": {
+        "x": 1314,
+        "y": 252
+      },
+      "size": {
+        "width": 169,
+        "height": 14
+      },
+      "fontSize": 10,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry02Action",
+      "parent": "RootCanvas",
+      "text": "Request",
+      "position": {
+        "x": 1491,
+        "y": 240
+      },
+      "size": {
+        "width": 28,
+        "height": 19
+      },
+      "fontSize": 12,
+      "color": "#20D9FF",
+      "justify": "center",
+      "zOrder": 13
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootEntry03",
+      "parent": "RootCanvas",
+      "color": "#FFFFFF06",
+      "position": {
+        "x": 1257,
+        "y": 278
+      },
+      "size": {
+        "width": 262,
+        "height": 52
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_LootEntry03Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1266,
+        "y": 286
+      },
+      "size": {
+        "width": 36,
+        "height": 36
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry03Name",
+      "parent": "RootCanvas",
+      "text": "Scorpion",
+      "position": {
+        "x": 1314,
+        "y": 288
+      },
+      "size": {
+        "width": 169,
+        "height": 17
+      },
+      "fontSize": 13,
+      "color": "#E9FBFF",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry03Type",
+      "parent": "RootCanvas",
+      "text": "Sub Slot",
+      "position": {
+        "x": 1314,
+        "y": 307
+      },
+      "size": {
+        "width": 169,
+        "height": 14
+      },
+      "fontSize": 10,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry03Action",
+      "parent": "RootCanvas",
+      "text": "Request",
+      "position": {
+        "x": 1491,
+        "y": 295
+      },
+      "size": {
+        "width": 28,
+        "height": 19
+      },
+      "fontSize": 12,
+      "color": "#20D9FF",
+      "justify": "center",
+      "zOrder": 13
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootEntry04",
+      "parent": "RootCanvas",
+      "color": "#FFFFFF06",
+      "position": {
+        "x": 1257,
+        "y": 333
+      },
+      "size": {
+        "width": 262,
+        "height": 52
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_LootEntry04Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1266,
+        "y": 341
+      },
+      "size": {
+        "width": 36,
+        "height": 36
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry04Name",
+      "parent": "RootCanvas",
+      "text": "HP Capsule",
+      "position": {
+        "x": 1314,
+        "y": 343
+      },
+      "size": {
+        "width": 169,
+        "height": 17
+      },
+      "fontSize": 13,
+      "color": "#E9FBFF",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry04Type",
+      "parent": "RootCanvas",
+      "text": "Consumable",
+      "position": {
+        "x": 1314,
+        "y": 362
+      },
+      "size": {
+        "width": 169,
+        "height": 14
+      },
+      "fontSize": 10,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry04Action",
+      "parent": "RootCanvas",
+      "text": "Request",
+      "position": {
+        "x": 1491,
+        "y": 350
+      },
+      "size": {
+        "width": 28,
+        "height": 19
+      },
+      "fontSize": 12,
+      "color": "#20D9FF",
+      "justify": "center",
+      "zOrder": 13
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootEntry05",
+      "parent": "RootCanvas",
+      "color": "#FFFFFF06",
+      "position": {
+        "x": 1257,
+        "y": 388
+      },
+      "size": {
+        "width": 262,
+        "height": 52
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_LootEntry05Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1266,
+        "y": 396
+      },
+      "size": {
+        "width": 36,
+        "height": 36
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry05Name",
+      "parent": "RootCanvas",
+      "text": "Vael Ampoule",
+      "position": {
+        "x": 1314,
+        "y": 398
+      },
+      "size": {
+        "width": 169,
+        "height": 17
+      },
+      "fontSize": 13,
+      "color": "#E9FBFF",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry05Type",
+      "parent": "RootCanvas",
+      "text": "Consumable",
+      "position": {
+        "x": 1314,
+        "y": 417
+      },
+      "size": {
+        "width": 169,
+        "height": 14
+      },
+      "fontSize": 10,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry05Action",
+      "parent": "RootCanvas",
+      "text": "Request",
+      "position": {
+        "x": 1491,
+        "y": 405
+      },
+      "size": {
+        "width": 28,
+        "height": 19
+      },
+      "fontSize": 12,
+      "color": "#20D9FF",
+      "justify": "center",
+      "zOrder": 13
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootEntry06",
+      "parent": "RootCanvas",
+      "color": "#FFFFFF06",
+      "position": {
+        "x": 1257,
+        "y": 443
+      },
+      "size": {
+        "width": 262,
+        "height": 52
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_LootEntry06Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1266,
+        "y": 451
+      },
+      "size": {
+        "width": 36,
+        "height": 36
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry06Name",
+      "parent": "RootCanvas",
+      "text": "Aegorn Tuner",
+      "position": {
+        "x": 1314,
+        "y": 453
+      },
+      "size": {
+        "width": 169,
+        "height": 17
+      },
+      "fontSize": 13,
+      "color": "#E9FBFF",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry06Type",
+      "parent": "RootCanvas",
+      "text": "Trigger Module",
+      "position": {
+        "x": 1314,
+        "y": 472
+      },
+      "size": {
+        "width": 169,
+        "height": 14
+      },
+      "fontSize": 10,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry06Action",
+      "parent": "RootCanvas",
+      "text": "Request",
+      "position": {
+        "x": 1491,
+        "y": 460
+      },
+      "size": {
+        "width": 28,
+        "height": 19
+      },
+      "fontSize": 12,
+      "color": "#20D9FF",
+      "justify": "center",
+      "zOrder": 13
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootEntry07",
+      "parent": "RootCanvas",
+      "color": "#FFFFFF06",
+      "position": {
+        "x": 1257,
+        "y": 498
+      },
+      "size": {
+        "width": 262,
+        "height": 52
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_LootEntry07Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1266,
+        "y": 506
+      },
+      "size": {
+        "width": 36,
+        "height": 36
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry07Name",
+      "parent": "RootCanvas",
+      "text": "Ammo Stack",
+      "position": {
+        "x": 1314,
+        "y": 508
+      },
+      "size": {
+        "width": 169,
+        "height": 17
+      },
+      "fontSize": 13,
+      "color": "#E9FBFF",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry07Type",
+      "parent": "RootCanvas",
+      "text": "Ammo",
+      "position": {
+        "x": 1314,
+        "y": 527
+      },
+      "size": {
+        "width": 169,
+        "height": 14
+      },
+      "fontSize": 10,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry07Action",
+      "parent": "RootCanvas",
+      "text": "Request",
+      "position": {
+        "x": 1491,
+        "y": 515
+      },
+      "size": {
+        "width": 28,
+        "height": 19
+      },
+      "fontSize": 12,
+      "color": "#20D9FF",
+      "justify": "center",
+      "zOrder": 13
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootEntry08",
+      "parent": "RootCanvas",
+      "color": "#FFFFFF06",
+      "position": {
+        "x": 1257,
+        "y": 553
+      },
+      "size": {
+        "width": 262,
+        "height": 52
+      },
+      "zOrder": 12
+    },
+    {
+      "type": "Image",
+      "name": "Img_LootEntry08Icon",
+      "parent": "RootCanvas",
+      "color": "#CFF6FF",
+      "position": {
+        "x": 1266,
+        "y": 561
+      },
+      "size": {
+        "width": 36,
+        "height": 36
+      },
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry08Name",
+      "parent": "RootCanvas",
+      "text": "Ibis",
+      "position": {
+        "x": 1314,
+        "y": 563
+      },
+      "size": {
+        "width": 169,
+        "height": 17
+      },
+      "fontSize": 13,
+      "color": "#E9FBFF",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry08Type",
+      "parent": "RootCanvas",
+      "text": "Sub Slot",
+      "position": {
+        "x": 1314,
+        "y": 582
+      },
+      "size": {
+        "width": 169,
+        "height": 14
+      },
+      "fontSize": 10,
+      "color": "#8AB1BA",
+      "zOrder": 13
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_LootEntry08Action",
+      "parent": "RootCanvas",
+      "text": "Request",
+      "position": {
+        "x": 1491,
+        "y": 570
+      },
+      "size": {
+        "width": 28,
+        "height": 19
+      },
+      "fontSize": 12,
+      "color": "#20D9FF",
+      "justify": "center",
+      "zOrder": 13
+    },
+    {
+      "type": "Border",
+      "name": "Border_LootFooterDivider",
+      "parent": "RootCanvas",
+      "color": "#20D9FF1F",
+      "position": {
+        "x": 1250,
+        "y": 608
+      },
+      "size": {
+        "width": 276,
+        "height": 1
+      },
+      "zOrder": 11
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_CorpseLootPrompt",
+      "parent": "RootCanvas",
+      "text": "[Input] Open Trigger Cache",
+      "position": {
+        "x": 1257,
+        "y": 616
+      },
+      "size": {
+        "width": 262,
+        "height": 15
+      },
+      "fontSize": 10,
+      "color": "#8AB1BA",
+      "justify": "center",
+      "zOrder": 11
+    }
+  ]
+}

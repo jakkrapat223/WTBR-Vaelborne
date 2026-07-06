@@ -98,6 +98,23 @@ struct FWTBRHUDTriggerCardSnapshot
 
     UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD | Trigger")
     bool bCanAffordVaelCost = true;
+
+    // True only for a simple, known per-use Vael cost (mirrors
+    // FWTBRHUDTriggerVaelAffordability::bIsCostKnownForHUD). False for
+    // charge/variable-cost triggers (e.g. Serpveil) or drain-based triggers
+    // (e.g. Aegorn, Black Trigger fields) where a single "Cost: N" number
+    // would be misleading.
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD | Trigger")
+    bool bIsCostKnownForHUD = false;
+
+    // True when the known cost is nonzero. False for zero-cost triggers by
+    // design (Feryx, Lacern, Mantorn, Vexorn, etc. — see Vael cost design locks).
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD | Trigger")
+    bool bHasVaelCost = false;
+
+    // Effective (post-multiplier) Vael cost. Only meaningful when bIsCostKnownForHUD is true.
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD | Trigger")
+    float EffectiveVaelCost = 0.0f;
 };
 
 UENUM(BlueprintType)
@@ -115,6 +132,10 @@ struct FWTBRHUDQuickItemSnapshot
 
     UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD | Quick Item")
     bool bHasItem = false;
+
+    // Item display name (e.g. "HP Capsule"). Only meaningful when bHasItem is true.
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD | Quick Item")
+    FText ItemName;
 
     UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD | Quick Item")
     TSoftObjectPtr<UTexture2D> Icon;

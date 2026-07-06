@@ -13,6 +13,7 @@ public class WTBR : ModuleRules
             "Core", "CoreUObject", "Engine", "InputCore",
             "EnhancedInput",
             "NetCore",
+            "UMG",
         });
 
         PrivateDependencyModuleNames.AddRange(new string[]

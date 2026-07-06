@@ -20,10 +20,12 @@ class UWTBRInputGestureComponent;
 class UWTBRInteractionComponent;
 class UWTBRInventoryComponent;
 class UWTBRHUDViewModelComponent;
+class UWTBRBagLootViewModelComponent;
 class UTexture2D;
 class AWTBRDroppedTriggerActor;
 class AWTBRCorpseLootContainerActor;
 class AWTBRGroundItemActor;
+class UUserWidget;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRHUDHintsChanged);
 
@@ -136,8 +138,29 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
     TObjectPtr<UWTBRHUDViewModelComponent> HUDViewModelComponent;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
+    TObjectPtr<UWTBRBagLootViewModelComponent> BagLootViewModelComponent;
+
     UPROPERTY(BlueprintAssignable, Category="WTBR | HUD")
     FWTBRHUDHintsChanged OnHUDHintsChanged;
+
+    // ─── Runtime UI (Phase 6A smoke-test scaffold) ────────────────────────────
+    // TEMPORARY: Character-owned UI is accepted only for the first PIE smoke
+    // test because no custom APlayerController/AHUD subclass exists yet (Phase
+    // 5A audit finding). Migrate ownership to a PlayerController/HUD/UI-manager
+    // once BR respawn/pawn-swap exists — Character-owned widgets do not survive
+    // pawn destruction.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | UI")
+    TSubclassOf<UUserWidget> HUDWidgetClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | UI")
+    TSubclassOf<UUserWidget> BagLootWidgetClass;
+
+    UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
+    TObjectPtr<UUserWidget> HUDWidgetInstance;
+
+    UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
+    TObjectPtr<UUserWidget> BagLootWidgetInstance;
 
     FORCEINLINE TObjectPtr<USpringArmComponent> GetCameraBoom()    const { return CameraBoom; }
     FORCEINLINE TObjectPtr<UCameraComponent>    GetFollowCamera()  const { return FollowCamera; }
@@ -212,6 +235,9 @@ public:
     UWTBRHUDViewModelComponent* GetHUDViewModelComponent() const { return HUDViewModelComponent; }
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    UWTBRBagLootViewModelComponent* GetBagLootViewModelComponent() const { return BagLootViewModelComponent; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     FText GetSwitchMainHintText() const;
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
@@ -222,6 +248,55 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="WTBR | HUD")
     void RefreshHUDHints();
+
+    // Phase 6C: read-only readiness check for this smoke-test scaffold — true
+    // only if both HUDWidgetClass and BagLootWidgetClass are assigned. Never a
+    // gameplay blocker: missing classes are always a safe no-op elsewhere (see
+    // CreateLocalPlayerUI/ShowBagLootLayer below), never a crash. Pass
+    // bLogIfMissing=true to emit one WTBR_VALIDATION_LOG line per missing class
+    // (gated behind wtbr.Debug.ValidationLogs like every other log in this
+    // scaffold — off by default, no spam).
+    UFUNCTION(BlueprintCallable, Category="WTBR | UI")
+    bool ValidateLocalUISetup(bool bLogIfMissing = true) const;
+
+    // ── Runtime UI lifecycle (Phase 6A smoke-test scaffold) ──────────────────
+    // Creates HUDWidgetInstance/BagLootWidgetInstance (if their *WidgetClass is
+    // set and not already created) and adds them to the viewport. Bag/Loot
+    // starts hidden (Collapsed) above the HUD in Z-order. Locally-controlled
+    // only; idempotent — safe to call more than once.
+    UFUNCTION(BlueprintCallable, Category="WTBR | UI")
+    void CreateLocalPlayerUI();
+
+    // Removes both widgets from the viewport and nulls the instance pointers.
+    // Safe to call multiple times, including when nothing was ever created.
+    UFUNCTION(BlueprintCallable, Category="WTBR | UI")
+    void DestroyLocalPlayerUI();
+
+    // Presentation-only visibility toggle for the Bag/Loot layer. Never
+    // mutates inventory, loot, ground items, or trigger state. Creates the UI
+    // first (locally-controlled only) if it does not exist yet.
+    UFUNCTION(BlueprintCallable, Category="WTBR | UI")
+    void ShowBagLootLayer();
+
+    UFUNCTION(BlueprintCallable, Category="WTBR | UI")
+    void HideBagLootLayer();
+
+    UFUNCTION(BlueprintCallable, Category="WTBR | UI")
+    void ToggleBagLootLayer();
+
+    UFUNCTION(BlueprintPure, Category="WTBR | UI")
+    bool IsBagLootLayerVisible() const;
+
+    // Phase 6B: closes whichever locally-visible UI panel is currently open
+    // (today, only the Bag/Loot layer). A single stable entry point for a
+    // future Cancel/close input binding — see the manual input setup note in
+    // the Phase 6A/6B test plan section. Presentation-only; safe to call on
+    // non-locally-controlled/server characters (no-op if nothing is open).
+    UFUNCTION(BlueprintCallable, Category="WTBR | UI")
+    void CloseAnyOpenLocalUI();
+
+    UFUNCTION(BlueprintPure, Category="WTBR | UI")
+    bool IsAnyLocalUIPanelOpen() const;
 
     // ── Stagger System ────────────────────────────────────────────────────────
     // Shared between Nexil Tripwire and Voltis Indoor Hard Landing
@@ -374,6 +449,7 @@ public:
 protected:
     virtual void PostInitializeComponents() override;
     virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
     // ─── Input Handlers ──────────────────────────────────────────────────────
@@ -426,6 +502,13 @@ private:
 
     UFUNCTION()
     void OnActiveTriggerChangedHandler(ETriggerSlot NewSlot);
+
+    // Phase 6A: bound to InteractionComponent->OnCorpseLootInteractRequested
+    // (fires on the owning client when Interact resolves to a valid focused
+    // corpse/container). Presentation-only — shows the Bag/Loot layer via
+    // ShowBagLootLayer(); does not request loot or mutate any gameplay state.
+    UFUNCTION()
+    void OnCorpseLootInteractRequestedHandler(AWTBRCorpseLootContainerActor* Container);
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
