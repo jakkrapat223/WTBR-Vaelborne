@@ -1,0 +1,86 @@
+{
+  "widgetName": "WBP_MainMenu_Generated",
+  "resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "root": {
+    "type": "CanvasPanel",
+    "name": "RootCanvas"
+  },
+  "widgets": [
+    {
+      "type": "Border",
+      "name": "Border_Background",
+      "parent": "RootCanvas",
+      "color": "#02080E",
+      "position": { "x": 0, "y": 0 },
+      "size": { "width": 1920, "height": 1080 },
+      "zOrder": 0
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_Title",
+      "parent": "RootCanvas",
+      "text": "MY GAME",
+      "position": { "x": 760, "y": 160 },
+      "size": { "width": 400, "height": 80 },
+      "fontSize": 48,
+      "color": "#20D9FF",
+      "zOrder": 1
+    },
+    {
+      "type": "Button",
+      "name": "Btn_Start",
+      "parent": "RootCanvas",
+      "text": "START GAME",
+      "position": { "x": 760, "y": 420 },
+      "size": { "width": 400, "height": 80 },
+      "fontSize": 18,
+      "color": "#20D9FF",
+      "zOrder": 2
+    },
+    {
+      "type": "Button",
+      "name": "Btn_Options",
+      "parent": "RootCanvas",
+      "text": "OPTIONS",
+      "position": { "x": 760, "y": 520 },
+      "size": { "width": 400, "height": 80 },
+      "fontSize": 18,
+      "color": "#222222",
+      "zOrder": 3
+    },
+    {
+      "type": "Button",
+      "name": "Btn_Quit",
+      "parent": "RootCanvas",
+      "text": "QUIT",
+      "position": { "x": 760, "y": 620 },
+      "size": { "width": 400, "height": 80 },
+      "fontSize": 18,
+      "color": "#FF4B2F",
+      "zOrder": 4
+    },
+    {
+      "type": "ProgressBar",
+      "name": "PB_LoadingBar",
+      "parent": "RootCanvas",
+      "color": "#20D9FF",
+      "position": { "x": 760, "y": 980 },
+      "size": { "width": 400, "height": 6 },
+      "zOrder": 5
+    },
+    {
+      "type": "TextBlock",
+      "name": "Txt_Version",
+      "parent": "RootCanvas",
+      "text": "v0.1.0 — Pre-Alpha",
+      "position": { "x": 40, "y": 1040 },
+      "size": { "width": 300, "height": 30 },
+      "fontSize": 11,
+      "color": "#8AB1BA",
+      "zOrder": 1
+    }
+  ]
+}

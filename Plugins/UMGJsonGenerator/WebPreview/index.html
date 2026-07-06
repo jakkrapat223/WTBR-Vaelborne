@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UMG JSON Generator - Web Preview</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="panel panel--input">
+      <header class="panel__header">
+        <div>
+          <p class="eyebrow">Phase 2 MVP</p>
+          <h1>UMG JSON Preview</h1>
+        </div>
+      </header>
+
+      <section class="input-section">
+        <label class="field-label" for="fileInput">JSON file</label>
+        <input id="fileInput" type="file" accept=".json,application/json">
+        <div id="dropZone" class="drop-zone" tabindex="0">
+          <strong>Drop .json here</strong>
+          <span>or use the file picker above</span>
+        </div>
+      </section>
+
+      <section class="input-section input-section--grow">
+        <label class="field-label" for="jsonInput">Raw JSON</label>
+        <textarea id="jsonInput" spellcheck="false" placeholder="Paste UMGJsonGenerator JSON here..."></textarea>
+      </section>
+
+      <section class="button-row">
+        <button id="renderButton" class="button button--primary" type="button">Load / Render</button>
+        <button id="clearButton" class="button" type="button">Clear</button>
+      </section>
+
+      <section class="notes">
+        <h2>Local workflow</h2>
+        <p>Open this file directly in a browser, then load JSON with the picker, drag/drop, or paste box. Local examples are not fetched automatically.</p>
+      </section>
+    </aside>
+
+    <section class="preview-workspace">
+      <header class="toolbar">
+        <div class="toolbar__title">
+          <span id="widgetNameLabel">No widget loaded</span>
+          <small id="resolutionLabel">Resolution: -</small>
+        </div>
+        <div class="zoom-controls" aria-label="Zoom controls">
+          <button class="zoom-button" type="button" data-zoom="0.25">25%</button>
+          <button class="zoom-button" type="button" data-zoom="0.5">50%</button>
+          <button class="zoom-button" type="button" data-zoom="0.75">75%</button>
+          <button class="zoom-button" type="button" data-zoom="1">100%</button>
+          <button class="zoom-button is-active" type="button" data-zoom="fit">Fit</button>
+        </div>
+      </header>
+
+      <div id="previewViewport" class="preview-viewport">
+        <div id="previewScaler" class="preview-scaler">
+          <div id="previewCanvas" class="preview-canvas">
+            <div class="empty-preview">Load a UMGJsonGenerator JSON file to preview layout.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel panel--details">
+      <section class="details-card">
+        <h2>Import Stats</h2>
+        <dl id="statsList" class="stats-list"></dl>
+      </section>
+
+      <section class="details-card details-card--grow">
+        <h2>Widget Tree</h2>
+        <div id="treePanel" class="tree-panel empty-panel">No hierarchy yet.</div>
+      </section>
+
+      <section class="details-card">
+        <h2>Validation</h2>
+        <div id="validationPanel" class="validation-panel empty-panel">No validation results yet.</div>
+      </section>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

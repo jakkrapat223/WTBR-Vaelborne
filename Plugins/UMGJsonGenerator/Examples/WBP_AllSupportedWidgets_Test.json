@@ -1,0 +1,366 @@
+{
+  "widgetName": "WBP_AllSupportedWidgets_Test",
+  "resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "root": {
+    "type": "CanvasPanel",
+    "name": "RootCanvas"
+  },
+  "widgets": [
+    {
+      "type": "Border",
+      "name": "Border_FullBG",
+      "parent": "RootCanvas",
+      "color": "#0A0A1A",
+      "position": { "x": 0, "y": 0 },
+      "size": { "width": 1920, "height": 1080 },
+      "zOrder": 0
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_Header",
+      "parent": "RootCanvas",
+      "text": "ALL SUPPORTED WIDGET TYPES",
+      "position": { "x": 60, "y": 30 },
+      "size": { "width": 600, "height": 50 },
+      "fontSize": 28,
+      "color": "#20D9FF",
+      "justify": "left",
+      "zOrder": 10
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_CenterAligned",
+      "parent": "RootCanvas",
+      "text": "Center-justified text",
+      "position": { "x": 700, "y": 30 },
+      "size": { "width": 400, "height": 50 },
+      "fontSize": 18,
+      "color": "#FFC02E",
+      "justify": "center",
+      "zOrder": 10
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_RightAligned",
+      "parent": "RootCanvas",
+      "text": "Right-justified text",
+      "position": { "x": 1200, "y": 30 },
+      "size": { "width": 400, "height": 50 },
+      "fontSize": 18,
+      "color": "#AE6FFF",
+      "justify": "right",
+      "zOrder": 10
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_Subtitle",
+      "parent": "RootCanvas",
+      "text": "UMGJsonGenerator stress test — 12 widget types + anchors + styles",
+      "position": { "x": 60, "y": 85 },
+      "size": { "width": 800, "height": 30 },
+      "fontSize": 14,
+      "color": "#8AB1BA",
+      "zOrder": 10
+    },
+
+    {
+      "type": "Button",
+      "name": "Btn_Styled",
+      "parent": "RootCanvas",
+      "text": "STYLED BUTTON",
+      "position": { "x": 60, "y": 140 },
+      "size": { "width": 300, "height": 60 },
+      "fontSize": 16,
+      "normalColor": "#1A3A5C",
+      "hoveredColor": "#2A5A8C",
+      "pressedColor": "#0A1A3C",
+      "disabledColor": "#333333",
+      "textColor": "#20D9FF",
+      "justify": "center",
+      "zOrder": 10
+    },
+
+    {
+      "type": "Button",
+      "name": "Btn_Danger",
+      "parent": "RootCanvas",
+      "text": "DANGER",
+      "position": { "x": 380, "y": 140 },
+      "size": { "width": 200, "height": 60 },
+      "fontSize": 14,
+      "normalColor": "#5C1A1A",
+      "hoveredColor": "#8C2A2A",
+      "pressedColor": "#3C0A0A",
+      "textColor": "#FF4B2F",
+      "zOrder": 10
+    },
+
+    {
+      "type": "Button",
+      "name": "Btn_NoText",
+      "parent": "RootCanvas",
+      "text": "",
+      "position": { "x": 600, "y": 140 },
+      "size": { "width": 60, "height": 60 },
+      "color": "#222222",
+      "zOrder": 10
+    },
+
+    {
+      "type": "Image",
+      "name": "Img_Placeholder",
+      "parent": "RootCanvas",
+      "color": "#FF4B2F",
+      "position": { "x": 60, "y": 230 },
+      "size": { "width": 120, "height": 120 },
+      "zOrder": 10
+    },
+
+    {
+      "type": "Image",
+      "name": "Img_TintedBox",
+      "parent": "RootCanvas",
+      "tintColor": "#20D9FF",
+      "drawAs": "roundedBox",
+      "position": { "x": 200, "y": 230 },
+      "size": { "width": 120, "height": 120 },
+      "zOrder": 10
+    },
+
+    {
+      "type": "ProgressBar",
+      "name": "PB_HealthBar",
+      "parent": "RootCanvas",
+      "color": "#52D46E",
+      "position": { "x": 340, "y": 230 },
+      "size": { "width": 320, "height": 20 },
+      "zOrder": 10
+    },
+
+    {
+      "type": "ProgressBar",
+      "name": "PB_StaminaBar",
+      "parent": "RootCanvas",
+      "color": "#FFC02E",
+      "position": { "x": 340, "y": 260 },
+      "size": { "width": 320, "height": 12 },
+      "zOrder": 10
+    },
+
+    {
+      "type": "ProgressBar",
+      "name": "PB_ThinBar",
+      "parent": "RootCanvas",
+      "color": "#20D9FF",
+      "position": { "x": 340, "y": 284 },
+      "size": { "width": 320, "height": 5 },
+      "zOrder": 10
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_AnchorDemo",
+      "parent": "RootCanvas",
+      "text": "Anchored: center-center (0.5, 0.5)",
+      "position": { "x": 860, "y": 440 },
+      "size": { "width": 300, "height": 40 },
+      "fontSize": 14,
+      "color": "#52D46E",
+      "anchor": { "minX": 0.5, "minY": 0.5, "maxX": 0.5, "maxY": 0.5 },
+      "alignment": { "x": 0.5, "y": 0.5 },
+      "justify": "center",
+      "zOrder": 10
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_AnchorStretch",
+      "parent": "RootCanvas",
+      "text": "Anchored: stretch horizontal (0,0 to 1,0)",
+      "position": { "x": 0, "y": 500 },
+      "size": { "width": 0, "height": 30 },
+      "fontSize": 12,
+      "color": "#FFC02E",
+      "anchor": { "minX": 0.0, "minY": 0.0, "maxX": 1.0, "maxY": 0.0 },
+      "justify": "center",
+      "zOrder": 10
+    },
+
+    {
+      "type": "Border",
+      "name": "Border_Panel",
+      "parent": "RootCanvas",
+      "color": "#02080E",
+      "position": { "x": 60, "y": 380 },
+      "size": { "width": 340, "height": 300 },
+      "zOrder": 10
+    },
+
+    {
+      "type": "VerticalBox",
+      "name": "VBox_ListContainer",
+      "parent": "Border_Panel"
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_VBoxChild1",
+      "parent": "VBox_ListContainer",
+      "text": "Vertical Box — Item 1",
+      "fontSize": 14,
+      "color": "#E9FBFF"
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_VBoxChild2",
+      "parent": "VBox_ListContainer",
+      "text": "Vertical Box — Item 2 (center)",
+      "fontSize": 14,
+      "color": "#8AB1BA",
+      "verticalAlign": "center"
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_VBoxChild3",
+      "parent": "VBox_ListContainer",
+      "text": "Vertical Box — Item 3",
+      "fontSize": 14,
+      "color": "#20D9FF"
+    },
+
+    {
+      "type": "HorizontalBox",
+      "name": "HBox_Row",
+      "parent": "VBox_ListContainer"
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_HBoxLeft",
+      "parent": "HBox_Row",
+      "text": "[Left]",
+      "fontSize": 12,
+      "color": "#52D46E"
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_HBoxRight",
+      "parent": "HBox_Row",
+      "text": "[Right]",
+      "fontSize": 12,
+      "color": "#FF4B2F"
+    },
+
+    {
+      "type": "ScrollBox",
+      "name": "ScrollBox_Test",
+      "parent": "RootCanvas",
+      "position": { "x": 420, "y": 380 },
+      "size": { "width": 240, "height": 300 },
+      "zOrder": 10
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_ScrollItem1",
+      "parent": "ScrollBox_Test",
+      "text": "Scroll item 1 — hello",
+      "fontSize": 12,
+      "color": "#E9FBFF"
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_ScrollItem2",
+      "parent": "ScrollBox_Test",
+      "text": "Scroll item 2 — world",
+      "fontSize": 12,
+      "color": "#E9FBFF"
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_ScrollItem3",
+      "parent": "ScrollBox_Test",
+      "text": "Scroll item 3 — test",
+      "fontSize": 12,
+      "color": "#E9FBFF"
+    },
+
+    {
+      "type": "Overlay",
+      "name": "Overlay_Stack",
+      "parent": "RootCanvas",
+      "position": { "x": 60, "y": 720 },
+      "size": { "width": 300, "height": 120 },
+      "zOrder": 10
+    },
+
+    {
+      "type": "Border",
+      "name": "Border_OverlayBG",
+      "parent": "Overlay_Stack",
+      "color": "#20D9FF"
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_OverlayLabel",
+      "parent": "Overlay_Stack",
+      "text": "Overlay — stacked layers",
+      "fontSize": 16,
+      "color": "#020A10",
+      "justify": "center"
+    },
+
+    {
+      "type": "SizeBox",
+      "name": "SizeBox_Fixed",
+      "parent": "RootCanvas",
+      "position": { "x": 380, "y": 720 },
+      "size": { "width": 200, "height": 80 },
+      "zOrder": 10
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_SizeBoxContent",
+      "parent": "SizeBox_Fixed",
+      "text": "SizeBox child",
+      "fontSize": 14,
+      "color": "#AE6FFF",
+      "justify": "center"
+    },
+
+    {
+      "type": "Spacer",
+      "name": "Spacer_Test",
+      "parent": "RootCanvas",
+      "position": { "x": 600, "y": 720 },
+      "size": { "width": 50, "height": 80 },
+      "zOrder": 10
+    },
+
+    {
+      "type": "TextBlock",
+      "name": "Txt_Footer",
+      "parent": "RootCanvas",
+      "text": "Generated by UMGJsonGenerator v1.1 — Phase 1 production",
+      "position": { "x": 60, "y": 1030 },
+      "size": { "width": 600, "height": 30 },
+      "fontSize": 11,
+      "color": "#8AB1BA",
+      "zOrder": 10
+    }
+  ]
+}

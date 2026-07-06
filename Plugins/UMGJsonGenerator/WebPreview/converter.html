@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UMG JSON Generator — HTML → JSON Converter</title>
+  <style>
+    :root {
+      --bg: #0b141a;
+      --panel: #101d26;
+      --panel-2: #0d1820;
+      --line: #1e3340;
+      --text: #e9fbff;
+      --muted: #8ab1ba;
+      --accent: #20d9ff;
+      --warn: #ffc02e;
+      --err: #ff4b2f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: grid;
+      grid-template-columns: 340px 1fr 420px;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+      gap: 10px;
+      padding: 10px;
+    }
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+    }
+    header h1 { font-size: 18px; margin: 0; color: var(--accent); }
+    header p { margin: 0; color: var(--muted); font-size: 12px; }
+    header a { color: var(--accent); }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 12px;
+      overflow: auto;
+      min-height: 0;
+    }
+    label { display: block; font-size: 11px; color: var(--muted); margin: 10px 0 3px; text-transform: uppercase; letter-spacing: .05em; }
+    input[type="text"], textarea {
+      width: 100%;
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 13px;
+      font-family: Consolas, monospace;
+    }
+    .row { display: flex; gap: 8px; }
+    .row > div { flex: 1; }
+    .check { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: var(--text); }
+    .check label { margin: 0; text-transform: none; letter-spacing: 0; color: var(--text); font-size: 12px; }
+    button {
+      background: var(--accent);
+      color: #04222c;
+      font-weight: 600;
+      border: 0;
+      border-radius: 4px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      margin-top: 12px;
+    }
+    button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+    button:disabled { opacity: .4; cursor: default; }
+    #stageWrap { display: flex; flex-direction: column; gap: 8px; }
+    #stageInfo { font-size: 12px; color: var(--muted); }
+    #stageOuter {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      background: #05090c;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      position: relative;
+    }
+    #stageScaler { transform-origin: top left; position: absolute; top: 0; left: 0; }
+    #frame { border: 0; background: #000; display: block; }
+    #outJson {
+      flex: 1;
+      min-height: 220px;
+      resize: none;
+      white-space: pre;
+    }
+    #outputPanel { display: flex; flex-direction: column; }
+    #statsBox, #logBox { font-size: 12px; margin-top: 8px; }
+    #statsBox span { display: inline-block; margin-right: 12px; color: var(--muted); }
+    #statsBox b { color: var(--text); }
+    .log-warn { color: var(--warn); }
+    .log-err { color: var(--err); }
+    .log-info { color: var(--muted); }
+    #logBox div { padding: 1px 0; }
+    .btnrow { display: flex; gap: 8px; }
+    small.hint { color: var(--muted); display: block; margin-top: 4px; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>HTML → UMG JSON Converter</h1>
+    <p>Loads a prototype HTML page, measures the rendered DOM, and emits UMGJsonGenerator JSON. Validate the result in <a href="index.html">the preview page</a> before importing into Unreal.</p>
+  </header>
+
+  <section class="panel" id="controlPanel" aria-label="Converter controls">
+    <label for="srcUrl">Prototype HTML URL (same-origin)</label>
+    <input type="text" id="srcUrl" value="/Docs/UI_Prototypes/Vaelborne_InMatch_HUD.html">
+    <small class="hint">Serve the repo root, e.g. <code>python -m http.server 8743</code> from the project root, then open this page via <code>http://localhost:8743/Plugins/UMGJsonGenerator/WebPreview/converter.html</code>.</small>
+
+    <label for="rootSelector">Capture root selector</label>
+    <input type="text" id="rootSelector" value=".hud-canvas">
+    <small class="hint">The element treated as the 1920x1080 canvas. Use <code>body</code> if the page has no stage wrapper.</small>
+
+    <div class="row">
+      <div>
+        <label for="resW">Width</label>
+        <input type="text" id="resW" value="1920">
+      </div>
+      <div>
+        <label for="resH">Height</label>
+        <input type="text" id="resH" value="1080">
+      </div>
+    </div>
+
+    <label for="widgetName">widgetName</label>
+    <input type="text" id="widgetName" value="WBP_Converted">
+
+    <label for="parentClass">parentClass (optional)</label>
+    <input type="text" id="parentClass" value="" placeholder="/Script/WTBR.WTBRGeneratedHUDWidget">
+
+    <div class="check">
+      <input type="checkbox" id="skipAriaHidden" checked>
+      <label for="skipAriaHidden">Skip <code>aria-hidden="true"</code> subtrees (decorative art)</label>
+    </div>
+    <div class="check">
+      <input type="checkbox" id="roundValues" checked>
+      <label for="roundValues">Round positions/sizes to integers</label>
+    </div>
+
+    <div class="btnrow">
+      <button id="loadBtn">1. Load page</button>
+      <button id="convertBtn" disabled>2. Convert</button>
+    </div>
+
+    <div id="logBox" aria-live="polite"></div>
+  </section>
+
+  <section class="panel" id="stageWrap" aria-label="Loaded page">
+    <div id="stageInfo">No page loaded.</div>
+    <div id="stageOuter">
+      <div id="stageScaler">
+        <iframe id="frame" width="1920" height="1080" title="Prototype page"></iframe>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="outputPanel" aria-label="JSON output">
+    <label for="outJson">Generated JSON</label>
+    <textarea id="outJson" spellcheck="false"></textarea>
+    <div id="statsBox"></div>
+    <div class="btnrow">
+      <button id="downloadBtn" class="secondary" disabled>Download .json</button>
+      <button id="copyBtn" class="secondary" disabled>Copy</button>
+    </div>
+  </section>
+
+  <script src="converter.js"></script>
+</body>
+</html>
