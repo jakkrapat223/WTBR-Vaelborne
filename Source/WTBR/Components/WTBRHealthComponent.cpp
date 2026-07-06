@@ -782,30 +782,55 @@ void UWTBRHealthComponent::SpawnLegacyDroppedTriggers_Internal()
 
 void UWTBRHealthComponent::SpawnCorpseLootContainer_Internal()
 {
+    WTBR_VALIDATION_LOG(Log, TEXT("WTBR corpse loot container path started for %s."),
+        *GetNameSafe(GetOwner()));
+
     AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
     if (!IsValid(VictimCharacter) || !VictimCharacter->HasAuthority())
     {
+        WTBR_VALIDATION_LOG(Warning, TEXT("WTBR corpse loot container path skipped: invalid victim or no authority (owner=%s)."),
+            *GetNameSafe(GetOwner()));
         return;
     }
 
     UWorld* World = GetWorld();
     if (!World)
     {
+        WTBR_VALIDATION_LOG(Warning, TEXT("WTBR corpse loot container path skipped for %s: World is missing."),
+            *GetNameSafe(VictimCharacter));
         return;
     }
 
+    // NOTE: this is the same match-phase/rules gate as the legacy dropped-trigger
+    // path above, but previously had no logging here (asymmetric — the legacy
+    // path always logged its gate rejection). A fresh PIE session defaults to
+    // MatchPhase=LoadoutSetup (see AWTBRGameMode::BeginPlay) and, for the
+    // ThreeVThree default match mode, bAllowCorpseLoot/bAllowTriggerPickup=false
+    // (see AWTBRGameMode::MakeDefaultRulesForMode) — both must be satisfied (via
+    // WTBRDebugSetMatchPhase/WTBRDebugCharacterSetMatchPhase to InMatch, and a
+    // match mode/rules asset that allows corpse loot + trigger pickup) before this
+    // path will ever spawn a container.
     const AWTBRGameState* WTBRGameState = World->GetGameState<AWTBRGameState>();
     if (!IsValid(WTBRGameState)
         || !WTBRGameState->IsInMatch()
         || !WTBRGameState->AllowsCorpseLoot()
         || !WTBRGameState->AllowsTriggerPickup())
     {
+        WTBR_VALIDATION_LOG(Warning, TEXT("WTBR corpse loot container path skipped for %s: match gate failed (GameStateValid=%d Phase=%d IsInMatch=%d AllowsCorpseLoot=%d AllowsTriggerPickup=%d)."),
+            *GetNameSafe(VictimCharacter),
+            IsValid(WTBRGameState) ? 1 : 0,
+            IsValid(WTBRGameState) ? (int32)WTBRGameState->GetCurrentMatchPhase() : -1,
+            (IsValid(WTBRGameState) && WTBRGameState->IsInMatch()) ? 1 : 0,
+            (IsValid(WTBRGameState) && WTBRGameState->AllowsCorpseLoot()) ? 1 : 0,
+            (IsValid(WTBRGameState) && WTBRGameState->AllowsTriggerPickup()) ? 1 : 0);
         return;
     }
 
     UWTBRTriggerSetComponent* TriggerSetComponent = VictimCharacter->TriggerSetComponent;
     if (!IsValid(TriggerSetComponent))
     {
+        WTBR_VALIDATION_LOG(Warning, TEXT("WTBR corpse loot container path skipped for %s: TriggerSetComponent is missing."),
+            *GetNameSafe(VictimCharacter));
         return;
     }
 
