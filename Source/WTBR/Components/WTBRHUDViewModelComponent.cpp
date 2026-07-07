@@ -11,12 +11,36 @@
 #include "Inventory/WTBRInventorySlot.h"
 #include "Inventory/WTBRItemDataAsset.h"
 #include "UI/WTBRInputBindingDisplayLibrary.h"
+#include "GameFramework/PlayerState.h"
 #include "TimerManager.h"
 
 namespace
 {
     // 5 Hz focus poll for the pickup prompt — see PollFocusedInteractionChange().
     constexpr float WTBRHUDFocusPollIntervalSeconds = 0.2f;
+
+    // Phase 7D: display-only "Player N" resolution. Uses AGameStateBase::PlayerArray
+    // order (index 0 -> Player 1, index 1 -> Player 2) — no new gameplay data, no
+    // mutation. Falls back to a generic "Winner" label if the winner's PlayerState
+    // is not found in PlayerArray (e.g. already left the session).
+    FText ResolveWinnerDisplayText(const AWTBRGameState* GameState, const APlayerState* WinnerPlayerState)
+    {
+        if (!IsValid(GameState) || !IsValid(WinnerPlayerState))
+        {
+            return NSLOCTEXT("WTBRHUD", "MatchWinnerGeneric", "Winner");
+        }
+
+        for (int32 Index = 0; Index < GameState->PlayerArray.Num(); ++Index)
+        {
+            if (GameState->PlayerArray[Index] == WinnerPlayerState)
+            {
+                return FText::Format(NSLOCTEXT("WTBRHUD", "MatchWinnerPlayerFmt", "Player {0}"),
+                    FText::AsNumber(Index + 1));
+            }
+        }
+
+        return NSLOCTEXT("WTBRHUD", "MatchWinnerGeneric", "Winner");
+    }
 }
 
 UWTBRHUDViewModelComponent::UWTBRHUDViewModelComponent()
@@ -110,6 +134,7 @@ void UWTBRHUDViewModelComponent::BindOwnerDelegates()
         if (AWTBRGameState* GameState = World->GetGameState<AWTBRGameState>())
         {
             GameState->OnMatchPhaseChanged.AddUniqueDynamic(this, &UWTBRHUDViewModelComponent::OnMatchPhaseChangedHandler);
+            GameState->OnMatchWinnerChanged.AddUniqueDynamic(this, &UWTBRHUDViewModelComponent::OnMatchWinnerChangedHandler);
         }
     }
 }
@@ -145,6 +170,7 @@ void UWTBRHUDViewModelComponent::UnbindOwnerDelegates()
         if (AWTBRGameState* GameState = World->GetGameState<AWTBRGameState>())
         {
             GameState->OnMatchPhaseChanged.RemoveDynamic(this, &UWTBRHUDViewModelComponent::OnMatchPhaseChangedHandler);
+            GameState->OnMatchWinnerChanged.RemoveDynamic(this, &UWTBRHUDViewModelComponent::OnMatchWinnerChangedHandler);
         }
     }
 }
@@ -170,6 +196,11 @@ void UWTBRHUDViewModelComponent::OnActiveTriggerChangedHandler(ETriggerSlot /*Ne
 }
 
 void UWTBRHUDViewModelComponent::OnMatchPhaseChangedHandler(EWTBRMatchPhase /*MatchPhase*/)
+{
+    RefreshHUDSnapshot();
+}
+
+void UWTBRHUDViewModelComponent::OnMatchWinnerChangedHandler(APlayerState* /*WinnerPlayerState*/)
 {
     RefreshHUDSnapshot();
 }
@@ -342,6 +373,15 @@ FWTBRHUDMatchSnapshot UWTBRHUDViewModelComponent::BuildMatchSnapshot() const
             if (const UEnum* MatchPhaseEnum = StaticEnum<EWTBRMatchPhase>())
             {
                 Snapshot.MatchPhaseText = MatchPhaseEnum->GetDisplayNameTextByValue(static_cast<int64>(MatchPhase));
+            }
+
+            // Winner text is only meaningful once the round has actually ended.
+            if (MatchPhase == EWTBRMatchPhase::PostMatch)
+            {
+                Snapshot.bHasWinner = true;
+                Snapshot.WinnerText = GameState->HasMatchWinner()
+                    ? ResolveWinnerDisplayText(GameState, GameState->GetMatchWinner())
+                    : NSLOCTEXT("WTBRHUD", "MatchDraw", "Draw");
             }
         }
     }

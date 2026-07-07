@@ -83,4 +83,7 @@ private:
 
     UFUNCTION()
     void OnMatchPhaseChangedHandler(EWTBRMatchPhase MatchPhase);
+
+    UFUNCTION()
+    void OnMatchWinnerChangedHandler(APlayerState* WinnerPlayerState);
 };

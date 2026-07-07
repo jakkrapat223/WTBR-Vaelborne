@@ -106,6 +106,15 @@ void UWTBRGeneratedHUDWidget::ApplySnapshot(const FWTBRHUDSnapshot& Snapshot)
         ? FText::AsNumber(Snapshot.Match.ZoneTimeRemaining)
         : PlaceholderDash);
 
+    // ── Match Status (Phase 7D) ──────────────────────────────────────────────
+    // Display-only: read from the snapshot, never mutates GameState/GameMode.
+    SetTextSafe(Txt_MatchPhaseValue, Snapshot.Match.bHasMatchPhase
+        ? Snapshot.Match.MatchPhaseText
+        : FText::GetEmpty());
+    SetTextSafe(Txt_WinnerValue, Snapshot.Match.bHasWinner
+        ? Snapshot.Match.WinnerText
+        : FText::GetEmpty());
+
     // ── Pickup ───────────────────────────────────────────────────────────────
     SetPickupPromptVisible(Snapshot.PickupPrompt.bIsVisible);
     SetTextSafe(Txt_PickupPrompt, Snapshot.PickupPrompt.PromptText);

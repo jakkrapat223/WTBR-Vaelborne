@@ -71,6 +71,16 @@ struct FWTBRHUDMatchSnapshot
 
     UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD | Match")
     FText MatchPhaseText;
+
+    // Phase 7D: only meaningful once the match has reached PostMatch. WinnerText
+    // is pre-resolved to "Player N" / "Draw" (see
+    // UWTBRHUDViewModelComponent::BuildMatchSnapshot) so this widget layer never
+    // has to look up AWTBRGameState/PlayerState itself.
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD | Match")
+    bool bHasWinner = false;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD | Match")
+    FText WinnerText;
 };
 
 USTRUCT(BlueprintType)

@@ -85,6 +85,20 @@ public:
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UTextBlock> Txt_ZoneTimer;
 
+    // ── Match Status (Phase 7D) ──────────────────────────────────────────────
+    // Match lifecycle phase (Countdown/InMatch/PostMatch/etc.) — distinct from
+    // Txt_PhaseValue above, which is reserved for the BR zone-shrink phase number.
+    // Not yet present in WBP_HUD_Generated as of Phase 7D — BindWidgetOptional
+    // means this silently stays null (no-op) until the WBP adds a matching
+    // TextBlock; see the Phase 7D report for the exact manual editor step.
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UTextBlock> Txt_MatchPhaseValue;
+
+    // Round winner ("Player 1" / "Player 2" / "Draw"), only meaningful once
+    // PostMatch. Same not-yet-in-WBP caveat as Txt_MatchPhaseValue above.
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UTextBlock> Txt_WinnerValue;
+
     // ── Pickup ───────────────────────────────────────────────────────────────
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UTextBlock> Txt_PickupPrompt;
