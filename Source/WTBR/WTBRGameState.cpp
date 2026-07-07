@@ -2,6 +2,7 @@
 
 #include "WTBRGameState.h"
 
+#include "GameFramework/PlayerState.h"
 #include "Net/UnrealNetwork.h"
 
 AWTBRGameState::AWTBRGameState()
@@ -53,6 +54,27 @@ void AWTBRGameState::OnRep_CurrentMatchPhase()
     BroadcastMatchPhaseChanged();
 }
 
+void AWTBRGameState::SetMatchWinner(APlayerState* WinnerPlayerState)
+{
+    if (!HasAuthority())
+    {
+        return;
+    }
+
+    if (MatchWinnerPlayerState == WinnerPlayerState)
+    {
+        return;
+    }
+
+    MatchWinnerPlayerState = WinnerPlayerState;
+    BroadcastMatchWinnerChanged();
+}
+
+void AWTBRGameState::OnRep_MatchWinnerPlayerState()
+{
+    BroadcastMatchWinnerChanged();
+}
+
 void AWTBRGameState::BroadcastMatchModeRulesChanged()
 {
     OnMatchModeRulesChanged.Broadcast(CurrentMatchMode, CurrentMatchRules);
@@ -63,6 +85,11 @@ void AWTBRGameState::BroadcastMatchPhaseChanged()
     OnMatchPhaseChanged.Broadcast(CurrentMatchPhase);
 }
 
+void AWTBRGameState::BroadcastMatchWinnerChanged()
+{
+    OnMatchWinnerChanged.Broadcast(MatchWinnerPlayerState);
+}
+
 void AWTBRGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -70,4 +97,5 @@ void AWTBRGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
     DOREPLIFETIME(AWTBRGameState, CurrentMatchMode);
     DOREPLIFETIME(AWTBRGameState, CurrentMatchRules);
     DOREPLIFETIME(AWTBRGameState, CurrentMatchPhase);
+    DOREPLIFETIME(AWTBRGameState, MatchWinnerPlayerState);
 }

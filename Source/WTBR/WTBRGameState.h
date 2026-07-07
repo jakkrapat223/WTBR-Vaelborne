@@ -7,6 +7,8 @@
 #include "Data/WTBRMatchModeRulesDataAsset.h"
 #include "WTBRGameState.generated.h"
 
+class APlayerState;
+
 UENUM(BlueprintType)
 enum class EWTBRMatchPhase : uint8
 {
@@ -27,6 +29,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
     FWTBRMatchPhaseChanged,
     EWTBRMatchPhase, MatchPhase);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+    FWTBRMatchWinnerChanged,
+    APlayerState*, WinnerPlayerState);
 
 UCLASS()
 class WTBR_API AWTBRGameState : public AGameStateBase
@@ -98,11 +104,28 @@ public:
     UFUNCTION(BlueprintPure, Category="WTBR | Match Mode | Teams")
     bool UsesTeams() const { return CurrentMatchRules.bUseTeams; }
 
+    // Phase 7B: server-authoritative round result. Set by AWTBRGameMode once the
+    // round-loop winner check resolves (at most one non-eliminated combatant
+    // remaining). Null winner with Phase==PostMatch means a draw (e.g. simultaneous
+    // elimination). HUD/UI can bind OnMatchWinnerChanged and read GetMatchWinner()
+    // once replicated; this struct/state does not itself grant rewards.
+    UFUNCTION(BlueprintCallable, Category="WTBR | Match Result")
+    void SetMatchWinner(APlayerState* WinnerPlayerState);
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Match Result")
+    APlayerState* GetMatchWinner() const { return MatchWinnerPlayerState; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Match Result")
+    bool HasMatchWinner() const { return MatchWinnerPlayerState != nullptr; }
+
     UPROPERTY(BlueprintAssignable, Category="WTBR | Match Mode")
     FWTBRMatchModeRulesChanged OnMatchModeRulesChanged;
 
     UPROPERTY(BlueprintAssignable, Category="WTBR | Match Phase")
     FWTBRMatchPhaseChanged OnMatchPhaseChanged;
+
+    UPROPERTY(BlueprintAssignable, Category="WTBR | Match Result")
+    FWTBRMatchWinnerChanged OnMatchWinnerChanged;
 
 protected:
     UPROPERTY(ReplicatedUsing=OnRep_CurrentMatchMode, BlueprintReadOnly, Category="WTBR | Match Mode")
@@ -114,6 +137,9 @@ protected:
     UPROPERTY(ReplicatedUsing=OnRep_CurrentMatchPhase, BlueprintReadOnly, Category="WTBR | Match Phase")
     EWTBRMatchPhase CurrentMatchPhase = EWTBRMatchPhase::None;
 
+    UPROPERTY(ReplicatedUsing=OnRep_MatchWinnerPlayerState, BlueprintReadOnly, Category="WTBR | Match Result")
+    TObjectPtr<APlayerState> MatchWinnerPlayerState = nullptr;
+
     UFUNCTION()
     void OnRep_CurrentMatchMode();
 
@@ -123,9 +149,13 @@ protected:
     UFUNCTION()
     void OnRep_CurrentMatchPhase();
 
+    UFUNCTION()
+    void OnRep_MatchWinnerPlayerState();
+
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 private:
     void BroadcastMatchModeRulesChanged();
     void BroadcastMatchPhaseChanged();
+    void BroadcastMatchWinnerChanged();
 };

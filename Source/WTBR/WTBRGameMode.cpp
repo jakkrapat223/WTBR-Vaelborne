@@ -3,7 +3,9 @@
 #include "WTBRGameMode.h"
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
+#include "Components/WTBRHealthComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerState.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Inventory/WTBRGroundItemActor.h"
@@ -84,6 +86,15 @@ void AWTBRGameMode::BeginPlay()
 
 	WTBRGameState->SetCurrentMatchRules(ResolveDefaultMatchRules());
 	WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::LoadoutSetup);
+	bMatchResultResolved = false;
+
+	// Phase 7B: auto-advance the round loop without needing console commands.
+	// LoadoutSetup -> Countdown -> InMatch. Fixed loadout only this phase.
+	GetWorldTimerManager().SetTimer(
+		LoadoutSetupTimerHandle,
+		FTimerDelegate::CreateUObject(this, &AWTBRGameMode::AdvanceToCountdown),
+		FMath::Max(0.01f, LoadoutSetupDuration),
+		/*bLoop=*/false);
 
 #if !UE_BUILD_SHIPPING
 	// ExecCmds processes at tick [1], which is after BeginPlay fires during LoadMap.
@@ -201,6 +212,139 @@ void AWTBRGameMode::WTBRDebugPrintTriggerLoadoutGate() const
 		*GetNameSafe(WTBRCharacter->TriggerSetComponent));
 	WTBRCharacter->TriggerSetComponent->DebugPrintTriggerLoadoutMutationGate();
 #endif
+}
+
+void AWTBRGameMode::AdvanceToCountdown()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// World-based lookup (not the AGameModeBase-cached GameState member): identical
+	// in real gameplay once InitGameState() has run, but also works in headless
+	// automation fixtures that register a GameState via World->SetGameState()
+	// without driving the full InitGame/InitGameState flow.
+	AWTBRGameState* WTBRGameState = GetWorld() ? GetWorld()->GetGameState<AWTBRGameState>() : nullptr;
+	if (!IsValid(WTBRGameState))
+	{
+		return;
+	}
+
+	WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::Countdown);
+	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: Phase -> Countdown (auto-advance, no console command required)."));
+
+	GetWorldTimerManager().SetTimer(
+		CountdownTimerHandle,
+		FTimerDelegate::CreateUObject(this, &AWTBRGameMode::AdvanceToInMatch),
+		FMath::Max(0.01f, CountdownDuration),
+		/*bLoop=*/false);
+}
+
+void AWTBRGameMode::AdvanceToInMatch()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	AWTBRGameState* WTBRGameState = GetWorld() ? GetWorld()->GetGameState<AWTBRGameState>() : nullptr;
+	if (!IsValid(WTBRGameState))
+	{
+		return;
+	}
+
+	bMatchResultResolved = false;
+	WTBRGameState->SetMatchWinner(nullptr);
+
+	// Guarantee a clean start of round: every combatant enters InMatch at full HP,
+	// Alive, damage history cleared. Fixed loadout is unaffected (TriggerSlots are
+	// not touched here).
+	int32 ResetCount = 0;
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<AWTBRCharacter> It(World); It; ++It)
+		{
+			AWTBRCharacter* Character = *It;
+			if (IsValid(Character) && IsValid(Character->HealthComponent))
+			{
+				Character->HealthComponent->ResetCombatRewardState();
+				++ResetCount;
+			}
+		}
+	}
+
+	WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::InMatch);
+	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: Phase -> InMatch (auto-advance, no console command required). CombatantsReset=%d."),
+		ResetCount);
+}
+
+void AWTBRGameMode::CollectAliveCombatants(UWorld* World, TArray<AWTBRCharacter*>& OutAlive)
+{
+	OutAlive.Reset();
+	if (!World)
+	{
+		return;
+	}
+
+	for (TActorIterator<AWTBRCharacter> It(World); It; ++It)
+	{
+		AWTBRCharacter* Character = *It;
+		if (IsValid(Character) && IsValid(Character->HealthComponent)
+			&& Character->HealthComponent->GetCombatState() != EWTBRCombatState::Eliminated)
+		{
+			OutAlive.Add(Character);
+		}
+	}
+}
+
+void AWTBRGameMode::NotifyCombatantEliminated(AWTBRCharacter* EliminatedCharacter)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (bMatchResultResolved)
+	{
+		UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: NotifyCombatantEliminated(%s) ignored — result already resolved this round."),
+			*GetNameSafe(EliminatedCharacter));
+		return;
+	}
+
+	AWTBRGameState* WTBRGameState = GetWorld() ? GetWorld()->GetGameState<AWTBRGameState>() : nullptr;
+	if (!IsValid(WTBRGameState) || WTBRGameState->GetCurrentMatchPhase() != EWTBRMatchPhase::InMatch)
+	{
+		UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: NotifyCombatantEliminated(%s) ignored — not InMatch (Phase=%s)."),
+			*GetNameSafe(EliminatedCharacter),
+			IsValid(WTBRGameState) ? *UEnum::GetValueAsString(WTBRGameState->GetCurrentMatchPhase()) : TEXT("NoGameState"));
+		return;
+	}
+
+	TArray<AWTBRCharacter*> AliveCombatants;
+	CollectAliveCombatants(GetWorld(), AliveCombatants);
+
+	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: combatant eliminated (%s). AliveCombatantsRemaining=%d."),
+		*GetNameSafe(EliminatedCharacter),
+		AliveCombatants.Num());
+
+	if (AliveCombatants.Num() > 1)
+	{
+		// Match continues — more than one combatant still standing.
+		return;
+	}
+
+	bMatchResultResolved = true;
+
+	AWTBRCharacter* WinnerCharacter = AliveCombatants.Num() == 1 ? AliveCombatants[0] : nullptr;
+	APlayerState* WinnerPlayerState = IsValid(WinnerCharacter) ? WinnerCharacter->GetPlayerState() : nullptr;
+
+	WTBRGameState->SetMatchWinner(WinnerPlayerState);
+	WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::PostMatch);
+
+	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: ROUND OVER. Winner=%s (PlayerState=%s). Phase -> PostMatch."),
+		*GetNameSafe(WinnerCharacter),
+		*GetNameSafe(WinnerPlayerState));
 }
 
 FWTBRMatchModeRules AWTBRGameMode::ResolveDefaultMatchRules() const

@@ -343,6 +343,20 @@ void UWTBRHealthComponent::EnterEliminatedState(AActor* FinalDamageInstigator)
     ResolveDeathRewards(FinalDamageInstigator);
     SpawnDroppedTriggersForEliminatedCharacter();
     SetCombatState(EWTBRCombatState::Eliminated);
+
+    // Phase 7B: notify the authoritative round-loop winner check. Safe no-op if
+    // the owner is not an AWTBRCharacter or no AWTBRGameMode is present (e.g. a
+    // headless component test with no world GameMode).
+    if (AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner()))
+    {
+        if (UWorld* World = GetWorld())
+        {
+            if (AWTBRGameMode* WTBRGameMode = World->GetAuthGameMode<AWTBRGameMode>())
+            {
+                WTBRGameMode->NotifyCombatantEliminated(VictimCharacter);
+            }
+        }
+    }
 }
 
 void UWTBRHealthComponent::ResolveDownReward(AActor* DownInstigator)
