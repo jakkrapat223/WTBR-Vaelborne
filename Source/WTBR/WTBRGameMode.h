@@ -30,6 +30,17 @@ public:
 	UFUNCTION(Exec)
 	void WTBRDebugSetMatchPhase(const FString& PhaseName);
 
+	// Phase 7E: minimal PostMatch restart for 1v1 testing. Server-authoritative,
+	// console/debug command only (no UI button, no new input mapping). Only acts
+	// when the current phase is PostMatch (no-op + warning log otherwise). Clears
+	// the match winner, resets every AWTBRCharacter's HP/combat-state (via the
+	// same HealthComponent::ResetCombatRewardState() the round loop already uses)
+	// and Vael/desperation state, then re-enters the existing, already-tested
+	// LoadoutSetup -> Countdown -> InMatch auto-advance. Does not touch limb
+	// destruction state, corpse loot, or BagLoot.
+	UFUNCTION(Exec)
+	void WTBRRestartRound();
+
 	UFUNCTION(Exec)
 	void WTBRDebugPrintMatchState() const;
 
@@ -85,6 +96,12 @@ private:
 	void AdvanceToCountdown();
 	void AdvanceToInMatch();
 	static void CollectAliveCombatants(UWorld* World, TArray<AWTBRCharacter*>& OutAlive);
+
+	// Shared by BeginPlay and WTBRRestartRound: enters LoadoutSetup, resets the
+	// per-round result-resolved flag, and (re)starts the LoadoutSetup -> Countdown
+	// timer. Does not touch match rules — callers that need a fresh rules reset
+	// (BeginPlay only) apply that separately before calling this.
+	void BeginLoadoutSetupCountdown();
 
 	FTimerHandle LoadoutSetupTimerHandle;
 	FTimerHandle CountdownTimerHandle;

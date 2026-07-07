@@ -4,6 +4,7 @@
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
 #include "Components/WTBRHealthComponent.h"
+#include "Components/WTBRVaelComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
@@ -85,16 +86,10 @@ void AWTBRGameMode::BeginPlay()
 	}
 
 	WTBRGameState->SetCurrentMatchRules(ResolveDefaultMatchRules());
-	WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::LoadoutSetup);
-	bMatchResultResolved = false;
 
 	// Phase 7B: auto-advance the round loop without needing console commands.
 	// LoadoutSetup -> Countdown -> InMatch. Fixed loadout only this phase.
-	GetWorldTimerManager().SetTimer(
-		LoadoutSetupTimerHandle,
-		FTimerDelegate::CreateUObject(this, &AWTBRGameMode::AdvanceToCountdown),
-		FMath::Max(0.01f, LoadoutSetupDuration),
-		/*bLoop=*/false);
+	BeginLoadoutSetupCountdown();
 
 #if !UE_BUILD_SHIPPING
 	// ExecCmds processes at tick [1], which is after BeginPlay fires during LoadMap.
@@ -135,6 +130,89 @@ void AWTBRGameMode::WTBRDebugSetMatchPhase(const FString& PhaseName)
 
 	WTBRGameState->SetCurrentMatchPhase(ParsedPhase);
 	UE_LOG(LogTemp, Log, TEXT("WTBRDebugSetMatchPhase: phase set to %s."), *UEnum::GetValueAsString(ParsedPhase));
+#endif
+}
+
+void AWTBRGameMode::BeginLoadoutSetupCountdown()
+{
+	if (AWTBRGameState* WTBRGameState = GetGameState<AWTBRGameState>())
+	{
+		WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::LoadoutSetup);
+	}
+	bMatchResultResolved = false;
+
+	GetWorldTimerManager().SetTimer(
+		LoadoutSetupTimerHandle,
+		FTimerDelegate::CreateUObject(this, &AWTBRGameMode::AdvanceToCountdown),
+		FMath::Max(0.01f, LoadoutSetupDuration),
+		/*bLoop=*/false);
+}
+
+void AWTBRGameMode::WTBRRestartRound()
+{
+#if UE_BUILD_SHIPPING
+	UE_LOG(LogTemp, Warning, TEXT("WTBRRestartRound is disabled in Shipping builds."));
+#else
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRRestartRound rejected: GameMode does not have authority."));
+		return;
+	}
+
+	AWTBRGameState* WTBRGameState = GetGameState<AWTBRGameState>();
+	if (!IsValid(WTBRGameState))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRRestartRound rejected: WTBRGameState is missing."));
+		return;
+	}
+
+	if (WTBRGameState->GetCurrentMatchPhase() != EWTBRMatchPhase::PostMatch)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRRestartRound rejected: only valid from PostMatch (current Phase=%s)."),
+			*UEnum::GetValueAsString(WTBRGameState->GetCurrentMatchPhase()));
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(LoadoutSetupTimerHandle);
+	GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
+
+	WTBRGameState->SetMatchWinner(nullptr);
+
+	// Restore every combatant to a clean baseline before the next round begins.
+	// ResetCombatRewardState() mirrors what AdvanceToInMatch already does every
+	// round (HP/Alive/invulnerability/damage history); Vael/desperation are reset
+	// here too since the existing round loop never touches them.
+	int32 ResetCount = 0;
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<AWTBRCharacter> It(World); It; ++It)
+		{
+			AWTBRCharacter* Character = *It;
+			if (!IsValid(Character))
+			{
+				continue;
+			}
+
+			if (IsValid(Character->HealthComponent))
+			{
+				Character->HealthComponent->ResetCombatRewardState();
+			}
+
+			if (IsValid(Character->VaelComponent))
+			{
+				Character->VaelComponent->ResetDesperationState();
+				Character->VaelComponent->GrantVael(Character->VaelComponent->GetMaxVael());
+			}
+
+			++ResetCount;
+		}
+	}
+
+	BeginLoadoutSetupCountdown();
+
+	UE_LOG(LogTemp, Log,
+		TEXT("WTBR Match Flow: WTBRRestartRound invoked — winner cleared, CombatantsReset=%d, Phase -> LoadoutSetup (auto-advance to Countdown/InMatch)."),
+		ResetCount);
 #endif
 }
 
