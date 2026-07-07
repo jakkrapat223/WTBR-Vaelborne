@@ -115,6 +115,13 @@ class AWTBRCharacter : public ACharacter
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
     TObjectPtr<UInputAction> CancelAction;
 
+    // Optional -- assign IA_Bag in BP_WTBRCharacter or IMC (IA_Bag is mapped to Z
+    // in IMC_WTBR_Default). Defaults null; binding is skipped if not assigned, so
+    // the game runs identically without it. Routes to the existing
+    // ToggleBagLootLayer() Bag/Loot presentation toggle.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
+    TObjectPtr<UInputAction> BagAction;
+
 public:
     AWTBRCharacter();
 

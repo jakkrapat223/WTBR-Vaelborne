@@ -431,6 +431,10 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         {
             EIC->BindAction(CancelAction, ETriggerEvent::Started, this, &AWTBRCharacter::HandleCancelInput);
         }
+        if (IsValid(BagAction))
+        {
+            EIC->BindAction(BagAction, ETriggerEvent::Started, this, &AWTBRCharacter::ToggleBagLootLayer);
+        }
 
     }
 }
