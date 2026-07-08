@@ -17,6 +17,22 @@ public:
 
     virtual void Deactivate_Implementation() override;
 
+    // ── VFX Hooks ──────────────────────────────────────────────────────────────
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Lacern | VFX")
+    void OnLacernExtendStart(bool bIsDualWield);
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Lacern | VFX")
+    void OnLacernExtending(float CurrentDist, float MaxDist);
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Lacern | VFX")
+    void OnLacernHit(FVector ImpactPoint, FVector ImpactNormal, bool bDualWieldHit);
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Lacern | VFX")
+    void OnLacernFullExtend();
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Lacern | VFX")
+    void OnLacernRetractComplete();
+
 protected:
     virtual void PerformSingleSweep(TArray<FHitResult>& OutHits) override;
     virtual void PerformDualSweep(TArray<FHitResult>& OutHits) override;

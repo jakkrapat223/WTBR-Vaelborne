@@ -88,6 +88,8 @@ void UWTBRLacernTrigger::StartExtend(bool bDualWield)
     bIsDualWieldSwing = bDualWield;
     HitActorsThisSwing.Empty();
 
+    OnLacernExtendStart(bDualWield);
+
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] ExtendStart | Owner=%s | Dual=%s | ExtendLength=%.1f | ExtendSpeed=%.1f"),
         *GetNameSafe(OwnerCharacter.Get()),
         bDualWield ? TEXT("true") : TEXT("false"),
@@ -112,6 +114,7 @@ void UWTBRLacernTrigger::TickExtend()
 
     const FWTBRLacernParams& LP = DataAsset->LacernParams;
     CurrentExtendDist += LP.ExtendSpeed * EXTEND_TICK;
+    OnLacernExtending(CurrentExtendDist, LP.ExtendLength);
 
     TArray<FHitResult> NewHits;
     SweepAtCurrentPosition(0.0f, NewHits);
@@ -142,6 +145,7 @@ void UWTBRLacernTrigger::TickExtend()
     if (CurrentExtendDist >= LP.ExtendLength)
     {
         CurrentExtendDist = LP.ExtendLength;
+        OnLacernFullExtend();
         StartRetract();
     }
 }
@@ -192,6 +196,7 @@ void UWTBRLacernTrigger::OnRetractComplete()
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] End | Owner=%s | CooldownStart=true"),
         *GetNameSafe(OwnerCharacter.Get()));
     StartCooldown();
+    OnLacernRetractComplete();
 }
 
 // ─── Sweep ───────────────────────────────────────────────────────────────────
@@ -244,6 +249,7 @@ void UWTBRLacernTrigger::SweepAtCurrentPosition(
             continue;
         }
         HitActorsThisSwing.Add(HitActor);
+        OnLacernHit(Hit.ImpactPoint, Hit.ImpactNormal, bIsDualWieldSwing);
         OutNewHits.Add(Hit);
         WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] HitAttempt | Owner=%s | Target=%s | CurrentExtendDist=%.1f | RightOffset=%.1f"),
             *GetNameSafe(OwnerCharacter.Get()),
