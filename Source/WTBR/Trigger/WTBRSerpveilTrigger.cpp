@@ -45,6 +45,8 @@ void UWTBRSerpveilTrigger::OnTriggerActivated_Implementation(
             *GetNameSafe(OwnerCharacter.Get()),
             bIsMain ? TEXT("true") : TEXT("false"),
             ChargeStartTime);
+
+        OwnerCharacter->SetSerpveilChargeTelegraphActive(true);
     }
 
     if (!OwnerCharacter->IsLocallyControlled()) return;
@@ -63,6 +65,11 @@ void UWTBRSerpveilTrigger::OnTriggerDeactivated_Implementation(
     AActor* /*OwnerActor*/, bool bIsMain)
 {
     if (!OwnerCharacter.IsValid()) return;
+
+    // Placed unconditionally so every exit path below (no-op/no-charge return,
+    // and the main release-fire path) clears the telegraph — idempotent, so
+    // ExecuteServerFire's own cleanup call later is a harmless no-op.
+    OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
 
     if (!bIsCharging)
     {
@@ -151,6 +158,8 @@ bool UWTBRSerpveilTrigger::CancelCharge()
         *GetNameSafe(OwnerCharacter.Get()),
         bCachedIsMain ? TEXT("true") : TEXT("false"),
         Elapsed);
+
+    OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
 
     return true;
 }
@@ -341,6 +350,8 @@ void UWTBRSerpveilTrigger::ExecuteServerFire(
         PingSys->RegisterActionPing(OwnerCharacter.Get());
 
     OnSerpveilFired(Shape);
+
+    OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
 }
 
 // ─── GetPreviewPathPoints (client only, for aim preview Blueprint) ────────────

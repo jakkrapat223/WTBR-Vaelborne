@@ -2730,6 +2730,7 @@ void AWTBRCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(AWTBRCharacter, bActionPingActive);
     DOREPLIFETIME(AWTBRCharacter, bIsStaggered);
+    DOREPLIFETIME(AWTBRCharacter, bSerpveilChargeTelegraphActive);
 }
 
 // ─── Stagger System ───────────────────────────────────────────────────────────
@@ -2779,6 +2780,23 @@ void AWTBRCharacter::OnRep_bIsStaggered()
         IsLocallyControlled() ? TEXT("true") : TEXT("false"),
         bIsStaggered ? TEXT("true") : TEXT("false"));
     // Blueprint: true=disable input+stagger anim | false=re-enable input
+}
+
+void AWTBRCharacter::SetSerpveilChargeTelegraphActive(bool bActive)
+{
+    if (!HasAuthority()) return;
+    if (bSerpveilChargeTelegraphActive == bActive) return;
+
+    bSerpveilChargeTelegraphActive = bActive;
+
+    // Server does not receive its own OnRep — call it directly so the host's
+    // local cosmetic reacts too (replication alone only reaches remote clients).
+    OnRep_SerpveilChargeTelegraph();
+}
+
+void AWTBRCharacter::OnRep_SerpveilChargeTelegraph()
+{
+    OnSerpveilChargeTelegraphChanged(bSerpveilChargeTelegraphActive);
 }
 
 // ─── Trigger Activation RPCs ─────────────────────────────────────────────────

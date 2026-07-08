@@ -461,6 +461,20 @@ public:
         Category = "WTBR | Character | Stagger")
     bool bIsStaggered = false;
 
+    // Server-authoritative telegraph of "is this character's Serpveil actively
+    // charging right now" — mirrors bIsStaggered's RepNotify pattern so ALL
+    // clients (not just the locally-controlled owner) can react cosmetically.
+    UPROPERTY(ReplicatedUsing = OnRep_SerpveilChargeTelegraph, BlueprintReadOnly,
+        Category = "WTBR | Trigger | VFX")
+    bool bSerpveilChargeTelegraphActive = false;
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Trigger | VFX")
+    void OnSerpveilChargeTelegraphChanged(bool bActive);
+
+    // Server-only setter, called by UWTBRSerpveilTrigger from its existing
+    // authority-gated paths. Idempotent — no-ops if the value is unchanged.
+    void SetSerpveilChargeTelegraphActive(bool bActive);
+
 protected:
     virtual void PostInitializeComponents() override;
     virtual void BeginPlay() override;
@@ -509,6 +523,9 @@ protected:
 
     UFUNCTION()
     void OnRep_bIsStaggered();
+
+    UFUNCTION()
+    void OnRep_SerpveilChargeTelegraph();
 
 private:
     // Dynamic delegate callbacks — UFUNCTION required for AddDynamic binding
