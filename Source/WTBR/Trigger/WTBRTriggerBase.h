@@ -24,6 +24,11 @@ public:
     // Called by TriggerSetComponent after spawn to bind owner and data.
     virtual void InitializeTrigger(AWTBRCharacter* InOwnerCharacter, UWTBRTriggerDataAsset* InDataAsset);
 
+    // Exposes the existing native OwnerCharacter to Blueprint (VFX/cosmetic hooks
+    // need this to attach Niagara components to the character mesh).
+    UFUNCTION(BlueprintPure, Category = "WTBR | Trigger")
+    AWTBRCharacter* GetOwningWTBRCharacter() const;
+
     UFUNCTION(BlueprintPure, Category="Trigger | UI")
     FText GetFunctionalName() const;
 

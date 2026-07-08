@@ -13,6 +13,11 @@ void UWTBRTriggerBase::InitializeTrigger(AWTBRCharacter* InOwnerCharacter, UWTBR
     }
 }
 
+AWTBRCharacter* UWTBRTriggerBase::GetOwningWTBRCharacter() const
+{
+    return OwnerCharacter.Get();
+}
+
 FText UWTBRTriggerBase::GetFunctionalName() const
 {
     return IsValid(DataAsset) ? DataAsset->FunctionalName : FText::FromString("Unknown Trigger");
