@@ -645,22 +645,54 @@ void AWTBRProjectileBase::InitializePathMovement(
     // Straight-shot component must not compete with InterpToMovement
     ProjectileMovement->Deactivate();
 
+    if (IsValid(BoxCollision))
+    {
+        InterpMovement->SetUpdatedComponent(BoxCollision);
+    }
+
+    // Convert incoming world-space points into actor-local control points.
+    // UInterpToMovementComponent::ComputeMoveDelta() re-rotates every control
+    // point by UpdatedComponent's rotation regardless of bPositionIsRelative
+    // (that flag only skips adding StartLocation, not the rotation). Points
+    // is already fully world-space — pre-rotated by fire Direction inside
+    // WTBRSerpveilTrigger::BuildPathPoints() — and this actor is spawned with
+    // rotation = Direction, so passing world points with bRelative=false
+    // caused every point to be rotated a second time. Un-rotating into
+    // actor-local space here cancels that out.
+    const FVector StartLoc  = GetActorLocation();
+    const FQuat   ActorQuat = GetActorQuat();
+
     InterpMovement->ResetControlPoints();
     for (const FVector& Pt : Points)
-        InterpMovement->AddControlPointPosition(Pt, /*bRelative=*/false);
-    InterpMovement->FinaliseControlPoints();
+    {
+        const FVector LocalPoint = ActorQuat.UnrotateVector(Pt - StartLoc);
+        InterpMovement->AddControlPointPosition(LocalPoint, /*bRelative=*/true);
+    }
 
     // Compute total path length to derive travel duration from speed
     float TotalDist = 0.0f;
     for (int32 i = 1; i < Points.Num(); ++i)
         TotalDist += FVector::Dist(Points[i - 1], Points[i]);
 
+    // Duration must be set BEFORE FinaliseControlPoints() — it locks in
+    // TimeMultiplier = 1/Duration internally and never recomputes it later.
     InterpMovement->Duration = (Speed > 0.0f) ? (TotalDist / Speed) : 1.0f;
+
+    InterpMovement->FinaliseControlPoints();
+
+    // ResetControlPoints() (called above) sets bStopped=true. TickComponent()
+    // early-returns every frame while bStopped is true, and only
+    // RestartMovement() clears it back to false — Activate() alone does NOT.
+    // Without this call the component reports IsActive()=true (Activate()
+    // still flips bIsActive/tick-enabled) but never actually advances
+    // CurrentTime/moves, matching observed evidence: ActorLoc/BoxCollisionLoc
+    // unchanged, Velocity=0, only overlap seen is the spawn-snap self-overlap.
+    InterpMovement->RestartMovement();
 
     InterpMovement->OnInterpToStop.AddDynamic(
         this, &AWTBRProjectileBase::OnInterpMovementEnd);
 
-    InterpMovement->Activate();
+    InterpMovement->Activate(true);
 
     OnProjectileLaunched();
 }
