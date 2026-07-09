@@ -20,6 +20,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "NiagaraJsonGenerator",
+			"Enabled": true
+		},
+		{
 			"Name": "ModelingToolsEditorMode",
 			"Enabled": true,
 			"TargetAllowList": [

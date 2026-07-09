@@ -1,0 +1,11 @@
+{
+	"template": "/Game/VFX/Templates/NS_Template_Burst",
+	"outputPath": "/Game/VFX/Generated/NS_Test_Burst_FromJson",
+	"addMissingParams": false,
+	"params": {
+		"User.Color":      { "type": "color", "value": [1.00, 0.35, 0.10, 1.0] },
+		"User.Lifetime":   { "type": "float", "value": 0.6 },
+		"User.Size":       { "type": "float", "value": 60.0 },
+		"User.SpawnCount": { "type": "int",   "value": 128 }
+	}
+}

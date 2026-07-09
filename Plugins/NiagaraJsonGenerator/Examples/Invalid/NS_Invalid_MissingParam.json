@@ -1,0 +1,9 @@
+{
+	"template": "/Game/VFX/Templates/NS_Template_Burst",
+	"outputPath": "/Game/VFX/Generated/NS_Test_Burst_FromJson",
+	"addMissingParams": false,
+	"params": {
+		"User.DoesNotExist": { "type": "float", "value": 1.0 },
+		"User.Lifetime":     { "type": "float", "value": 0.6 }
+	}
+}
