@@ -26,8 +26,67 @@ namespace
 		if (Lower == TEXT("int") || Lower == TEXT("int32"))    { return &FNiagaraTypeDefinition::GetIntDef(); }
 		if (Lower == TEXT("bool"))                             { return &FNiagaraTypeDefinition::GetBoolDef(); }
 		if (Lower == TEXT("color") || Lower == TEXT("linearcolor")) { return &FNiagaraTypeDefinition::GetColorDef(); }
-		if (Lower == TEXT("vec3") || Lower == TEXT("vector"))  { return &FNiagaraTypeDefinition::GetVec3Def(); }
+		if (Lower == TEXT("vector3") || Lower == TEXT("vec3") || Lower == TEXT("vector"))
+		{
+			return &FNiagaraTypeDefinition::GetVec3Def();
+		}
 		return nullptr;
+	}
+
+	// Phase A path whitelists (see memory scope locks / README).
+	const TCHAR* TemplateRoot = TEXT("/Game/VFX/Templates/");
+	const TCHAR* OutputRoot   = TEXT("/Game/VFX/");
+
+	bool IsNumberValue(const TSharedPtr<FJsonValue>& Value)
+	{
+		double Unused = 0.0;
+		return Value.IsValid() && Value->TryGetNumber(Unused);
+	}
+
+	// Pre-flight shape check for a param's "value" against its declared type.
+	// Mirrors what ApplyParam() will accept at runtime, without touching assets.
+	bool IsValidValueShape(const FNiagaraTypeDefinition& TypeDef,
+	                       const TSharedPtr<FJsonValue>& Value,
+	                       FString& OutExpected)
+	{
+		if (TypeDef == FNiagaraTypeDefinition::GetFloatDef()
+			|| TypeDef == FNiagaraTypeDefinition::GetIntDef())
+		{
+			OutExpected = TEXT("a number");
+			return IsNumberValue(Value);
+		}
+		if (TypeDef == FNiagaraTypeDefinition::GetBoolDef())
+		{
+			OutExpected = TEXT("true/false");
+			bool Unused = false;
+			return Value.IsValid() && Value->TryGetBool(Unused);
+		}
+
+		const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
+		const bool bIsArray = Value.IsValid() && Value->TryGetArray(Arr);
+
+		auto AllNumbers = [](const TArray<TSharedPtr<FJsonValue>>& Elems)
+		{
+			for (const TSharedPtr<FJsonValue>& Elem : Elems)
+			{
+				double Unused = 0.0;
+				if (!Elem.IsValid() || !Elem->TryGetNumber(Unused)) { return false; }
+			}
+			return true;
+		};
+
+		if (TypeDef == FNiagaraTypeDefinition::GetColorDef())
+		{
+			OutExpected = TEXT("an array [r,g,b] or [r,g,b,a] of numbers");
+			return bIsArray && (Arr->Num() == 3 || Arr->Num() == 4) && AllNumbers(*Arr);
+		}
+		if (TypeDef == FNiagaraTypeDefinition::GetVec3Def())
+		{
+			OutExpected = TEXT("an array [x,y,z] of exactly 3 numbers");
+			return bIsArray && Arr->Num() == 3 && AllNumbers(*Arr);
+		}
+		OutExpected = TEXT("(unknown)");
+		return false;
 	}
 
 	bool ReadNumberArray(const TSharedPtr<FJsonObject>& ParamObj, int32 MinCount,
@@ -52,13 +111,156 @@ namespace
 	}
 }
 
+// Phase A pre-flight — collects ALL schema problems (not fail-fast) so one run
+// surfaces every fix needed. E-codes are errors (abort before asset access),
+// W-codes are warnings (import continues). Codes are documented in README.
+bool FNiagaraJsonSpikeImporter::ValidateSpec(const TSharedPtr<FJsonObject>& Root, FImportStats& Stats)
+{
+	int32 Errors = 0;
+	auto Error = [&Errors](const FString& Code, const FString& Msg)
+	{
+		UE_LOG(LogNiagaraJsonSpike, Error, TEXT("%s: %s"), *Code, *Msg);
+		Errors++;
+	};
+	auto Warn = [&Stats](const FString& Code, const FString& Msg)
+	{
+		LogWarning(FString::Printf(TEXT("%s: %s"), *Code, *Msg), &Stats);
+	};
+
+	// W001 — unknown top-level fields (warn, keep importing)
+	static const TSet<FString> KnownTopLevelFields =
+		{ TEXT("template"), TEXT("outputPath"), TEXT("addMissingParams"), TEXT("params") };
+	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Root->Values)
+	{
+		if (!KnownTopLevelFields.Contains(Pair.Key))
+		{
+			Warn(TEXT("W001"), FString::Printf(
+				TEXT("Unknown top-level field \"%s\" — ignored"), *Pair.Key));
+		}
+	}
+
+	// template: required string, must live under the template whitelist root
+	FString TemplatePath;
+	if (!Root->TryGetStringField(TEXT("template"), TemplatePath) || TemplatePath.IsEmpty())
+	{
+		Error(TEXT("E003"), TEXT("Missing or empty required string field \"template\""));
+	}
+	else if (!TemplatePath.StartsWith(TemplateRoot))
+	{
+		Error(TEXT("E004"), FString::Printf(
+			TEXT("\"template\" must be under %s (whitelist) — got: %s"),
+			TemplateRoot, *TemplatePath));
+	}
+
+	// outputPath: required string, under /Game/VFX/, never under the template root
+	FString OutputPath;
+	if (!Root->TryGetStringField(TEXT("outputPath"), OutputPath) || OutputPath.IsEmpty())
+	{
+		Error(TEXT("E005"), TEXT("Missing or empty required string field \"outputPath\""));
+	}
+	else
+	{
+		if (!OutputPath.StartsWith(OutputRoot))
+		{
+			Error(TEXT("E006"), FString::Printf(
+				TEXT("\"outputPath\" must be under %s — got: %s"), OutputRoot, *OutputPath));
+		}
+		else if (OutputPath.StartsWith(TemplateRoot))
+		{
+			Error(TEXT("E007"), FString::Printf(
+				TEXT("\"outputPath\" must not be under %s (templates are read-only inputs) — got: %s"),
+				TemplateRoot, *OutputPath));
+		}
+	}
+
+	// addMissingParams: optional, but if present it must be a bool (default stays false)
+	if (Root->HasField(TEXT("addMissingParams")))
+	{
+		bool bUnused = false;
+		if (!Root->TryGetBoolField(TEXT("addMissingParams"), bUnused))
+		{
+			Warn(TEXT("W005"),
+				TEXT("\"addMissingParams\" is not a boolean — using default false"));
+		}
+	}
+
+	// params: required object; every entry must be { "type": <allowed>, "value": <shape> }
+	const TSharedPtr<FJsonObject>* ParamsObj = nullptr;
+	if (!Root->TryGetObjectField(TEXT("params"), ParamsObj) || !ParamsObj->IsValid())
+	{
+		Error(TEXT("E008"), TEXT("Missing required object field \"params\""));
+	}
+	else
+	{
+		if ((*ParamsObj)->Values.Num() == 0)
+		{
+			Warn(TEXT("W004"), TEXT("\"params\" is empty — asset will be duplicated/updated with no parameter changes"));
+		}
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*ParamsObj)->Values)
+		{
+			const FString EntryLabel = FString::Printf(TEXT("Param \"%s\""), *Pair.Key);
+
+			if (Pair.Key.TrimStartAndEnd().IsEmpty())
+			{
+				Error(TEXT("E013"), TEXT("Param key must not be empty"));
+				continue;
+			}
+
+			const TSharedPtr<FJsonObject>* Entry = nullptr;
+			if (!Pair.Value.IsValid() || !Pair.Value->TryGetObject(Entry) || !Entry->IsValid())
+			{
+				Error(TEXT("E009"), EntryLabel
+					+ TEXT(": entry must be an object { \"type\": ..., \"value\": ... }"));
+				continue;
+			}
+
+			FString TypeName;
+			if (!(*Entry)->TryGetStringField(TEXT("type"), TypeName) || TypeName.IsEmpty())
+			{
+				Error(TEXT("E010"), EntryLabel + TEXT(": missing required string field \"type\""));
+				continue;
+			}
+
+			const FNiagaraTypeDefinition* TypeDef = ResolveTypeDef(TypeName);
+			if (!TypeDef)
+			{
+				Error(TEXT("E011"), FString::Printf(
+					TEXT("%s: unsupported type \"%s\" (allowed: float, int, bool, color, vector3)"),
+					*EntryLabel, *TypeName));
+				continue;
+			}
+
+			if (!(*Entry)->HasField(TEXT("value")))
+			{
+				Error(TEXT("E012"), EntryLabel + TEXT(": missing required field \"value\""));
+				continue;
+			}
+			FString Expected;
+			if (!IsValidValueShape(*TypeDef, (*Entry)->Values[TEXT("value")], Expected))
+			{
+				Error(TEXT("E012"), FString::Printf(
+					TEXT("%s: \"value\" must be %s for type \"%s\""),
+					*EntryLabel, *Expected, *TypeName));
+			}
+		}
+	}
+
+	if (Errors > 0)
+	{
+		UE_LOG(LogNiagaraJsonSpike, Error,
+			TEXT("Pre-flight validation found %d error(s) — see E-codes above."), Errors);
+		return false;
+	}
+	return true;
+}
+
 UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePath)
 {
 	// ── 1. Read + parse JSON ──────────────────────────────────────────────────
 	FString JsonText;
 	if (!FFileHelper::LoadFileToString(JsonText, *FilePath))
 	{
-		LogError(FString::Printf(TEXT("Cannot read file: %s"), *FilePath));
+		LogError(FString::Printf(TEXT("E001: Cannot read file: %s"), *FilePath));
 		return nullptr;
 	}
 
@@ -66,47 +268,43 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePat
 	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
 	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
 	{
-		LogError(FString::Printf(TEXT("Invalid JSON in file: %s"), *FilePath));
+		LogError(FString::Printf(TEXT("E002: Invalid JSON in file: %s"), *FilePath));
 		return nullptr;
 	}
 
+	// ── 2. Pre-flight schema validation — MUST pass before any asset access ──
+	FImportStats Stats;
+	if (!ValidateSpec(Root, Stats))
+	{
+		LogError(FString::Printf(
+			TEXT("E000: Pre-flight validation failed for %s — no assets were touched."),
+			*FilePath));
+		return nullptr;
+	}
+
+	// Guaranteed present/valid by ValidateSpec.
 	FString TemplatePath;
-	if (!Root->TryGetStringField(TEXT("template"), TemplatePath) || TemplatePath.IsEmpty())
-	{
-		LogError(TEXT("Missing required field: \"template\""));
-		return nullptr;
-	}
-
+	Root->TryGetStringField(TEXT("template"), TemplatePath);
 	FString OutputPath;
-	if (!Root->TryGetStringField(TEXT("outputPath"), OutputPath) || OutputPath.IsEmpty())
-	{
-		LogError(TEXT("Missing required field: \"outputPath\""));
-		return nullptr;
-	}
-	if (!OutputPath.StartsWith(TEXT("/Game/")))
-	{
-		LogError(FString::Printf(TEXT("\"outputPath\" must start with /Game/ — got: %s"), *OutputPath));
-		return nullptr;
-	}
-
+	Root->TryGetStringField(TEXT("outputPath"), OutputPath);
 	bool bAddMissing = false;
 	Root->TryGetBoolField(TEXT("addMissingParams"), bAddMissing);
 
-	// ── 2. Load template ──────────────────────────────────────────────────────
+	// ── 3. Load template ──────────────────────────────────────────────────────
 	if (!UEditorAssetLibrary::DoesAssetExist(TemplatePath))
 	{
-		LogError(FString::Printf(TEXT("Template asset not found: %s"), *TemplatePath));
+		LogError(FString::Printf(TEXT("E101: Template asset not found: %s"), *TemplatePath));
 		return nullptr;
 	}
 
 	UNiagaraSystem* TemplateSystem = Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(TemplatePath));
 	if (!TemplateSystem)
 	{
-		LogError(FString::Printf(TEXT("Template asset is not a NiagaraSystem: %s"), *TemplatePath));
+		LogError(FString::Printf(TEXT("E102: Template asset is not a NiagaraSystem: %s"), *TemplatePath));
 		return nullptr;
 	}
 
-	// ── 3. Duplicate template, or update the output asset in place ───────────
+	// ── 4. Duplicate template, or update the output asset in place ───────────
 	UNiagaraSystem* System = nullptr;
 	bool bIsNewAsset = false;
 
@@ -116,7 +314,7 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePat
 		if (!System)
 		{
 			LogError(FString::Printf(
-				TEXT("Output path exists but is not a NiagaraSystem — refusing to overwrite: %s"),
+				TEXT("E103: Output path exists but is not a NiagaraSystem — refusing to overwrite: %s"),
 				*OutputPath));
 			return nullptr;
 		}
@@ -128,7 +326,7 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePat
 		System = Cast<UNiagaraSystem>(UEditorAssetLibrary::DuplicateAsset(TemplatePath, OutputPath));
 		if (!System)
 		{
-			LogError(FString::Printf(TEXT("DuplicateAsset failed: %s -> %s"),
+			LogError(FString::Printf(TEXT("E104: DuplicateAsset failed: %s -> %s"),
 				*TemplatePath, *OutputPath));
 			return nullptr;
 		}
@@ -137,8 +335,7 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePat
 			*TemplatePath, *OutputPath);
 	}
 
-	// ── 4. Apply User Parameter values ────────────────────────────────────────
-	FImportStats Stats;
+	// ── 5. Apply User Parameter values (spec already validated) ──────────────
 	System->Modify();
 
 	const TSharedPtr<FJsonObject>* ParamsObj = nullptr;
@@ -149,8 +346,9 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePat
 			const TSharedPtr<FJsonObject>* Entry = nullptr;
 			if (!Pair.Value.IsValid() || !Pair.Value->TryGetObject(Entry) || !Entry->IsValid())
 			{
+				// Unreachable after ValidateSpec; kept as a runtime backstop.
 				LogWarning(FString::Printf(
-					TEXT("Param \"%s\": entry must be an object { \"type\": ..., \"value\": ... } — skipped"),
+					TEXT("W104: Param \"%s\": entry must be an object { \"type\": ..., \"value\": ... } — skipped"),
 					*Pair.Key), &Stats);
 				Stats.Skipped++;
 				continue;
@@ -161,17 +359,13 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePat
 			}
 		}
 	}
-	else
-	{
-		LogWarning(TEXT("No \"params\" object found — asset duplicated/loaded with no parameter changes."), &Stats);
-	}
 
-	// ── 5. Save ───────────────────────────────────────────────────────────────
+	// ── 6. Save ───────────────────────────────────────────────────────────────
 	System->MarkPackageDirty();
 	const bool bSaved = UEditorAssetLibrary::SaveLoadedAsset(System, /*bOnlyIfIsDirty*/ false);
 	if (!bSaved)
 	{
-		LogError(FString::Printf(TEXT("SaveLoadedAsset failed for: %s"), *OutputPath));
+		LogError(FString::Printf(TEXT("E105: SaveLoadedAsset failed for: %s"), *OutputPath));
 		return nullptr;
 	}
 
@@ -259,7 +453,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 	FString TypeName;
 	if (!ParamObj->TryGetStringField(TEXT("type"), TypeName))
 	{
-		LogWarning(FString::Printf(TEXT("Param \"%s\": missing \"type\" field — skipped"),
+		LogWarning(FString::Printf(TEXT("W105: Param \"%s\": missing \"type\" field — skipped"),
 			*ParamName), &Stats);
 		return false;
 	}
@@ -268,7 +462,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 	if (!TypeDef)
 	{
 		LogWarning(FString::Printf(
-			TEXT("Param \"%s\": unsupported type \"%s\" (supported: float, int, bool, color, vec3) — skipped"),
+			TEXT("W106: Param \"%s\": unsupported type \"%s\" (allowed: float, int, bool, color, vector3) — skipped"),
 			*ParamName, *TypeName), &Stats);
 		return false;
 	}
@@ -289,7 +483,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 	if (Existing && Existing->GetType() != *TypeDef)
 	{
 		LogWarning(FString::Printf(
-			TEXT("Param \"%s\": type mismatch — template exposes \"%s\", JSON says \"%s\" — skipped"),
+			TEXT("W102: Param \"%s\": type mismatch — template exposes \"%s\", JSON says \"%s\" — skipped"),
 			*ParamName, *Existing->GetType().GetName(), *TypeName), &Stats);
 		return false;
 	}
@@ -297,7 +491,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 	if (!Existing && !bAddMissing)
 	{
 		LogWarning(FString::Printf(
-			TEXT("Param \"%s\": not exposed on template (set \"addMissingParams\": true to add) — skipped"),
+			TEXT("W101: Param \"%s\": not exposed on template (set \"addMissingParams\": true to add) — skipped"),
 			*ParamName), &Stats);
 		return false;
 	}
@@ -310,7 +504,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 		double Num = 0.0;
 		if (!ParamObj->TryGetNumberField(TEXT("value"), Num))
 		{
-			LogWarning(FString::Printf(TEXT("Param \"%s\": \"value\" must be a number — skipped"), *ParamName), &Stats);
+			LogWarning(FString::Printf(TEXT("W107: Param \"%s\": \"value\" must be a number — skipped"), *ParamName), &Stats);
 			return false;
 		}
 		bSetOk = Store.SetParameterValue(static_cast<float>(Num), Var, bAdd);
@@ -320,7 +514,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 		double Num = 0.0;
 		if (!ParamObj->TryGetNumberField(TEXT("value"), Num))
 		{
-			LogWarning(FString::Printf(TEXT("Param \"%s\": \"value\" must be a number — skipped"), *ParamName), &Stats);
+			LogWarning(FString::Printf(TEXT("W107: Param \"%s\": \"value\" must be a number — skipped"), *ParamName), &Stats);
 			return false;
 		}
 		bSetOk = Store.SetParameterValue(static_cast<int32>(Num), Var, bAdd);
@@ -330,7 +524,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 		bool bValue = false;
 		if (!ParamObj->TryGetBoolField(TEXT("value"), bValue))
 		{
-			LogWarning(FString::Printf(TEXT("Param \"%s\": \"value\" must be true/false — skipped"), *ParamName), &Stats);
+			LogWarning(FString::Printf(TEXT("W107: Param \"%s\": \"value\" must be true/false — skipped"), *ParamName), &Stats);
 			return false;
 		}
 		FNiagaraBool NiagaraBool;
@@ -343,7 +537,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 		if (!ReadNumberArray(ParamObj, 3, Values))
 		{
 			LogWarning(FString::Printf(
-				TEXT("Param \"%s\": \"value\" must be an array [r,g,b] or [r,g,b,a] (0-1 floats) — skipped"),
+				TEXT("W107: Param \"%s\": \"value\" must be an array [r,g,b] or [r,g,b,a] (0-1 floats) — skipped"),
 				*ParamName), &Stats);
 			return false;
 		}
@@ -360,7 +554,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 		if (!ReadNumberArray(ParamObj, 3, Values))
 		{
 			LogWarning(FString::Printf(
-				TEXT("Param \"%s\": \"value\" must be an array [x,y,z] — skipped"), *ParamName), &Stats);
+				TEXT("W107: Param \"%s\": \"value\" must be an array [x,y,z] — skipped"), *ParamName), &Stats);
 			return false;
 		}
 		const FVector3f Vec(
@@ -372,7 +566,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 
 	if (!bSetOk)
 	{
-		LogWarning(FString::Printf(TEXT("Param \"%s\": SetParameterValue failed — skipped"), *ParamName), &Stats);
+		LogWarning(FString::Printf(TEXT("W103: Param \"%s\": SetParameterValue failed — skipped"), *ParamName), &Stats);
 		return false;
 	}
 

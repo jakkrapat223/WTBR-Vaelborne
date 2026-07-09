@@ -29,6 +29,12 @@ private:
 		int32 Warnings = 0;
 	};
 
+	// Phase A pre-flight: validates the parsed JSON spec (required fields,
+	// template/output path whitelists, param entry shape, allowed types)
+	// WITHOUT touching any asset. Returns false if any E-code error was found —
+	// the caller must then skip DuplicateAsset/Modify/SaveLoadedAsset entirely.
+	static bool ValidateSpec(const TSharedPtr<FJsonObject>& Root, FImportStats& Stats);
+
 	static bool ApplyParam(UNiagaraSystem* System, const FString& ParamName,
 	                       const TSharedPtr<FJsonObject>& ParamObj, bool bAddMissing,
 	                       FImportStats& Stats);

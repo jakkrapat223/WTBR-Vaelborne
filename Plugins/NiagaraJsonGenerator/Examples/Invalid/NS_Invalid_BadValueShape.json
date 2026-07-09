@@ -1,0 +1,9 @@
+{
+	"template": "/Game/VFX/Templates/NS_Template_Burst",
+	"outputPath": "/Game/VFX/Generated/NS_ShouldNotExist_BadShape",
+	"params": {
+		"User.Color":    { "type": "color",  "value": "red" },
+		"User.Size":     { "type": "double", "value": 24.0 },
+		"User.Lifetime": { "type": "float" }
+	}
+}

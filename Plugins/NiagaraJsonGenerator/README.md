@@ -97,15 +97,38 @@ copies, no GUID churn) — edit values in the JSON and re-import to iterate.
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `template` | ✅ | Content path of an existing `UNiagaraSystem`. Import fails (no asset created) if missing or wrong class. |
-| `outputPath` | ✅ | Must start with `/Game/`. Existing NiagaraSystem → update in place; existing non-NiagaraSystem → refuse. |
-| `addMissingParams` | — (default `false`) | `true` = params not exposed on the template are **added** to the exposed store. Useful for testing; a param added this way is *not wired to any module*, so it stores a value but drives nothing visually. |
-| `params` | — | Keys accept both `User.Color` and `Color` (normalized via `MakeUserVariable`). |
+| `template` | ✅ | Content path of an existing `UNiagaraSystem`. **Whitelist: must be under `/Game/VFX/Templates/`** (E004) — prevents duplicating gameplay assets by accident. Missing on disk / wrong class → E101/E102. |
+| `outputPath` | ✅ | Must be under `/Game/VFX/` (E006) and **never under `/Game/VFX/Templates/`** (E007 — templates are read-only inputs). Existing NiagaraSystem → update in place; existing non-NiagaraSystem → refuse (E103). |
+| `addMissingParams` | — (default `false`, **always**) | `true` = params not exposed on the template are **added** to the exposed store. A param added this way is *not wired to any module*, so it stores a value but drives nothing visually — explicit per-file opt-in only. Non-bool value → W005, treated as `false`. |
+| `params` | ✅ | Object. Keys accept both `User.Color` and `Color` (normalized via `MakeUserVariable`). Each entry must be `{ "type": ..., "value": ... }`. Empty object → W004. |
 
-Supported `type` values: `float`, `int`, `bool`, `color` (`[r,g,b]` or `[r,g,b,a]`, 0–1 floats), `vec3` (`[x,y,z]`).
+Unknown top-level fields → W001 warning, import continues.
 
-Mismatched type vs. the template's exposed param → warning + that param skipped
+Supported `type` values: `float`, `int`, `bool`, `color` (`[r,g,b]` or `[r,g,b,a]`, 0–1 floats), `vector3` (`[x,y,z]`, exactly 3 numbers; aliases `vec3`/`vector` accepted).
+
+Mismatched type vs. the template's exposed param → W102 warning + that param skipped
 (the store's type wins; the value is never force-cast).
+
+### Pre-Flight Validation & Error/Warning Codes (Phase A)
+
+The whole JSON spec is schema-validated **before any asset is loaded, duplicated,
+modified, or saved**. Any E-code aborts the import with `E000` and a guarantee that
+no asset was touched; W-codes log and continue. All problems in a file are reported
+in one pass (not fail-fast).
+
+| Code | Meaning |
+|------|---------|
+| E000 | Summary line: pre-flight failed, nothing was touched |
+| E001 / E002 | File unreadable / invalid JSON |
+| E003 / E004 | `template` missing-or-empty / outside `/Game/VFX/Templates/` whitelist |
+| E005 / E006 / E007 | `outputPath` missing-or-empty / outside `/Game/VFX/` / under the Templates root |
+| E008 | `params` missing or not an object |
+| E009 / E010 / E011 / E012 / E013 | Param entry: not an object / missing `type` / unsupported type / missing-or-wrong-shape `value` / empty key |
+| W001 | Unknown top-level field (ignored) |
+| W004 / W005 | `params` empty / `addMissingParams` not a bool (default `false` used) |
+| E101–E105 | Post-validation asset errors: template not found / not a NiagaraSystem / output blocked by non-NiagaraSystem / duplicate failed / save failed |
+| W101 / W102 / W103 | Runtime param skips: not exposed on template / type mismatch / SetParameterValue failed |
+| W104–W107 | Runtime backstops for shapes already rejected pre-flight (should not appear in practice) |
 
 ---
 
@@ -126,8 +149,18 @@ It launches one headless editor pass (`Tools/RunProductionValidation.py`) that:
    `outputPath`, changed Color/Size/SpawnCount) → must take the **update-in-place**
    path and the dump must show the new values.
 3. **Negative** — imports `Examples/Invalid/NS_Invalid_MissingParam.json`
-   (`User.DoesNotExist`, `addMissingParams: false`) → must **warn + skip**, and the
-   final dump must NOT contain the bogus param.
+   (`User.DoesNotExist`, `addMissingParams: false`) → must **warn + skip** (W101), and
+   the final dump must NOT contain the bogus param.
+4. **Phase A schema fixtures** — each must be rejected pre-flight (correct E-code
+   logged, output asset must NOT exist afterwards), plus one warn-but-import case:
+
+   | Fixture | Expects |
+   |---------|---------|
+   | `Invalid/NS_Invalid_TemplateOutsideWhitelist.json` | E004, nothing created |
+   | `Invalid/NS_Invalid_OutputUnderTemplates.json` | E007, nothing created |
+   | `Invalid/NS_Invalid_MissingTypeField.json` | E010, nothing created |
+   | `Invalid/NS_Invalid_BadValueShape.json` | E011 + E012 (collected in one pass), nothing created |
+   | `NS_Warn_UnknownTopLevel.json` | W001 warning **and** a successful import (asset cleaned up by the script) |
 
 The wrapper prints the exact UnrealEditor-Cmd command line, then greps the run's
 log and prints a PASS/FAIL line per assertion (exit 0 = all green, exit 2 =

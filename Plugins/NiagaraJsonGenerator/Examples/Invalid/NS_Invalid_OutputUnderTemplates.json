@@ -1,0 +1,7 @@
+{
+	"template": "/Game/VFX/Templates/NS_Template_Burst",
+	"outputPath": "/Game/VFX/Templates/NS_ShouldNotExist_Output",
+	"params": {
+		"User.Lifetime": { "type": "float", "value": 1.0 }
+	}
+}

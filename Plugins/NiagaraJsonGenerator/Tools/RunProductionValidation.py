@@ -45,4 +45,26 @@ else:
     _cmd("WTBR.Niagara.ImportJson " + _examples + "Invalid/NS_Invalid_MissingParam.json")
     _cmd("WTBR.Niagara.DumpUserParams " + OUTPUT)
 
+    unreal.log("--- PHASE A: pre-flight schema validation ---")
+    # Each invalid spec must be rejected BEFORE any asset is touched:
+    # after import, its outputPath must not exist.
+    phase_a_invalid = [
+        ("NS_Invalid_TemplateOutsideWhitelist.json", "/Game/VFX/Generated/NS_ShouldNotExist_Whitelist"),
+        ("NS_Invalid_OutputUnderTemplates.json",     "/Game/VFX/Templates/NS_ShouldNotExist_Output"),
+        ("NS_Invalid_MissingTypeField.json",         "/Game/VFX/Generated/NS_ShouldNotExist_MissingType"),
+        ("NS_Invalid_BadValueShape.json",            "/Game/VFX/Generated/NS_ShouldNotExist_BadShape"),
+    ]
+    for fixture, bogus_output in phase_a_invalid:
+        _cmd("WTBR.Niagara.ImportJson " + _examples + "Invalid/" + fixture)
+        unreal.log("PHASEA {} output_exists = {}".format(
+            fixture, unreal.EditorAssetLibrary.does_asset_exist(bogus_output)))
+
+    # Positive: unknown top-level field must warn (W001) but still import.
+    unknown_output = "/Game/VFX/Generated/NS_Test_UnknownField"
+    _cmd("WTBR.Niagara.ImportJson " + _examples + "NS_Warn_UnknownTopLevel.json")
+    unknown_exists = unreal.EditorAssetLibrary.does_asset_exist(unknown_output)
+    unreal.log("PHASEA unknown_field output_exists = {}".format(unknown_exists))
+    if unknown_exists:
+        unreal.EditorAssetLibrary.delete_asset(unknown_output)  # test artifact cleanup
+
     unreal.log("=== NiagaraJson production validation: end ===")

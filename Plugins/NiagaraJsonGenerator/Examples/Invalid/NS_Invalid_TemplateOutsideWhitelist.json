@@ -1,0 +1,7 @@
+{
+	"template": "/Game/VFX/Lacern/NS_Lacern_Hit",
+	"outputPath": "/Game/VFX/Generated/NS_ShouldNotExist_Whitelist",
+	"params": {
+		"User.Lifetime": { "type": "float", "value": 1.0 }
+	}
+}

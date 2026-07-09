@@ -48,12 +48,9 @@ $Proc = Start-Process -FilePath $EditorCmd -ArgumentList $EditorArgs -NoNewWindo
     -RedirectStandardOutput $StdOutFile -RedirectStandardError $StdErrFile
 
 # ── Tiered diagnostics: each failure mode gets a readable verdict ────────────
-if ($Proc.ExitCode -ne 0) {
-    Write-Host "FAIL: UnrealEditor-Cmd exited with code $($Proc.ExitCode) - inspect $LogFile"; exit 1
-}
 if (-not (Test-Path $LogFile)) {
     Write-Host "FAIL: expected log file was not created: $LogFile"
-    Write-Host "(-abslog not honored? Check the command line above.)"; exit 1
+    Write-Host "(-abslog not honored, or the editor crashed before logging? Exit code was $($Proc.ExitCode). Check the command line above.)"; exit 1
 }
 $Log = Get-Content $LogFile -Raw
 
@@ -65,6 +62,15 @@ if ($Log -match "VALIDATION ABORT") {
     Write-Host "ABORT: template /Game/VFX/Templates/NS_Template_Burst not found."
     Write-Host "Create it first (plugin README: One-Time Template Setup), then re-run."
     exit 2
+}
+# NOTE on exit codes: the commandlet tallies every UE_LOG Error — including the
+# E-codes our negative fixtures INTENTIONALLY trigger — and then exits non-zero.
+# So a non-zero exit only means "crashed" if the script never reached its end
+# marker; otherwise the tally is expected and the assertions below are the truth.
+$ScriptCompleted = $Log -match [regex]::Escape("NiagaraJson production validation: end")
+if (($Proc.ExitCode -ne 0) -and (-not $ScriptCompleted)) {
+    Write-Host "FAIL: UnrealEditor-Cmd exited with code $($Proc.ExitCode) and the validation script did not complete."
+    Write-Host "Likely a crash mid-run - inspect $LogFile"; exit 1
 }
 if ($Log -notmatch "LogNiagaraJsonSpike") {
     Write-Host "FAIL: console commands did not execute - no LogNiagaraJsonSpike lines at all."
@@ -89,6 +95,16 @@ $Checks = [ordered]@{
         ($Round2Log -match "User\.DoesNotExist.*not exposed on template");
     "Negative: unknown param NOT added to asset" =
         (-not ($Round2Log -match "User\.DoesNotExist : "));
+    "Phase A: template outside whitelist rejected (E004), nothing created" =
+        (($Log -match "E004: ") -and ($Log -match [regex]::Escape("PHASEA NS_Invalid_TemplateOutsideWhitelist.json output_exists = False")));
+    "Phase A: outputPath under Templates rejected (E007), nothing created" =
+        (($Log -match "E007: ") -and ($Log -match [regex]::Escape("PHASEA NS_Invalid_OutputUnderTemplates.json output_exists = False")));
+    "Phase A: param missing type field rejected (E010), nothing created" =
+        (($Log -match "E010: ") -and ($Log -match [regex]::Escape("PHASEA NS_Invalid_MissingTypeField.json output_exists = False")));
+    "Phase A: unsupported type + bad value shape rejected (E011+E012), nothing created" =
+        (($Log -match "E011: ") -and ($Log -match "E012: ") -and ($Log -match [regex]::Escape("PHASEA NS_Invalid_BadValueShape.json output_exists = False")));
+    "Phase A: unknown top-level field warns (W001) but still imports" =
+        (($Log -match "W001: ") -and ($Log -match [regex]::Escape("PHASEA unknown_field output_exists = True")));
 }
 
 $Failed = 0

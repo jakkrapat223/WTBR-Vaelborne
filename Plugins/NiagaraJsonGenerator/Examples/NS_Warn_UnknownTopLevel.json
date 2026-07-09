@@ -1,0 +1,8 @@
+{
+	"template": "/Game/VFX/Templates/NS_Template_Burst",
+	"outputPath": "/Game/VFX/Generated/NS_Test_UnknownField",
+	"comment": "This top-level field is not part of the schema — importer must warn (W001) but still import.",
+	"params": {
+		"User.Lifetime": { "type": "float", "value": 0.8 }
+	}
+}
