@@ -107,6 +107,14 @@ void UWTBRTriggerSetComponent::SwitchMainSlot(int32 SlotIndex)
         return;
     }
 
+    // The outgoing active trigger is never Deactivate()'d on a slot switch —
+    // only a full loadout replacement goes through that path. Clear any
+    // cosmetic telegraph it left active so VFX doesn't stay stuck on switch.
+    if (AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner()))
+    {
+        OwnerChar->ClearTriggerCosmeticVFXState();
+    }
+
     if (SlotIndex >= 0 && SlotIndex < MainSlotCount)
     {
         ActiveMainIndex = SlotIndex;
@@ -132,6 +140,13 @@ void UWTBRTriggerSetComponent::SwitchMainSlot(int32 SlotIndex)
 void UWTBRTriggerSetComponent::SwitchSubSlot(int32 SlotIndex)
 {
     if (!HasServerAuthority()) return;
+
+    // OnUnequipped() below is a no-op base virtual for Serpveil/Lacern — it does
+    // not clear cosmetic telegraph state. Clear it centrally here instead.
+    if (AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner()))
+    {
+        OwnerChar->ClearTriggerCosmeticVFXState();
+    }
 
     const int32 AbsIdx = SlotIndex + MainSlotCount;
     if (AbsIdx < MainSlotCount || AbsIdx >= TotalSlotCount) return;
@@ -171,6 +186,12 @@ void UWTBRTriggerSetComponent::CycleMainSlot()
 {
     if (!HasServerAuthority()) return;
 
+    // See SwitchMainSlot — the outgoing trigger is never Deactivate()'d here.
+    if (AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner()))
+    {
+        OwnerChar->ClearTriggerCosmeticVFXState();
+    }
+
     const int32 OldIndex = ActiveMainIndex;
     const int32 NewIndex = (ActiveMainIndex + 1) % MainSlotCount;
     ActiveMainIndex = NewIndex;
@@ -198,6 +219,12 @@ void UWTBRTriggerSetComponent::CycleMainSlot()
 void UWTBRTriggerSetComponent::CycleSubSlot()
 {
     if (!HasServerAuthority()) return;
+
+    // See SwitchSubSlot — OnUnequipped() below does not clear cosmetic state.
+    if (AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner()))
+    {
+        OwnerChar->ClearTriggerCosmeticVFXState();
+    }
 
     const int32 OldAbsIndex      = ActiveSubIndex;
     const int32 NewRelativeIndex = (OldAbsIndex - MainSlotCount + 1) % SubSlotCount;

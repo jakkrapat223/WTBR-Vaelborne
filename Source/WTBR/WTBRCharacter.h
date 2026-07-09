@@ -475,6 +475,47 @@ public:
     // authority-gated paths. Idempotent — no-ops if the value is unchanged.
     void SetSerpveilChargeTelegraphActive(bool bActive);
 
+    // Server-authoritative telegraph of "is this character's Lacern blade
+    // currently extending" — mirrors bSerpveilChargeTelegraphActive's RepNotify
+    // pattern so ALL clients (not just the locally-controlled owner) can react
+    // cosmetically. UWTBRLacernTrigger's own BlueprintImplementableEvent hooks
+    // only fire on the server's object graph, so they cannot drive client VFX
+    // directly — this replicated bool is the bridge.
+    UPROPERTY(ReplicatedUsing = OnRep_LacernExtendTelegraph, BlueprintReadOnly,
+        Category = "WTBR | Trigger | VFX")
+    bool bLacernExtendTelegraphActive = false;
+
+    // Companion flag — plain Replicated, no separate OnRep needed: UE applies
+    // all properties dirtied in the same net update before firing any OnRep,
+    // so this is guaranteed valid by the time OnRep_LacernExtendTelegraph reads it.
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "WTBR | Trigger | VFX")
+    bool bLacernExtendDualWield = false;
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Trigger | VFX")
+    void OnLacernExtendTelegraphChanged(bool bActive, bool bIsDualWield);
+
+    // Server-only setter, called by UWTBRLacernTrigger from its existing
+    // authority-gated paths. Idempotent — no-ops if neither sub-value changed.
+    void SetLacernExtendTelegraphActive(bool bActive, bool bIsDualWield);
+
+    // One-shot, server->all-clients cosmetic hit burst. Unreliable: purely
+    // cosmetic, an occasional dropped packet under loss is an acceptable
+    // trade vs. head-of-line blocking a Reliable channel.
+    UFUNCTION(NetMulticast, Unreliable)
+    void Multicast_LacernHit(FVector ImpactPoint, FVector ImpactNormal, bool bDualWieldHit);
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Trigger | VFX")
+    void OnLacernHitReceived(FVector ImpactPoint, FVector ImpactNormal, bool bDualWieldHit);
+
+    // Central cosmetic-only cleanup for every replicated Trigger VFX telegraph
+    // on this character. Call this whenever the active trigger is switched or
+    // otherwise interrupted BEFORE its own normal completion path would have
+    // cleared its telegraph — e.g. UWTBRTriggerSetComponent's slot switch/cycle
+    // functions, which reassign the active slot without deactivating the
+    // outgoing trigger. Server-only, idempotent (each setter below already
+    // no-ops if its state is already false), safe to call with nothing active.
+    void ClearTriggerCosmeticVFXState();
+
 protected:
     virtual void PostInitializeComponents() override;
     virtual void BeginPlay() override;
@@ -526,6 +567,9 @@ protected:
 
     UFUNCTION()
     void OnRep_SerpveilChargeTelegraph();
+
+    UFUNCTION()
+    void OnRep_LacernExtendTelegraph();
 
 private:
     // Dynamic delegate callbacks — UFUNCTION required for AddDynamic binding

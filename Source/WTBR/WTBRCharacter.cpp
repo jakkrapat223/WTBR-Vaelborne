@@ -2731,6 +2731,8 @@ void AWTBRCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
     DOREPLIFETIME(AWTBRCharacter, bActionPingActive);
     DOREPLIFETIME(AWTBRCharacter, bIsStaggered);
     DOREPLIFETIME(AWTBRCharacter, bSerpveilChargeTelegraphActive);
+    DOREPLIFETIME(AWTBRCharacter, bLacernExtendTelegraphActive);
+    DOREPLIFETIME(AWTBRCharacter, bLacernExtendDualWield);
 }
 
 // ─── Stagger System ───────────────────────────────────────────────────────────
@@ -2797,6 +2799,40 @@ void AWTBRCharacter::SetSerpveilChargeTelegraphActive(bool bActive)
 void AWTBRCharacter::OnRep_SerpveilChargeTelegraph()
 {
     OnSerpveilChargeTelegraphChanged(bSerpveilChargeTelegraphActive);
+}
+
+void AWTBRCharacter::SetLacernExtendTelegraphActive(bool bActive, bool bIsDualWield)
+{
+    if (!HasAuthority()) return;
+    if (bLacernExtendTelegraphActive == bActive &&
+        bLacernExtendDualWield == bIsDualWield)
+    {
+        return;
+    }
+
+    bLacernExtendTelegraphActive = bActive;
+    bLacernExtendDualWield = bIsDualWield;
+
+    // Server does not receive its own OnRep — call it directly so the host's
+    // local cosmetic reacts too (replication alone only reaches remote clients).
+    OnRep_LacernExtendTelegraph();
+}
+
+void AWTBRCharacter::OnRep_LacernExtendTelegraph()
+{
+    OnLacernExtendTelegraphChanged(bLacernExtendTelegraphActive, bLacernExtendDualWield);
+}
+
+void AWTBRCharacter::Multicast_LacernHit_Implementation(FVector ImpactPoint, FVector ImpactNormal, bool bDualWieldHit)
+{
+    OnLacernHitReceived(ImpactPoint, ImpactNormal, bDualWieldHit);
+}
+
+void AWTBRCharacter::ClearTriggerCosmeticVFXState()
+{
+    if (!HasAuthority()) return;
+    SetSerpveilChargeTelegraphActive(false);
+    SetLacernExtendTelegraphActive(false, false);
 }
 
 // ─── Trigger Activation RPCs ─────────────────────────────────────────────────

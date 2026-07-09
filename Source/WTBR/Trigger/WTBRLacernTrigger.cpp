@@ -68,6 +68,16 @@ void UWTBRLacernTrigger::Deactivate_Implementation()
     bIsExtending      = false;
     HitActorsThisSwing.Empty();
     PreviousBladePos  = FVector::ZeroVector;
+
+    // Deactivate can short-circuit an in-progress swing (e.g. weapon-switch
+    // via UWTBRTriggerSetComponent::SwapTrigger) without ever reaching
+    // OnRetractComplete(). Without this, bLacernExtendTelegraphActive would
+    // stay stuck true on every client, leaving NS_Lacern_Extend stuck/orphaned.
+    if (OwnerCharacter.IsValid())
+    {
+        OwnerCharacter->SetLacernExtendTelegraphActive(false, false);
+    }
+
     Super::Deactivate_Implementation();
 }
 
@@ -89,6 +99,10 @@ void UWTBRLacernTrigger::StartExtend(bool bDualWield)
     HitActorsThisSwing.Empty();
 
     OnLacernExtendStart(bDualWield);
+    if (OwnerCharacter.IsValid())
+    {
+        OwnerCharacter->SetLacernExtendTelegraphActive(true, bDualWield);
+    }
 
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] ExtendStart | Owner=%s | Dual=%s | ExtendLength=%.1f | ExtendSpeed=%.1f"),
         *GetNameSafe(OwnerCharacter.Get()),
@@ -197,6 +211,10 @@ void UWTBRLacernTrigger::OnRetractComplete()
         *GetNameSafe(OwnerCharacter.Get()));
     StartCooldown();
     OnLacernRetractComplete();
+    if (OwnerCharacter.IsValid())
+    {
+        OwnerCharacter->SetLacernExtendTelegraphActive(false, false);
+    }
 }
 
 // ─── Sweep ───────────────────────────────────────────────────────────────────
@@ -250,6 +268,7 @@ void UWTBRLacernTrigger::SweepAtCurrentPosition(
         }
         HitActorsThisSwing.Add(HitActor);
         OnLacernHit(Hit.ImpactPoint, Hit.ImpactNormal, bIsDualWieldSwing);
+        OwnerCharacter->Multicast_LacernHit(Hit.ImpactPoint, Hit.ImpactNormal, bIsDualWieldSwing);
         OutNewHits.Add(Hit);
         WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] HitAttempt | Owner=%s | Target=%s | CurrentExtendDist=%.1f | RightOffset=%.1f"),
             *GetNameSafe(OwnerCharacter.Get()),
