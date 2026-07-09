@@ -267,8 +267,25 @@ void UWTBRLacernTrigger::SweepAtCurrentPosition(
             continue;
         }
         HitActorsThisSwing.Add(HitActor);
-        OnLacernHit(Hit.ImpactPoint, Hit.ImpactNormal, bIsDualWieldSwing);
-        OwnerCharacter->Multicast_LacernHit(Hit.ImpactPoint, Hit.ImpactNormal, bIsDualWieldSwing);
+
+        // VFX must reflect an actual damaged target, not just anything the sweep
+        // capsule blocks against (walls/static geo also respond to ECC_Pawn traces).
+        // Mirrors the same AWTBRCharacter gate ApplyDamageToHits() uses on OutNewHits.
+        if (AWTBRCharacter* HitCharacter = Cast<AWTBRCharacter>(HitActor))
+        {
+            // Raw Hit.ImpactPoint/ImpactNormal from the capsule sweep is not a reliable
+            // cosmetic spawn point (sweep contact can land inside geometry or at glancing
+            // angles) — use a stable point offset from the target's torso instead.
+            const FVector ToTarget = (HitCharacter->GetActorLocation() - OwnerCharacter->GetActorLocation()).GetSafeNormal();
+            const FVector CosmeticImpactPoint =
+                HitCharacter->GetActorLocation()
+                - ToTarget * 35.0f
+                + FVector(0.0f, 0.0f, 80.0f);
+            const FVector CosmeticImpactNormal = -ToTarget;
+
+            OnLacernHit(CosmeticImpactPoint, CosmeticImpactNormal, bIsDualWieldSwing);
+            OwnerCharacter->Multicast_LacernHit(CosmeticImpactPoint, CosmeticImpactNormal, bIsDualWieldSwing);
+        }
         OutNewHits.Add(Hit);
         WTBR_VALIDATION_LOG(Verbose, TEXT("[Lacern Test] HitAttempt | Owner=%s | Target=%s | CurrentExtendDist=%.1f | RightOffset=%.1f"),
             *GetNameSafe(OwnerCharacter.Get()),
