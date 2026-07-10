@@ -35,6 +35,15 @@ private:
 	// the caller must then skip DuplicateAsset/Modify/SaveLoadedAsset entirely.
 	static bool ValidateSpec(const TSharedPtr<FJsonObject>& Root, FImportStats& Stats);
 
+	// Existence-detection + safe load/duplicate. Treats FPackageName::DoesPackageExist
+	// (disk) as the source of truth — NOT UEditorAssetLibrary::DoesAssetExist (Asset
+	// Registry cache) alone, which can be stale for a package a *different* process
+	// just wrote (see README: cross-process caveat). If the package exists on disk,
+	// this ALWAYS returns the loaded existing asset for update-in-place (or nullptr
+	// + an E-code abort) — it never silently falls back to DuplicateAsset.
+	static UNiagaraSystem* ResolveOutputAsset(const FString& TemplatePath,
+	                                          const FString& OutputPath, bool& bOutIsNewAsset);
+
 	static bool ApplyParam(UNiagaraSystem* System, const FString& ParamName,
 	                       const TSharedPtr<FJsonObject>& ParamObj, bool bAddMissing,
 	                       FImportStats& Stats);

@@ -98,7 +98,7 @@ copies, no GUID churn) — edit values in the JSON and re-import to iterate.
 | Field | Required | Notes |
 |-------|----------|-------|
 | `template` | ✅ | Content path of an existing `UNiagaraSystem`. **Whitelist: must be under `/Game/VFX/Templates/`** (E004) — prevents duplicating gameplay assets by accident. Missing on disk / wrong class → E101/E102. |
-| `outputPath` | ✅ | Must be under `/Game/VFX/` (E006) and **never under `/Game/VFX/Templates/`** (E007 — templates are read-only inputs). Existing NiagaraSystem → update in place; existing non-NiagaraSystem → refuse (E103). |
+| `outputPath` | ✅ | Must be under `/Game/VFX/` (E006) and **never under `/Game/VFX/Templates/`** (E007 — templates are read-only inputs). Existing package on disk → update in place; exists but won't load as a NiagaraSystem → refuse (E201). |
 | `addMissingParams` | — (default `false`, **always**) | `true` = params not exposed on the template are **added** to the exposed store. A param added this way is *not wired to any module*, so it stores a value but drives nothing visually — explicit per-file opt-in only. Non-bool value → W005, treated as `false`. |
 | `params` | ✅ | Object. Keys accept both `User.Color` and `Color` (normalized via `MakeUserVariable`). Each entry must be `{ "type": ..., "value": ... }`. Empty object → W004. |
 
@@ -126,9 +126,57 @@ in one pass (not fail-fast).
 | E009 / E010 / E011 / E012 / E013 | Param entry: not an object / missing `type` / unsupported type / missing-or-wrong-shape `value` / empty key |
 | W001 | Unknown top-level field (ignored) |
 | W004 / W005 | `params` empty / `addMissingParams` not a bool (default `false` used) |
-| E101–E105 | Post-validation asset errors: template not found / not a NiagaraSystem / output blocked by non-NiagaraSystem / duplicate failed / save failed |
+| E101 / E102 | Template asset not found / not a NiagaraSystem |
+| W201 | Asset Registry has no record of the output package even though it exists on disk (stale in this process) — a targeted forced rescan runs automatically before load |
+| E201 | Output package exists on disk but could not be loaded as a NiagaraSystem — import aborts, does **not** fall back to DuplicateAsset (would overwrite it) |
+| E202 | DuplicateAsset blocked — destination package appeared on disk between the existence check and the write (race-condition guard) |
+| E104 / E105 | DuplicateAsset failed / SaveLoadedAsset failed |
 | W101 / W102 / W103 | Runtime param skips: not exposed on template / type mismatch / SetParameterValue failed |
 | W104–W107 | Runtime backstops for shapes already rejected pre-flight (should not appear in practice) |
+
+### Existence Detection: Disk Is the Source of Truth (not the Asset Registry)
+
+`ImportFromFile` decides create-vs-update by calling `FPackageName::DoesPackageExist`
+(resolves directly against the mounted content root files) — **not**
+`UEditorAssetLibrary::DoesAssetExist` alone, which only consults the Asset
+Registry cache. A fresh headless process has to scan `Content/` on startup to
+discover packages a *different* process wrote; if that scan hasn't caught up
+yet, the registry-only check returns `false` for a package that is really on
+disk, and the importer would wrongly duplicate over an existing asset instead
+of updating it in place (silently discarding anything about the existing
+asset the JSON doesn't control). When the disk check finds the package, the
+importer forces a targeted synchronous rescan of just that directory
+(`IAssetRegistry::ScanPathsSynchronous(..., bForceRescan=true)`) before
+loading it, and it **never** falls back to `DuplicateAsset` once a package is
+confirmed to exist — a load failure there is a hard abort (`E201`), not a
+silent overwrite.
+
+**Known limitation: this only sees what's on disk.** The fix removes the
+Asset-Registry-staleness bug, but it does not — and cannot — make a headless
+import aware of another process's in-memory state. Supported vs. unsupported
+workflows:
+
+**Supported:**
+- Import via **Tools menu** or **console command**, run inside the *same*
+  Unreal Editor session that has the asset open.
+- **Headless import while Unreal Editor is closed** (no other process has the
+  project open at all).
+
+**Unsupported / not guaranteed:**
+- **Headless import while a separate Unreal Editor process has the same
+  project open** — especially if that Editor has the target asset loaded in
+  memory. Even if the asset was saved before the headless run started, the
+  open Editor GUI may still be holding an older in-memory copy of the object
+  and can **save over** the values the headless process just wrote the next
+  time *it* saves (autosave, closing the asset editor, project save, etc.).
+  There is no cross-process locking here — **do not run concurrent GUI +
+  headless edits against the same production asset.**
+
+**Unsaved edits:** a headless import process cannot see unsaved edits made in
+a different Editor process — it only ever reads what's actually been written
+to the `.uasset` file. Production workflows should therefore either import
+inside the same Editor session as any manual edits, or close the Editor
+before running a separate headless import against that asset.
 
 ---
 
@@ -176,6 +224,57 @@ evidence file, deleted fresh each run; editor stdout is captured next to it as
 when the editor is open it locks that file and a second instance would silently
 write `WTBR_2.log` instead — that mismatch is exactly the failure mode the
 dedicated log removes.
+
+## Fresh-Process Regression Test (update-in-place across processes)
+
+`RunProductionValidation.ps1`'s Round 1/Round 2 both run inside **one**
+UnrealEditor-Cmd process, so they can never catch a registry-timing bug: by
+the time Round 2 runs, that process's own Round-1 `DuplicateAsset` call has
+already populated its in-memory Asset Registry. The bug only shows up when a
+**different, brand-new process** has to discover a package that a prior
+process wrote — exactly the situation a real production pipeline hits when
+two separate tool invocations (or a headless import after a manual editor
+session) touch the same output asset.
+
+```powershell
+powershell -File "Plugins\NiagaraJsonGenerator\Tools\RunFreshProcessRegressionTest.ps1"
+```
+
+It launches **two independent** UnrealEditor-Cmd processes, Step B started
+only after Step A has fully exited:
+
+1. **Step A** (`FreshProcess_StepA.py`) imports
+   `Examples/NS_FreshProcess_A_CreateWithSentinel.json` — creates
+   `/Game/VFX/Generated/NS_FreshProcess_UpdateInPlace_Test` and plants a
+   `User.SentinelMarker` bool (via `addMissingParams: true`, test-only) that
+   Step B's JSON never mentions.
+2. **Step B** (`FreshProcess_StepB.py`), in a fresh process that has never
+   seen this asset, imports `Examples/NS_FreshProcess_B_UpdateOnly.json`
+   (same `outputPath`, different Color/Lifetime/Size/SpawnCount,
+   `addMissingParams: false`) and dumps the result.
+
+Assertions (on Step B's log): it logged **`Updated`**, never
+`Created`/`Duplicated`; no `E201`/`E202` abort; the four JSON-controlled
+params reflect Step B's values; and `SentinelMarker` — which Step B's JSON
+never touches — is still `true`. Whether `W201` actually fired (i.e. whether
+this particular run's registry happened to be stale) is logged as `INFO`
+only, not a pass/fail gate — it's a timing race that depends on how fast that
+process's initial Content scan finishes, not something the fix controls; the
+outcome assertions above are what actually prove correctness either way.
+
+Covers the **Supported: headless import while Editor is closed** workflow
+(both steps are plain headless processes with no interactive Editor
+involved). It does **not** and cannot cover the concurrent-GUI-Editor
+scenario — see "Known limitation" two sections up: that requires a live
+Editor session holding the asset, which is exactly the unsupported workflow,
+and isn't something a headless pair can safely automate or claim to prove
+safe.
+
+This test asset is scratch: `Remove-TestAsset` deletes
+`Content/VFX/Generated/NS_FreshProcess_UpdateInPlace_Test*` both before and
+after the run (`try`/`finally`, so a failed assertion or a crashed step still
+leaves it cleaned up) — the runner is safe to re-run any number of times and
+never leaves anything for `git status` to pick up.
 
 ### In-Editor Visual Checklist (human eyes — the part automation can't do)
 

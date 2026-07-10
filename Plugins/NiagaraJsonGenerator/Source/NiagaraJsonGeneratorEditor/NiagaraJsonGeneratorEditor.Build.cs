@@ -24,6 +24,7 @@ public class NiagaraJsonGeneratorEditor : ModuleRules
 			"Slate",
 			"SlateCore",
 			"DesktopPlatform",
+			"AssetRegistry",
 		});
 	}
 }

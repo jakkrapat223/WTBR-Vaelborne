@@ -1,10 +1,13 @@
 #include "NiagaraJsonSpikeImporter.h"
 
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
 #include "Dom/JsonObject.h"
 #include "EditorAssetLibrary.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "Misc/FileHelper.h"
+#include "Misc/PackageName.h"
 #include "NiagaraSystem.h"
 #include "NiagaraTypes.h"
 #include "NiagaraUserRedirectionParameterStore.h"
@@ -254,6 +257,73 @@ bool FNiagaraJsonSpikeImporter::ValidateSpec(const TSharedPtr<FJsonObject>& Root
 	return true;
 }
 
+// Existence-detection + safe load/duplicate — see header comment for why this
+// cannot use UEditorAssetLibrary::DoesAssetExist alone (Asset Registry cache,
+// stale for a package a *different* prior process just wrote to disk).
+UNiagaraSystem* FNiagaraJsonSpikeImporter::ResolveOutputAsset(const FString& TemplatePath,
+                                                              const FString& OutputPath,
+                                                              bool& bOutIsNewAsset)
+{
+	bOutIsNewAsset = false;
+
+	// FPackageName::DoesPackageExist resolves directly against the mounted
+	// content roots on disk — it does not consult the Asset Registry, so it
+	// cannot be fooled by a registry that hasn't scanned this package yet.
+	if (FPackageName::DoesPackageExist(OutputPath))
+	{
+		if (!UEditorAssetLibrary::DoesAssetExist(OutputPath))
+		{
+			LogWarning(FString::Printf(
+				TEXT("W201: Asset Registry has no record of package \"%s\" even though it exists on disk (stale in this process) — forcing a targeted rescan before loading."),
+				*OutputPath), nullptr);
+		}
+
+		// Targeted, synchronous, forced rescan of just this package's directory —
+		// resyncs the registry before anything downstream trusts it.
+		IAssetRegistry& AssetRegistry =
+			FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+		AssetRegistry.ScanPathsSynchronous(
+			TArray<FString>{ FPackageName::GetLongPackagePath(OutputPath) }, /*bForceRescan*/ true);
+
+		UNiagaraSystem* Existing = Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(OutputPath));
+		if (!Existing)
+		{
+			LogError(FString::Printf(
+				TEXT("E201: Package \"%s\" exists on disk but could not be loaded as a UNiagaraSystem — aborting (refusing to fall back to DuplicateAsset, which would overwrite it)."),
+				*OutputPath));
+			return nullptr;
+		}
+
+		UE_LOG(LogNiagaraJsonSpike, Log,
+			TEXT("Output asset exists on disk — updating User Parameters in place: %s"), *OutputPath);
+		return Existing;
+	}
+
+	// No package on disk as of the check above. Re-check immediately before
+	// duplicating to close the race window: if something wrote the destination
+	// in between, hard-abort rather than silently overwriting it.
+	if (FPackageName::DoesPackageExist(OutputPath))
+	{
+		LogError(FString::Printf(
+			TEXT("E202: DuplicateAsset blocked — destination package \"%s\" appeared on disk between existence checks."),
+			*OutputPath));
+		return nullptr;
+	}
+
+	UNiagaraSystem* Duplicated = Cast<UNiagaraSystem>(UEditorAssetLibrary::DuplicateAsset(TemplatePath, OutputPath));
+	if (!Duplicated)
+	{
+		LogError(FString::Printf(TEXT("E104: DuplicateAsset failed: %s -> %s"),
+			*TemplatePath, *OutputPath));
+		return nullptr;
+	}
+
+	bOutIsNewAsset = true;
+	UE_LOG(LogNiagaraJsonSpike, Log, TEXT("Duplicated template %s -> %s"),
+		*TemplatePath, *OutputPath);
+	return Duplicated;
+}
+
 UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePath)
 {
 	// ── 1. Read + parse JSON ──────────────────────────────────────────────────
@@ -305,34 +375,11 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePat
 	}
 
 	// ── 4. Duplicate template, or update the output asset in place ───────────
-	UNiagaraSystem* System = nullptr;
 	bool bIsNewAsset = false;
-
-	if (UEditorAssetLibrary::DoesAssetExist(OutputPath))
+	UNiagaraSystem* System = ResolveOutputAsset(TemplatePath, OutputPath, bIsNewAsset);
+	if (!System)
 	{
-		System = Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(OutputPath));
-		if (!System)
-		{
-			LogError(FString::Printf(
-				TEXT("E103: Output path exists but is not a NiagaraSystem — refusing to overwrite: %s"),
-				*OutputPath));
-			return nullptr;
-		}
-		UE_LOG(LogNiagaraJsonSpike, Log,
-			TEXT("Output asset exists — updating User Parameters in place: %s"), *OutputPath);
-	}
-	else
-	{
-		System = Cast<UNiagaraSystem>(UEditorAssetLibrary::DuplicateAsset(TemplatePath, OutputPath));
-		if (!System)
-		{
-			LogError(FString::Printf(TEXT("E104: DuplicateAsset failed: %s -> %s"),
-				*TemplatePath, *OutputPath));
-			return nullptr;
-		}
-		bIsNewAsset = true;
-		UE_LOG(LogNiagaraJsonSpike, Log, TEXT("Duplicated template %s -> %s"),
-			*TemplatePath, *OutputPath);
+		return nullptr;
 	}
 
 	// ── 5. Apply User Parameter values (spec already validated) ──────────────
