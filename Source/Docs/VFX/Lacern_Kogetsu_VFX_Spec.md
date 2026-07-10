@@ -99,19 +99,25 @@ independent blades extend in parallel, offset 40u apart.
 
 ---
 
-## 4. Color & style
+## 4. Color & style — DECIDED 2026-07-10
 
-No locked VFX color convention exists yet in the GDD. Proposing we anchor to
-the **already-established Vael-core accent color `#27d8ff`** (cyan) used for
-the chest Vael core and belt accent in `vaelborne_character_concept.svg` —
-reusing it keeps character art and Trigger VFX visually unified as "the same
-energy" rather than inventing a second unrelated palette. Needs confirmation
-before treating as locked.
+Anchored to the **already-established Vael-core accent color `#27d8ff`**
+(cyan) used for the chest Vael core and belt accent in
+`vaelborne_character_concept.svg` — reusing it keeps character art and
+Trigger VFX visually unified as "the same energy" rather than inventing a
+second unrelated palette. (User supplied a red/white slash-trail reference
+image for the *shape and motion* — crescent ribbon, hot leading edge,
+bloom/streak — but confirmed the *color* stays on-palette: cyan family, not
+literal red. Red/orange remains reserved for Black Trigger territory, per
+the ban below.)
 
 - Base trail/edge: `#27d8ff` cyan, high emissive.
-- Impact spark (Beat C): shift warmer/whiter at the core (`~#f2f5ff`, matching
-  the concept art's highlight color) with cyan falloff — reads as "impact"
-  distinct from the ambient blade color.
+- Leading edge / cutting tip (Beat B) and impact spark (Beat C): shift
+  warmer/whiter at the core (`~#f2f5ff`, matching the concept art's highlight
+  color) with cyan falloff — reads as "hot/active" distinct from the ambient
+  blade color. Reusing the same hot-white value for both the trail's leading
+  edge and the impact spark keeps the two beats visually consistent as "the
+  same energy getting more intense," rather than two unrelated effects.
 - Do NOT use red/orange/black — those read as Black Trigger territory
   (`references/04-black-triggers.md` convention: Black Triggers get their own
   distinct palette, not yet spec'd — do not preempt it here).
@@ -139,9 +145,58 @@ not part of this design doc.
 
 ## 6. Open questions before lock
 
-1. Confirm `#27d8ff` as the canon Trigger-VFX base color (vs. designing a
-   separate palette per Trigger family).
+1. ~~Confirm `#27d8ff` as the canon Trigger-VFX base color~~ — **DECIDED
+   2026-07-10**, see §4.
 2. Confirm whether Beat F's idle hilt-glow is wanted for v0.1 or deferred.
-3. GDD §5.4 locks Senku (Kogetsu option) damage numbers but says nothing about
-   Kogetsu's own base VFX — confirm no existing external concept art/reference
-   this should match before art production starts.
+3. ~~GDD §5.4 ... confirm no existing external concept art/reference this
+   should match~~ — **DECIDED 2026-07-10**: user-supplied reference confirmed
+   for shape/motion (crescent ribbon trail, hot leading edge), recolored to
+   §4's cyan palette. See §7 for the implementation approach this reference
+   drove.
+
+---
+
+## 7. Beat B/D/E implementation approach: Ribbon Trail — DECIDED 2026-07-10
+
+The reference image (crescent energy-slash trail, white-hot leading edge
+cooling to a color body, motion-streak/bloom) maps onto Niagara's **Ribbon
+Renderer**, not the Sprite/Burst approach used by `NS_Template_Burst` /
+`NS_Template_HitSmall` — those are point-burst families (see
+[[niagara-json-generator-v1-scope-locks]] equivalent scope note in the plugin
+docs), the slash trail is a *moving-point-history* effect instead. Per the
+project's hard rule (no AI edits to `.uasset`/binary assets), this is manual
+Niagara Editor work — a written setup walkthrough was handed to the human
+implementer rather than any asset being touched directly.
+
+Recommended technique (standard Niagara "weapon trail" idiom):
+
+1. New reusable template `/Game/VFX/Templates/NS_Base_SlashTrail` (matches
+   the template-library naming already planned in
+   `Plugins/NiagaraJsonGenerator/README.md` → Next Steps:
+   `NS_Base_SlashTrail`, `NS_Base_HitBurst`, ...).
+2. A small child Scene Component ("BladeTipMarker") on the weapon, moved
+   along the blade's local forward axis by `CurrentDist` inside the existing
+   `OnLacernExtending(CurrentDist, MaxDist)` handler in
+   `BP_WTBRLacernTrigger_VFX` — no new hook points needed, §5's hooks already
+   cover this.
+3. Emitter: World Space, continuous low-cost Spawn Rate, particles spawned
+   at the marker's current world position with zero velocity (they don't
+   move after spawning — they just record where the tip has been). Gate
+   spawning on `OnLacernExtendStart`/`OnLacernRetractComplete` via a
+   `User.IsExtending` bool so nothing spawns during cooldown (Beat F).
+4. Ribbon Renderer connects consecutive particles by spawn order into one
+   continuous strip — because the spawn point traces the tip's actual path,
+   the resulting ribbon *is* the growing/shrinking trail; particle Lifetime
+   controls how far back the trail fades (tune to feel like Beat E's shrink
+   without literally reverse-animating positions — pragmatic v1, true
+   reverse-shrink is a v2 refinement if the fade-only look reads wrong).
+5. Ribbon UV0 Mode = Age; Material = unlit emissive, gradient from
+   `#f2f5ff` white-hot at age 0 (the newest segment = current cutting edge)
+   to `#27d8ff` cyan by ~30% age, fading alpha to 0 by 100% age — directly
+   reusing §4's locked colors, not new ones.
+6. Expose User Parameters for later JSON-driven debug tuning (same workflow
+   already used for `NS_Template_HitSmall`): `User.Color`, `User.HotCoreColor`,
+   `User.SlashWidth`, `User.TrailLifetime`.
+7. Beat C (impact) is already served by the existing `NS_Lacern_Hit_Impact_01`
+   / `NS_Template_HitSmall` MicroSparks work — no new work needed there, only
+   confirm `OnLacernHit` triggers it (binding, not VFX-authoring).
