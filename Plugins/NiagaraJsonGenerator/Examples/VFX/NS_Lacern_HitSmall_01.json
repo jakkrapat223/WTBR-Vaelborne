@@ -1,0 +1,55 @@
+{
+  "template": "/Game/VFX/Templates/NS_Template_HitSmall",
+  "outputPath": "/Game/VFX/Lacern/NS_Lacern_HitSmall_01",
+  "addMissingParams": false,
+  "params": {
+    "User.Color": {
+      "type": "color",
+      "value": [0.2, 1.0, 0.85, 1.0]
+    },
+    "User.CoreCount": {
+      "type": "int",
+      "value": 1
+    },
+    "User.CoreLifetime": {
+      "type": "float",
+      "value": 0.06
+    },
+    "User.CoreSize": {
+      "type": "float",
+      "value": 8.0
+    },
+    "User.SparkCount": {
+      "type": "int",
+      "value": 8
+    },
+    "User.SparkLifetime": {
+      "type": "float",
+      "value": 0.12
+    },
+    "User.SparkSpeed": {
+      "type": "float",
+      "value": 320.0
+    },
+    "User.SparkWidth": {
+      "type": "float",
+      "value": 2.0
+    },
+    "User.SparkLength": {
+      "type": "float",
+      "value": 14.0
+    },
+    "User.SparkConeAngle": {
+      "type": "float",
+      "value": 110.0
+    },
+    "User.SparkDistribution": {
+      "type": "float",
+      "value": 1.0
+    },
+    "User.SparkDrag": {
+      "type": "float",
+      "value": 1.5
+    }
+  }
+}
