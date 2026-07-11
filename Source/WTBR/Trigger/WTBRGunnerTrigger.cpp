@@ -2,6 +2,7 @@
 #include "Trigger/WTBRGunnerTrigger.h"
 #include "Actors/WTBRProjectileBase.h"
 #include "WTBRCharacter.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "Math/UnrealMathUtility.h"
 
@@ -22,9 +23,23 @@ FVector UWTBRGunnerTrigger::GetFireDirection() const
 FVector UWTBRGunnerTrigger::GetMuzzleLocation(const FVector& AimDirection) const
 {
     if (!OwnerCharacter.IsValid()) return FVector::ZeroVector;
+
+    static const FName HandSocketName(TEXT("hand_r"));
+    if (const USkeletalMeshComponent* CharacterMesh = OwnerCharacter->GetMesh();
+        IsValid(CharacterMesh) && CharacterMesh->DoesSocketExist(HandSocketName))
+    {
+        return CharacterMesh->GetSocketLocation(HandSocketName);
+    }
+
     FVector EyeLoc;
     FRotator EyeRot;
     OwnerCharacter->GetActorEyesViewPoint(EyeLoc, EyeRot);
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[GunnerTrigger] Hand socket fallback | Owner=%s | Socket=%s | Reason=MeshMissingOrSocketAbsent"),
+        *GetNameSafe(OwnerCharacter.Get()),
+        *HandSocketName.ToString());
+
     return EyeLoc + (AimDirection * 100.0f);
 }
 

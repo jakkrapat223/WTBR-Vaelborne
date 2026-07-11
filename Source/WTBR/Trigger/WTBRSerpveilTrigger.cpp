@@ -5,6 +5,7 @@
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Subsystem/WTBRActionPingSubsystem.h"
 #include "Components/WTBRVaelComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "WTBRCharacter.h"
 #include "Engine/World.h"
 #include "Math/RotationMatrix.h"
@@ -290,11 +291,26 @@ void UWTBRSerpveilTrigger::ExecuteServerFire(
             VaelComp->GetCurrentVael());
     }
 
-    // Build world-space path
-    FVector  EyeLoc;
-    FRotator EyeRot;
-    OwnerCharacter->GetActorEyesViewPoint(EyeLoc, EyeRot);
-    const FVector SpawnOrigin = EyeLoc + FRotationMatrix(Direction).GetScaledAxis(EAxis::X) * 100.0f;
+    // Build world-space path from the equipped-hand socket when available.
+    static const FName HandSocketName(TEXT("hand_r"));
+    FVector SpawnOrigin;
+    if (const USkeletalMeshComponent* CharacterMesh = OwnerCharacter->GetMesh();
+        IsValid(CharacterMesh) && CharacterMesh->DoesSocketExist(HandSocketName))
+    {
+        SpawnOrigin = CharacterMesh->GetSocketLocation(HandSocketName);
+    }
+    else
+    {
+        FVector EyeLoc;
+        FRotator EyeRot;
+        OwnerCharacter->GetActorEyesViewPoint(EyeLoc, EyeRot);
+        SpawnOrigin = EyeLoc + FRotationMatrix(Direction).GetScaledAxis(EAxis::X) * 100.0f;
+
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Serpveil] Hand socket fallback | Owner=%s | Socket=%s | Reason=MeshMissingOrSocketAbsent"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            *HandSocketName.ToString());
+    }
 
     TArray<FVector> Points = BuildPathPoints(Shape, SpawnOrigin, Direction, ValidatedRange);
     if (Points.Num() < 2)
