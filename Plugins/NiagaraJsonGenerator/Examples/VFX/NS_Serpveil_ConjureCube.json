@@ -1,0 +1,43 @@
+{
+  "template": "/Game/VFX/Templates/NS_Template_ConjureCube",
+  "outputPath": "/Game/VFX/Serpveil/NS_Serpveil_ConjureCube",
+  "addMissingParams": false,
+  "params": {
+    "User.Color": {
+      "type": "color",
+      "value": [0.153, 0.847, 1.0, 1.0]
+    },
+    "User.CubeSize": {
+      "type": "float",
+      "value": 15.0
+    },
+    "User.FormTime": {
+      "type": "float",
+      "value": 0.12
+    },
+    "User.SplitTime": {
+      "type": "float",
+      "value": 0.18
+    },
+    "User.CubeCount": {
+      "type": "int",
+      "value": 5
+    },
+    "User.MiniCubeSize": {
+      "type": "float",
+      "value": 8.0
+    },
+    "User.MiniSpacing": {
+      "type": "float",
+      "value": 15.0
+    },
+    "User.GlowSize": {
+      "type": "float",
+      "value": 30.0
+    },
+    "User.PulseAmount": {
+      "type": "float",
+      "value": 0.1
+    }
+  }
+}
