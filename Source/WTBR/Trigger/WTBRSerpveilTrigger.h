@@ -13,20 +13,27 @@ class WTBR_API UWTBRSerpveilTrigger : public UWTBRTriggerBase
     GENERATED_BODY()
 
 public:
-    // No-op on press — fire happens on release via Server_FireSerpveil
+    virtual void InitializeTrigger(
+        AWTBRCharacter* InOwnerCharacter,
+        UWTBRTriggerDataAsset* InDataAsset) override;
+
+    // No-op: S1 schedules its authoritative volley from OnTriggerActivated.
     virtual bool Activate_Implementation(
         const FInputActionValue& InputValue,
         bool bIsDualWield) override;
 
-    // Press: start client-side charge tracking (locally controlled only)
+    // Press: validate and commit the server-authoritative S1 windup.
     virtual void OnTriggerActivated_Implementation(
         AActor* OwnerActor, bool bIsMain) override;
 
-    // Release: compute range, send Server RPC (locally controlled only)
+    // Release is intentionally a no-op for a committed S1 windup.
     virtual void OnTriggerDeactivated_Implementation(
         AActor* OwnerActor, bool bIsMain) override;
 
-    // Called by UWTBRTriggerSetComponent::Server_FireSerpveil_Implementation — server only
+    virtual void Deactivate_Implementation() override;
+    virtual void OnUnequipped() override;
+
+    // Deprecated release-fire compatibility entry point. S1 never fires from here.
     void ExecuteServerFire(EWTBRSerpveilShape Shape, FRotator Direction, float ChargedRange);
 
     bool CancelCharge();
@@ -63,7 +70,12 @@ private:
     bool  bCachedIsMain   = false;
     bool  bIsCharging     = false;
     FTimerHandle ChargeUpdateTimer;
+    FTimerHandle WindupTimer;
 
     void UpdateChargeProgress();
     void StopChargeTracking();
+    void ExecuteSplitVolley();
+
+    UFUNCTION()
+    void HandleOwnerDeath();
 };

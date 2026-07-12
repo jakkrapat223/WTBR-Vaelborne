@@ -566,16 +566,22 @@ struct FWTBRSerpveilParams
 {
     GENERATED_BODY()
 
+    // DEPRECATED by S1 rework
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Combat", meta = (ClampMin = "0.0"))
     float SerpveilDamage = 35.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Combat", meta = (ClampMin = "0.0"))
+    float SerpveilPerCubeDamage = 15.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile", meta = (ClampMin = "100.0"))
     float SerpveilSpeed = 2800.0f;
 
+    // DEPRECATED by S1 rework
     // Preset flight-path shape baked into control points at fire time
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path")
     EWTBRSerpveilShape PresetShape = EWTBRSerpveilShape::Curve;
 
+    // DEPRECATED by S1 rework
     // Minimum flight range regardless of charge (must hold button at least this long)
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "100.0"))
@@ -586,11 +592,13 @@ struct FWTBRSerpveilParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "100.0"))
     float SerpveilMaxRange = 1500.0f;
 
+    // DEPRECATED by S1 rework
     // Vael drained per second while charging (determines affordable range)
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Resources", meta = (ClampMin = "0.1"))
     float SerpveilVaelPerSecond = 10.0f;
 
+    // DEPRECATED by S1 rework
     // Intended max charge time (informational — server uses Vael formula, not this directly)
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "0.1"))
@@ -603,6 +611,34 @@ struct FWTBRSerpveilParams
         Category = "Serpveil | Combat",
         meta = (ClampMin = "0.1"))
     float SerpveilFireCooldown = 1.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Serpveil | Windup",
+        meta = (ClampMin = "0.0"))
+    float SerpveilSplitDelay = 0.4f;
+
+    // DEPRECATED by zigzag tap pattern — fan spread let only one cube land at range
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Serpveil | Path",
+        meta = (ClampMin = "0.0"))
+    float SerpveilTapSpreadDeg = 24.0f;
+
+    // Sideways gap between neighbouring cubes in the launch formation
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Serpveil | Path",
+        meta = (ClampMin = "0.0"))
+    float SerpveilFormationSpacing = 25.0f;
+
+    // Vertical saw-tooth offset: even cubes sit up, odd cubes sit down (▲▼▲)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Serpveil | Path",
+        meta = (ClampMin = "0.0"))
+    float SerpveilFormationStagger = 20.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Serpveil | Resources",
+        meta = (ClampMin = "0.0"))
+    float SerpveilVaelCostPerShot = 6.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Serpveil | Path",

@@ -4,11 +4,25 @@
 #include "Actors/WTBRProjectileBase.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Subsystem/WTBRActionPingSubsystem.h"
+#include "Components/WTBRHealthComponent.h"
 #include "Components/WTBRVaelComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "WTBRCharacter.h"
 #include "Engine/World.h"
 #include "Math/RotationMatrix.h"
+
+void UWTBRSerpveilTrigger::InitializeTrigger(
+    AWTBRCharacter* InOwnerCharacter,
+    UWTBRTriggerDataAsset* InDataAsset)
+{
+    Super::InitializeTrigger(InOwnerCharacter, InDataAsset);
+
+    if (IsValid(InOwnerCharacter) && IsValid(InOwnerCharacter->HealthComponent))
+    {
+        InOwnerCharacter->HealthComponent->OnDeath.AddUniqueDynamic(
+            this, &UWTBRSerpveilTrigger::HandleOwnerDeath);
+    }
+}
 
 // ─── Activate (no-op — fire is RPC-driven on release) ────────────────────────
 
@@ -16,7 +30,7 @@ bool UWTBRSerpveilTrigger::Activate_Implementation(
     const FInputActionValue& /*InputValue*/,
     bool /*bIsDualWield*/)
 {
-    // Serpveil fires on button release via Server_FireSerpveil, not here.
+    // ExecuteServerTriggerInput calls OnTriggerActivated before Activate.
     return true;
 }
 
@@ -26,38 +40,98 @@ void UWTBRSerpveilTrigger::OnTriggerActivated_Implementation(
     AActor* /*OwnerActor*/, bool bIsMain)
 {
     if (!OwnerCharacter.IsValid()) return;
+    if (!OwnerCharacter->HasAuthority()) return;
 
-    bCachedIsMain   = bIsMain;
-    bIsCharging     = true;
-    ChargeStartTime = OwnerCharacter->GetWorld()->GetTimeSeconds();
-
-    const UWTBRVaelComponent* VaelComp = OwnerCharacter->VaelComponent;
-    const float CurrentVael = IsValid(VaelComp) ? VaelComp->GetCurrentVael() : -1.0f;
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] Pressed | Owner=%s | Main=%s | Time=%.3f | CurrentVael=%.2f"),
-        *GetNameSafe(OwnerCharacter.Get()),
-        bIsMain ? TEXT("true") : TEXT("false"),
-        ChargeStartTime,
-        CurrentVael);
-
-    if (OwnerCharacter->HasAuthority())
+    UWorld* World = OwnerCharacter->GetWorld();
+    if (!IsValid(World) || !IsValid(DataAsset))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] Server Charge Start | Owner=%s | Main=%s | Time=%.2f"),
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[Serpveil S1] WindupBlocked | Owner=%s | Main=%s | Reason=%s"),
             *GetNameSafe(OwnerCharacter.Get()),
             bIsMain ? TEXT("true") : TEXT("false"),
-            ChargeStartTime);
-
-        OwnerCharacter->SetSerpveilChargeTelegraphActive(true);
+            !IsValid(World) ? TEXT("WorldInvalid") : TEXT("DataAssetInvalid"));
+        OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
+        return;
     }
 
-    if (!OwnerCharacter->IsLocallyControlled()) return;
+    if (!IsValid(OwnerCharacter->HealthComponent)
+        || !OwnerCharacter->HealthComponent->IsAlive())
+    {
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[Serpveil S1] WindupBlocked | Owner=%s | Main=%s | Reason=OwnerNotAlive"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            bIsMain ? TEXT("true") : TEXT("false"));
+        OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
+        return;
+    }
 
-    OwnerCharacter->GetWorld()->GetTimerManager().SetTimer(
-        ChargeUpdateTimer,
-        this, &UWTBRSerpveilTrigger::UpdateChargeProgress,
-        0.05f, /*bLoop=*/true);
+    if (World->GetTimerManager().IsTimerActive(WindupTimer) || bIsCharging)
+    {
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[Serpveil S1] WindupBlocked | Owner=%s | Main=%s | Reason=AlreadyWindingUp"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            bIsMain ? TEXT("true") : TEXT("false"));
+        return;
+    }
 
-    OnSerpveilChargeStart();
+    const FWTBRSerpveilParams& Params = DataAsset->SerpveilParams;
+    const float CurrentTime = World->GetTimeSeconds();
+    const float Cooldown = FMath::Max(Params.SerpveilFireCooldown, 0.0f);
+    const float TimeSinceLastFire = CurrentTime - LastSerpveilFireTime;
+    if (TimeSinceLastFire < Cooldown)
+    {
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[Serpveil S1] WindupBlocked | Owner=%s | Main=%s | Reason=Cooldown | TimeSinceLastFire=%.3f | Cooldown=%.3f"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            bIsMain ? TEXT("true") : TEXT("false"),
+            TimeSinceLastFire,
+            Cooldown);
+        OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
+        return;
+    }
+
+    const UWTBRVaelComponent* VaelComp = OwnerCharacter->VaelComponent;
+    const float VaelCost = FMath::Max(Params.SerpveilVaelCostPerShot, 0.0f);
+    const float CurrentVael = IsValid(VaelComp) ? VaelComp->GetCurrentVael() : -1.0f;
+    if (!IsValid(VaelComp) || CurrentVael < VaelCost)
+    {
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[Serpveil S1] WindupBlocked | Owner=%s | Main=%s | Reason=%s | RequiredVael=%.2f | CurrentVael=%.2f"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            bIsMain ? TEXT("true") : TEXT("false"),
+            IsValid(VaelComp) ? TEXT("InsufficientVael") : TEXT("VaelComponentInvalid"),
+            VaelCost,
+            CurrentVael);
+        OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
+        return;
+    }
+
+    bCachedIsMain = bIsMain;
+    bIsCharging = true;
+    ChargeStartTime = CurrentTime;
+    OwnerCharacter->SetSerpveilChargeTelegraphActive(true);
+
+    const float SplitDelay = FMath::Max(Params.SerpveilSplitDelay, 0.0f);
+    WTBR_VALIDATION_LOG(Verbose,
+        TEXT("[Serpveil S1] WindupStarted | Owner=%s | Main=%s | Time=%.3f | Delay=%.3f | CurrentVael=%.2f | ReservedVael=0.00"),
+        *GetNameSafe(OwnerCharacter.Get()),
+        bIsMain ? TEXT("true") : TEXT("false"),
+        CurrentTime,
+        SplitDelay,
+        CurrentVael);
+
+    if (SplitDelay <= 0.0f)
+    {
+        ExecuteSplitVolley();
+        return;
+    }
+
+    World->GetTimerManager().SetTimer(
+        WindupTimer,
+        this,
+        &UWTBRSerpveilTrigger::ExecuteSplitVolley,
+        SplitDelay,
+        /*bLoop=*/false);
 }
 
 // ─── OnTriggerDeactivated — client sends charge result to server ──────────────
@@ -66,68 +140,33 @@ void UWTBRSerpveilTrigger::OnTriggerDeactivated_Implementation(
     AActor* /*OwnerActor*/, bool bIsMain)
 {
     if (!OwnerCharacter.IsValid()) return;
+    if (!OwnerCharacter->HasAuthority()) return;
 
-    // Placed unconditionally so every exit path below (no-op/no-charge return,
-    // and the main release-fire path) clears the telegraph — idempotent, so
-    // ExecuteServerFire's own cleanup call later is a harmless no-op.
-    OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
-
-    if (!bIsCharging)
-    {
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] Resolved | Reason=NoRemainingAction | Trigger=Serpveil | Owner=%s | Main=%s"),
-            *GetNameSafe(OwnerCharacter.Get()),
-            bIsMain ? TEXT("true") : TEXT("false"));
-        if (OwnerCharacter->IsLocallyControlled())
-        {
-            StopChargeTracking();
-        }
-        return;
-    }
-
-    bIsCharging = false;
-
-    if (OwnerCharacter->IsLocallyControlled())
-    {
-        StopChargeTracking();
-    }
-
-    if (!IsValid(DataAsset)) return;
-    const FWTBRSerpveilParams& Params = DataAsset->SerpveilParams;
-
-    const float Elapsed     = OwnerCharacter->GetWorld()->GetTimeSeconds() - ChargeStartTime;
-    const float ChargeFrac  = FMath::Clamp(Elapsed / FMath::Max(Params.SerpveilChargeTime, 0.01f), 0.0f, 1.0f);
-    const float FinalRange  = FMath::Lerp(Params.SerpveilMinRange, Params.SerpveilMaxRange, ChargeFrac);
-    const float CurrentTime = OwnerCharacter->GetWorld()->GetTimeSeconds();
-    const UWTBRVaelComponent* VaelComp = OwnerCharacter->VaelComponent;
-    const float CurrentVael = IsValid(VaelComp) ? VaelComp->GetCurrentVael() : -1.0f;
-
-    FVector  EyeLoc;
-    FRotator EyeRot;
-    OwnerCharacter->GetActorEyesViewPoint(EyeLoc, EyeRot);
-
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] Released | Owner=%s | Main=%s | Time=%.3f | Elapsed=%.3f | ChargeFrac=%.3f | FinalRange=%.1f | CurrentVael=%.2f"),
+    UWorld* World = OwnerCharacter->GetWorld();
+    const bool bWindupCommitted = IsValid(World)
+        && World->GetTimerManager().IsTimerActive(WindupTimer);
+    WTBR_VALIDATION_LOG(Verbose,
+        TEXT("[Serpveil S1] ReleaseIgnored | Owner=%s | Main=%s | WindupCommitted=%s"),
         *GetNameSafe(OwnerCharacter.Get()),
         bIsMain ? TEXT("true") : TEXT("false"),
-        CurrentTime,
-        Elapsed,
-        ChargeFrac,
-        FinalRange,
-        CurrentVael);
+        bWindupCommitted ? TEXT("true") : TEXT("false"));
 
-    if (OwnerCharacter->HasAuthority())
+    // Releasing a committed shot must not cancel its timer or telegraph. If no
+    // S1 action remains, clear any stale cosmetic state defensively.
+    if (!bWindupCommitted && !bIsCharging)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] Server Release | Owner=%s | Main=%s | Elapsed=%.2f | ChargeFrac=%.2f | FinalRange=%.1f | Direction=%s"),
-            *GetNameSafe(OwnerCharacter.Get()),
-            bIsMain ? TEXT("true") : TEXT("false"),
-            Elapsed,
-            ChargeFrac,
-            FinalRange,
-            *EyeRot.ToString());
-
-        ExecuteServerFire(Params.PresetShape, EyeRot, FinalRange);
-        return;
+        OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
     }
+}
+
+void UWTBRSerpveilTrigger::Deactivate_Implementation()
+{
+    CancelCharge();
+}
+
+void UWTBRSerpveilTrigger::OnUnequipped()
+{
+    CancelCharge();
 }
 
 bool UWTBRSerpveilTrigger::CancelCharge()
@@ -143,19 +182,26 @@ bool UWTBRSerpveilTrigger::CancelCharge()
             *GetNameSafe(OwnerCharacter.Get()));
         return false;
     }
-    if (!bIsCharging)
+    UWorld* World = OwnerCharacter->GetWorld();
+    const bool bWindupActive = IsValid(World)
+        && World->GetTimerManager().IsTimerActive(WindupTimer);
+    if (!bWindupActive && !bIsCharging)
     {
         return false;
     }
 
-    const float CurrentTime = OwnerCharacter->GetWorld()
-        ? OwnerCharacter->GetWorld()->GetTimeSeconds()
+    const float CurrentTime = IsValid(World)
+        ? World->GetTimeSeconds()
         : 0.0f;
     const float Elapsed = CurrentTime - ChargeStartTime;
+    if (IsValid(World))
+    {
+        World->GetTimerManager().ClearTimer(WindupTimer);
+    }
     bIsCharging = false;
     StopChargeTracking();
 
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] SerpveilChargeCanceled | Owner=%s | Main=%s | Elapsed=%.3f | NoFire=true | NoVaelConsume=true"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil S1] WindupCanceled | Owner=%s | Main=%s | Elapsed=%.3f | NoFire=true | NoVaelConsume=true"),
         *GetNameSafe(OwnerCharacter.Get()),
         bCachedIsMain ? TEXT("true") : TEXT("false"),
         Elapsed);
@@ -165,133 +211,109 @@ bool UWTBRSerpveilTrigger::CancelCharge()
     return true;
 }
 
+void UWTBRSerpveilTrigger::HandleOwnerDeath()
+{
+    WTBR_VALIDATION_LOG(Verbose,
+        TEXT("[Serpveil S1] OwnerDeathCancelRequested | Owner=%s"),
+        *GetNameSafe(OwnerCharacter.Get()));
+    CancelCharge();
+}
+
 // ─── ExecuteServerFire — server validates Vael and spawns projectile ──────────
+
 
 void UWTBRSerpveilTrigger::ExecuteServerFire(
     EWTBRSerpveilShape Shape, FRotator Direction, float ChargedRange)
 {
-    const UWTBRVaelComponent* StartingVaelComp =
-        OwnerCharacter.IsValid() ? OwnerCharacter->VaelComponent : nullptr;
-    const float StartingVael = IsValid(StartingVaelComp)
-        ? StartingVaelComp->GetCurrentVael()
-        : -1.0f;
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] ExecuteServerFire Start | Owner=%s | Shape=%d | ChargedRange=%.1f | CurrentVael=%.2f"),
+    WTBR_VALIDATION_LOG(Verbose,
+        TEXT("[Serpveil S1] DeprecatedReleaseFireIgnored | Owner=%s | Shape=%d | Direction=%s | ChargedRange=%.1f"),
         *GetNameSafe(OwnerCharacter.Get()),
-        (int32)Shape,
-        ChargedRange,
-        StartingVael);
+        static_cast<int32>(Shape),
+        *Direction.ToString(),
+        ChargedRange);
+}
 
-    if (!OwnerCharacter.IsValid())
+void UWTBRSerpveilTrigger::ExecuteSplitVolley()
+{
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority())
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] ExecuteServerFire Abort | Reason=Owner invalid"));
         return;
     }
-    if (!OwnerCharacter->HasAuthority())
+
+    UWorld* World = OwnerCharacter->GetWorld();
+    if (IsValid(World))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] ExecuteServerFire Abort | Owner=%s | Reason=No authority"),
-            *GetNameSafe(OwnerCharacter.Get()));
+        World->GetTimerManager().ClearTimer(WindupTimer);
+    }
+    bIsCharging = false;
+
+    auto AbortVolley = [this](const TCHAR* Reason)
+    {
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[Serpveil S1] VolleyAborted | Owner=%s | Reason=%s | TelegraphOff=true"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            Reason);
+        if (OwnerCharacter.IsValid())
+        {
+            OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
+        }
+    };
+
+    if (!IsValid(World))
+    {
+        AbortVolley(TEXT("WorldInvalid"));
         return;
     }
     if (!IsValid(DataAsset))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] ExecuteServerFire Abort | Owner=%s | Reason=DataAsset invalid"),
-            *GetNameSafe(OwnerCharacter.Get()));
+        AbortVolley(TEXT("DataAssetInvalid"));
         return;
     }
-
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Serpveil] ExecuteServerFire Start | Owner=%s | Shape=%d | ChargedRange=%.1f | Direction=%s"),
-        *GetNameSafe(OwnerCharacter.Get()),
-        (int32)Shape,
-        ChargedRange,
-        *Direction.ToString());
+    if (!IsValid(OwnerCharacter->HealthComponent)
+        || !OwnerCharacter->HealthComponent->IsAlive())
+    {
+        AbortVolley(TEXT("OwnerNotAlive"));
+        return;
+    }
 
     const FWTBRSerpveilParams& Params = DataAsset->SerpveilParams;
-    UWorld* World = OwnerCharacter->GetWorld();
-    if (!IsValid(World))
-    {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] ExecuteServerFire Abort | Owner=%s | Reason=World invalid"),
-            *GetNameSafe(OwnerCharacter.Get()));
-        return;
-    }
-
-    const float CurrentTime = World->GetTimeSeconds();
-    const float SerpveilCooldown = FMath::Max(Params.SerpveilFireCooldown, 0.0f);
-    const float TimeSinceLastFire = CurrentTime - LastSerpveilFireTime;
-    if (TimeSinceLastFire < SerpveilCooldown)
-    {
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil Cooldown] Blocked | Owner=%s | Time=%.3f | LastFire=%.3f | TimeSinceLastFire=%.3f | Cooldown=%.3f"),
-            *GetNameSafe(OwnerCharacter.Get()),
-            CurrentTime,
-            LastSerpveilFireTime,
-            TimeSinceLastFire,
-            SerpveilCooldown);
-        return;
-    }
-
     if (!Params.SerpveilProjectileClass)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] ExecuteServerFire Abort | Owner=%s | Reason=ProjectileClass null"),
-            *GetNameSafe(OwnerCharacter.Get()));
+        AbortVolley(TEXT("ProjectileClassNull"));
+        return;
+    }
+
+    const int32 CubeCount = Params.SerpveilCubeSplitCount;
+    if (CubeCount <= 0)
+    {
+        AbortVolley(TEXT("CubeCountInvalid"));
         return;
     }
 
     UWTBRVaelComponent* VaelComp = OwnerCharacter->VaelComponent;
     if (!IsValid(VaelComp))
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] ExecuteServerFire Abort | Owner=%s | Reason=VaelComponent invalid"),
-            *GetNameSafe(OwnerCharacter.Get()));
+        AbortVolley(TEXT("VaelComponentInvalid"));
         return;
     }
 
-    // Vael validation: how far can we afford based on remaining Vael?
-    const float MaxAffordableRange =
-        (VaelComp->GetCurrentVael() / Params.SerpveilVaelPerSecond)
-        * (Params.SerpveilMaxRange - Params.SerpveilMinRange)
-        + Params.SerpveilMinRange;
-
-    const float ValidatedRange = FMath::Clamp(
-        ChargedRange, Params.SerpveilMinRange, MaxAffordableRange);
-
-    // Consume Vael proportional to validated range
-    const float RangeSpan = Params.SerpveilMaxRange - Params.SerpveilMinRange;
-    if (RangeSpan > 0.0f)
+    const float VaelCost = FMath::Max(Params.SerpveilVaelCostPerShot, 0.0f);
+    WTBR_VALIDATION_LOG(Verbose,
+        TEXT("[Serpveil S1] ConsumeAttempt | Owner=%s | Cost=%.2f | CurrentVael=%.2f"),
+        *GetNameSafe(OwnerCharacter.Get()),
+        VaelCost,
+        VaelComp->GetCurrentVael());
+    if (!VaelComp->TryConsumeVael(VaelCost))
     {
-        const float RangeFraction = (ValidatedRange - Params.SerpveilMinRange) / RangeSpan;
-        const float VaelToConsume = RangeFraction * Params.SerpveilVaelPerSecond;
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] ConsumeCheck | ValidatedRange=%.1f | RangeFraction=%.3f | VaelToConsume=%.3f | CurrentVael=%.2f"),
-            ValidatedRange,
-            RangeFraction,
-            VaelToConsume,
-            VaelComp->GetCurrentVael());
-
-        if (!VaelComp->TryConsumeVael(VaelToConsume))
-        {
-            WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] ConsumeFail | VaelToConsume=%.3f | CurrentVael=%.2f"),
-                VaelToConsume,
-                VaelComp->GetCurrentVael());
-
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Serpveil] ExecuteServerFire Abort | Owner=%s | Reason=TryConsumeVael failed | VaelToConsume=%.2f | CurrentVael=%.2f | ValidatedRange=%.1f"),
-                *GetNameSafe(OwnerCharacter.Get()),
-                VaelToConsume,
-                VaelComp->GetCurrentVael(),
-                ValidatedRange);
-            return;
-        }
-
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] ConsumeSuccess | VaelToConsume=%.3f | NewVael=%.2f"),
-            VaelToConsume,
-            VaelComp->GetCurrentVael());
+        AbortVolley(TEXT("TryConsumeVaelFailed"));
+        return;
     }
 
-    // Build world-space path from the equipped-hand socket when available.
+    FVector EyeLocation;
+    FRotator AimRotation;
+    OwnerCharacter->GetActorEyesViewPoint(EyeLocation, AimRotation);
+    AimRotation.Roll = 0.0f;
+
     static const FName HandSocketName(TEXT("hand_r"));
     FVector SpawnOrigin;
     if (const USkeletalMeshComponent* CharacterMesh = OwnerCharacter->GetMesh();
@@ -301,73 +323,106 @@ void UWTBRSerpveilTrigger::ExecuteServerFire(
     }
     else
     {
-        FVector EyeLoc;
-        FRotator EyeRot;
-        OwnerCharacter->GetActorEyesViewPoint(EyeLoc, EyeRot);
-        SpawnOrigin = EyeLoc + FRotationMatrix(Direction).GetScaledAxis(EAxis::X) * 100.0f;
-
+        SpawnOrigin = EyeLocation + AimRotation.Vector() * 100.0f;
         UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] Hand socket fallback | Owner=%s | Socket=%s | Reason=MeshMissingOrSocketAbsent"),
+            TEXT("[Serpveil S1] HandSocketFallback | Owner=%s | Socket=%s | Reason=MeshMissingOrSocketAbsent"),
             *GetNameSafe(OwnerCharacter.Get()),
             *HandSocketName.ToString());
     }
 
-    TArray<FVector> Points = BuildPathPoints(Shape, SpawnOrigin, Direction, ValidatedRange);
-    if (Points.Num() < 2)
-    {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] ExecuteServerFire Abort | Owner=%s | Reason=PathPoints < 2 | Points=%d"),
-            *GetNameSafe(OwnerCharacter.Get()),
-            Points.Num());
-        return;
-    }
+    const float MaxRange = FMath::Max(Params.SerpveilMaxRange, 0.0f);
+    const float FormationSpacing = FMath::Max(Params.SerpveilFormationSpacing, 0.0f);
+    const float FormationStagger = FMath::Max(Params.SerpveilFormationStagger, 0.0f);
+    const FRotationMatrix AimMatrix(AimRotation);
+    int32 SpawnedCount = 0;
 
-    const FTransform SpawnTF(Direction, SpawnOrigin);
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] SpawnAttempt | Points=%d | ProjectileClass=%s | Speed=%.1f | Damage=%.1f"),
-        Points.Num(),
-        *GetNameSafe(Params.SerpveilProjectileClass),
-        Params.SerpveilSpeed,
-        Params.SerpveilDamage);
-
-    AWTBRProjectileBase* Proj = World->SpawnActorDeferred<AWTBRProjectileBase>(
-        Params.SerpveilProjectileClass, SpawnTF, nullptr, nullptr,
-        ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-    if (!IsValid(Proj))
-    {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil] ExecuteServerFire Abort | Owner=%s | Reason=SpawnActorDeferred failed | Class=%s"),
-            *GetNameSafe(OwnerCharacter.Get()),
-            *GetNameSafe(Params.SerpveilProjectileClass));
-        return;
-    }
-
-    Proj->InitializeProjectile(Params.SerpveilDamage, Params.SerpveilSpeed,
-        ETriggerCategory::Gunner, false, false, 0.0f);
-    Proj->FinishSpawning(SpawnTF);
-    Proj->InitializePathMovement(Points, Params.SerpveilSpeed, OwnerCharacter.Get());
-
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil SpamTest] SpawnSuccess | Projectile=%s | Points=%d | Range=%.1f"),
-        *GetNameSafe(Proj),
-        Points.Num(),
-        ValidatedRange);
-
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Serpveil] Spawned Path Projectile | Owner=%s | Projectile=%s | Points=%d | Range=%.1f | Damage=%.1f | Speed=%.1f"),
+    WTBR_VALIDATION_LOG(Verbose,
+        TEXT("[Serpveil S1] VolleySpawnStart | Owner=%s | Cubes=%d | FormationSpacing=%.1f | FormationStagger=%.1f | Pitch=%.1f | Range=%.1f | Speed=%.1f | PerCubeDamage=%.1f"),
         *GetNameSafe(OwnerCharacter.Get()),
-        *GetNameSafe(Proj),
-        Points.Num(),
-        ValidatedRange,
-        Params.SerpveilDamage,
-        Params.SerpveilSpeed);
+        CubeCount,
+        FormationSpacing,
+        FormationStagger,
+        AimRotation.Pitch,
+        MaxRange,
+        Params.SerpveilSpeed,
+        Params.SerpveilPerCubeDamage);
 
-    LastSerpveilFireTime = CurrentTime;
+    for (int32 CubeIndex = 0; CubeIndex < CubeCount; ++CubeIndex)
+    {
+        // Saw-tooth launch formation (▲▼▲): cubes line up sideways, centred on
+        // the aim line, with even cubes raised and odd cubes lowered. Every
+        // cube then flies straight and parallel along the aim direction.
+        const float LateralOffset = (CubeIndex - (CubeCount - 1) * 0.5f) * FormationSpacing;
+        const float VerticalOffset = ((CubeIndex % 2 == 0) ? 0.5f : -0.5f) * FormationStagger;
+        const FVector CubeOrigin = SpawnOrigin
+            + AimMatrix.TransformVector(FVector(0.0f, LateralOffset, VerticalOffset));
+        const FTransform SpawnTransform(AimRotation, CubeOrigin);
 
-    if (UWTBRActionPingSubsystem* PingSys = World->GetSubsystem<UWTBRActionPingSubsystem>())
-        PingSys->RegisterActionPing(OwnerCharacter.Get());
+        AWTBRProjectileBase* Projectile = World->SpawnActorDeferred<AWTBRProjectileBase>(
+            Params.SerpveilProjectileClass,
+            SpawnTransform,
+            nullptr,
+            nullptr,
+            ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+        if (!IsValid(Projectile))
+        {
+            WTBR_VALIDATION_LOG(Verbose,
+                TEXT("[Serpveil S1] CubeSpawnFailed | Owner=%s | Cube=%d | Class=%s"),
+                *GetNameSafe(OwnerCharacter.Get()),
+                CubeIndex,
+                *GetNameSafe(Params.SerpveilProjectileClass));
+            continue;
+        }
 
-    OnSerpveilFired(Shape);
+        Projectile->InitializeProjectile(
+            Params.SerpveilPerCubeDamage,
+            Params.SerpveilSpeed,
+            ETriggerCategory::Gunner,
+            false,
+            false,
+            0.0f);
+        Projectile->CubeSplitCount = 0;
+        Projectile->OwnerInstigator = OwnerCharacter.Get();
+        Projectile->FinishSpawning(SpawnTransform);
 
+        TArray<FVector> PathPoints;
+        PathPoints.Reserve(2);
+        PathPoints.Add(CubeOrigin);
+        PathPoints.Add(CubeOrigin + AimMatrix.TransformVector(FVector(MaxRange, 0.0f, 0.0f)));
+        Projectile->InitializePathMovement(
+            PathPoints,
+            Params.SerpveilSpeed,
+            OwnerCharacter.Get());
+
+        ++SpawnedCount;
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[Serpveil S1] CubeSpawned | Owner=%s | Cube=%d | Projectile=%s | LateralOffset=%.1f | VerticalOffset=%.1f | Damage=%.1f | CubeSplitCount=%d"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            CubeIndex,
+            *GetNameSafe(Projectile),
+            LateralOffset,
+            VerticalOffset,
+            Params.SerpveilPerCubeDamage,
+            Projectile->CubeSplitCount);
+    }
+
+    LastSerpveilFireTime = World->GetTimeSeconds();
+    if (UWTBRActionPingSubsystem* PingSystem = World->GetSubsystem<UWTBRActionPingSubsystem>())
+    {
+        PingSystem->RegisterActionPing(OwnerCharacter.Get());
+    }
+
+    // Preserve the existing BP event signature until S2 replaces shape presets.
+    OnSerpveilFired(Params.PresetShape);
     OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
+
+    WTBR_VALIDATION_LOG(Verbose,
+        TEXT("[Serpveil S1] VolleyComplete | Owner=%s | Requested=%d | Spawned=%d | VaelCost=%.2f | NewVael=%.2f | TelegraphOff=true"),
+        *GetNameSafe(OwnerCharacter.Get()),
+        CubeCount,
+        SpawnedCount,
+        VaelCost,
+        VaelComp->GetCurrentVael());
 }
 
 // ─── GetPreviewPathPoints (client only, for aim preview Blueprint) ────────────

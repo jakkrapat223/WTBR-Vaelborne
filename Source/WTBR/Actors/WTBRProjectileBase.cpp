@@ -639,6 +639,13 @@ void AWTBRProjectileBase::InitializePathMovement(
 {
     if (!HasAuthority()) return;
     if (Points.Num() < 2) return;
+    if (IsActorBeingDestroyed() || !IsValid(InterpMovement))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("WTBR InitializePathMovement skipped: projectile %s is being destroyed or InterpMovement is invalid"),
+            *GetNameSafe(this));
+        return;
+    }
 
     OwnerInstigator = InInstigator;
 

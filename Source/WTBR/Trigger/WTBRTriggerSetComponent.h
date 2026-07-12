@@ -155,7 +155,7 @@ public:
 
     void DebugPrintTriggerLoadoutMutationGate() const;
 
-    // Serpveil: client sends charged params, server validates Vael and fires
+    // Serpveil legacy release RPC: retained for compatibility; S1 ignores it.
     UFUNCTION(Server, Reliable)
     void Server_FireSerpveil(EWTBRSerpveilShape Shape, FRotator Direction, float ChargedRange, bool bIsMain);
 

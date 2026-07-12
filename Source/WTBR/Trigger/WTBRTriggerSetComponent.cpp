@@ -107,6 +107,17 @@ void UWTBRTriggerSetComponent::SwitchMainSlot(int32 SlotIndex)
         return;
     }
 
+    if (SlotIndex >= 0 && SlotIndex < MainSlotCount
+        && SlotIndex != ActiveMainIndex
+        && RuntimeTriggers.IsValidIndex(ActiveMainIndex))
+    {
+        if (UWTBRSerpveilTrigger* SerpveilTrigger =
+            Cast<UWTBRSerpveilTrigger>(RuntimeTriggers[ActiveMainIndex]))
+        {
+            SerpveilTrigger->CancelCharge();
+        }
+    }
+
     // The outgoing active trigger is never Deactivate()'d on a slot switch —
     // only a full loadout replacement goes through that path. Clear any
     // cosmetic telegraph it left active so VFX doesn't stay stuck on switch.
@@ -185,6 +196,15 @@ void UWTBRTriggerSetComponent::SwitchSubSlot(int32 SlotIndex)
 void UWTBRTriggerSetComponent::CycleMainSlot()
 {
     if (!HasServerAuthority()) return;
+
+    if (RuntimeTriggers.IsValidIndex(ActiveMainIndex))
+    {
+        if (UWTBRSerpveilTrigger* SerpveilTrigger =
+            Cast<UWTBRSerpveilTrigger>(RuntimeTriggers[ActiveMainIndex]))
+        {
+            SerpveilTrigger->CancelCharge();
+        }
+    }
 
     // See SwitchMainSlot — the outgoing trigger is never Deactivate()'d here.
     if (AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner()))
