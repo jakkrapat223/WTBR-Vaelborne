@@ -139,10 +139,10 @@ protected:
 	FVector RandomSpawnAreaCenter = FVector::ZeroVector;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn", meta=(ClampMin="0.0"))
-	float RandomSpawnAreaRadius = 1200.0f; // ~12 m — fits the ThirdPersonMap graybox floor.
+	float RandomSpawnAreaRadius = 300.0f; // ~3 m — 1200 (12 m) still landed points off the graybox floor.
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn", meta=(ClampMin="0.0"))
-	float MinSpawnDistance = 250.0f; // ~2.5 m — scaled down to match the smaller radius above.
+	float MinSpawnDistance = 80.0f; // ~0.8 m — scaled down to match the smaller radius above.
 
 private:
 	FWTBRMatchModeRules ResolveDefaultMatchRules() const;

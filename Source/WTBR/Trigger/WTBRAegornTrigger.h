@@ -59,6 +59,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "WTBR | Aegorn | State")
     bool IsHeldModeActive() const { return bIsHeldMode; }
 
+    UFUNCTION(BlueprintPure, Category = "WTBR | Aegorn | State")
+    bool IsOnCooldown() const { return bIsOnCooldown; }
+
     // bWasHeld: false = tap (instant plant), true = carried/held raise —
     // lets BP distinguish a "snap into place" VFX from a "forming" one.
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Aegorn | VFX")
@@ -97,6 +100,11 @@ private:
     UFUNCTION()
     void TickHeldShield();
 
+    UFUNCTION()
+    void OnCooldownExpired();
+
+    void StartCooldown();
+
     UPROPERTY(EditDefaultsOnly, Category = "WTBR | Aegorn | Shield")
     TSoftClassPtr<AWTBRAegornWallActor> ShieldActorClass;
 
@@ -108,9 +116,11 @@ private:
     bool bIsMainSlot = true;
     bool bWaitingForHoldDecision = false;
     bool bIsHeldMode = false;
+    bool bIsOnCooldown = false;
 
     FTimerHandle HoldThresholdTimer;
     FTimerHandle HoldTrackingTimer;
+    FTimerHandle CooldownTimer;
 
     static constexpr float HOLD_THRESHOLD = 0.2f;
     static constexpr float HOLD_TRACK_INTERVAL = 0.05f;

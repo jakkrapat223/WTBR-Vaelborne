@@ -58,6 +58,11 @@ bool UWTBRAegornTrigger::Activate_Implementation(
         WTBR_VALIDATION_LOG(Verbose, TEXT("[Aegorn Test] Activate NoOp | Reason=AlreadyActiveOrPending"));
         return true;
     }
+    if (bIsOnCooldown)
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Aegorn Test] Activate Fail | Reason=OnCooldown"));
+        return false;
+    }
     if (!IsValid(DataAsset))
     {
         WTBR_VALIDATION_LOG(Verbose, TEXT("[Aegorn Test] Activate Fail | Reason=DataAssetInvalid"));
@@ -282,6 +287,31 @@ void UWTBRAegornTrigger::NotifyShieldDestroyed()
     bIsHeldMode = false;
     OnShieldChanged.Broadcast(false);
     OnAegornShieldLowered();
+
+    // Single unified end-of-shield path — covers tap breaking/expiring, a
+    // held shield released normally, AND a held shield destroyed early by
+    // damage or ShieldDuration while still held. Without this, that last
+    // case let the player raise a brand new shield the instant the old one
+    // ended even though their finger never left the button.
+    StartCooldown();
+}
+
+void UWTBRAegornTrigger::StartCooldown()
+{
+    if (!GetWorld()) return;
+    const float Cooldown = IsValid(DataAsset) ? DataAsset->AegornParams.AegornCooldownAfterUse : 1.5f;
+    if (Cooldown <= 0.0f) return;
+
+    bIsOnCooldown = true;
+    GetWorld()->GetTimerManager().SetTimer(
+        CooldownTimer,
+        this, &UWTBRAegornTrigger::OnCooldownExpired,
+        Cooldown, false);
+}
+
+void UWTBRAegornTrigger::OnCooldownExpired()
+{
+    bIsOnCooldown = false;
 }
 
 void UWTBRAegornTrigger::OnRep_bShieldActive()

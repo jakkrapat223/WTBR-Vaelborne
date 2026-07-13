@@ -265,6 +265,16 @@ struct FWTBRAegornParams
         meta = (ClampMin = "0.5"))
     float ShieldDuration = 8.0f;
 
+    // Cooldown after ANY shield ends (tap breaks/expires, hold released, hold
+    // shield destroyed early by damage or Duration while still held) before
+    // another tap or hold can start. Aegorn had zero cooldown before this —
+    // a shield could be re-raised the instant the previous one ended.
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Aegorn | Shield",
+        meta = (ClampMin = "0.0"))
+    float AegornCooldownAfterUse = 1.5f;
+
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
