@@ -37,8 +37,9 @@ public:
         Category = "WTBR | Aegorn Wall | State")
     float MaxWallHP = 0.0f;
 
+    // InDuration > 0 = auto-despawn after that many seconds; 0 = no lifetime limit.
     UFUNCTION(BlueprintCallable, Category = "WTBR | Aegorn Wall")
-    void InitializeWall(float InMaxHP);
+    void InitializeWall(float InMaxHP, float InDuration = 0.0f);
 
     UFUNCTION(BlueprintCallable, Category = "WTBR | Aegorn Wall")
     void TakeDamageFromProjectile(float DamageAmount);
@@ -82,6 +83,11 @@ protected:
 private:
     void DestroyWall();
 
+    UFUNCTION()
+    void OnLifetimeExpired();
+
     UPROPERTY()
     TArray<TObjectPtr<AActor>> DamagedProjectiles;
+
+    FTimerHandle LifetimeTimer;
 };

@@ -86,7 +86,9 @@ bool UWTBRAegornTrigger::Activate_Implementation(
         return false;
     }
 
-    Shield->InitializeWall(DataAsset->AegornParams.ShieldHP);
+    Shield->InitializeWall(
+        DataAsset->AegornParams.ShieldHP,
+        DataAsset->AegornParams.ShieldDuration);
     Shield->OnWallDestroyed.AddDynamic(this, &UWTBRAegornTrigger::NotifyShieldDestroyed);
 
     ActiveShieldActor = Shield;

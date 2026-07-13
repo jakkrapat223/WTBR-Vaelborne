@@ -30,6 +30,8 @@ public:
     void OnEscudoWallSpawned(AWTBRAegornWallActor* WallActor);
 
 private:
+    void DisplaceOverlappingCharacters(AWTBRAegornWallActor* Wall);
+
     UPROPERTY(EditDefaultsOnly, Category = "WTBR | Escudo | Wall")
     TSoftClassPtr<AWTBRAegornWallActor> WallActorClass;
 };

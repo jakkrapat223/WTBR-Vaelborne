@@ -6,6 +6,7 @@
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "TimerManager.h"
 
 AWTBRAegornWallActor::AWTBRAegornWallActor()
 {
@@ -83,17 +84,33 @@ void AWTBRAegornWallActor::GetLifetimeReplicatedProps(
     DOREPLIFETIME(AWTBRAegornWallActor, MaxWallHP);
 }
 
-void AWTBRAegornWallActor::InitializeWall(float InMaxHP)
+void AWTBRAegornWallActor::InitializeWall(float InMaxHP, float InDuration)
 {
     ensure(HasAuthority());
     MaxWallHP = InMaxHP;
     WallHP    = InMaxHP;
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] InitializeWall | Wall=%s | HasAuthority=%s | WallHP=%.1f | MaxWallHP=%.1f | Replicates=%s"),
+    if (InDuration > 0.0f)
+    {
+        GetWorldTimerManager().SetTimer(
+            LifetimeTimer,
+            this, &AWTBRAegornWallActor::OnLifetimeExpired,
+            InDuration,
+            false);
+    }
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] InitializeWall | Wall=%s | HasAuthority=%s | WallHP=%.1f | MaxWallHP=%.1f | Duration=%.1f | Replicates=%s"),
         *GetNameSafe(this),
         HasAuthority() ? TEXT("true") : TEXT("false"),
         WallHP,
         MaxWallHP,
+        InDuration,
         GetIsReplicated() ? TEXT("true") : TEXT("false"));
+}
+
+void AWTBRAegornWallActor::OnLifetimeExpired()
+{
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] LifetimeExpired | Wall=%s"),
+        *GetNameSafe(this));
+    DestroyWall();
 }
 
 void AWTBRAegornWallActor::TakeDamageFromProjectile(float DamageAmount)

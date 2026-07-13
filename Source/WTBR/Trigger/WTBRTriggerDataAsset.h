@@ -257,6 +257,14 @@ struct FWTBRAegornParams
         meta = (ClampMin = "45.0", ClampMax = "180.0"))
     float ShieldCoverageAngle = 90.0f;
 
+    // อายุโล่ (วินาที) — ครบเวลาสลายเอง (Pre-Lock Patch v0.2 #8:
+    // upfront Vael cost + ShieldHP + Duration)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Aegorn | Shield",
+        meta = (ClampMin = "0.5"))
+    float ShieldDuration = 8.0f;
+
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -274,6 +282,36 @@ struct FWTBREscudoParams
         Category = "Escudo | Wall",
         meta = (ClampMin = "1.0"))
     float EscudoWallHP = 300.0f;
+
+    // อายุกำแพง (วินาที) — ครบเวลาสลายเอง (anti-abuse: ซื้อเวลา ไม่ใช่บล็อกถาวร)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Escudo | Wall",
+        meta = (ClampMin = "1.0"))
+    float EscudoWallDuration = 15.0f;
+
+    // ระยะ line-trace หาพื้นรองรับใต้จุดวาง — ไม่เจอพื้นในระยะนี้ = วางไม่ได้ ไม่เสีย Vael
+    // (canon: Escudo ต้องงอกจากพื้นผิว ห้ามลอยกลางอากาศ)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Escudo | Wall",
+        meta = (ClampMin = "50.0"))
+    float EscudoSurfaceSnapRange = 300.0f;
+
+    // แรงผลักเพื่อนร่วมทีมที่ยืนขวางจุดวาง ให้มาอยู่ฝั่งหลังกำแพง (แนวนอน, u/s)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Escudo | Displacement",
+        meta = (ClampMin = "0.0"))
+    float EscudoAllyPushImpulse = 600.0f;
+
+    // แรงดีดศัตรูที่ยืนขวางจุดวางขึ้นฟ้า (แนวตั้ง, u/s) — canon: Hyuse ดีด Ikoma
+    // damage = 0 เสมอ (Escudo Slam lock: displacement, NOT damage)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Escudo | Displacement",
+        meta = (ClampMin = "0.0"))
+    float EscudoEnemyLaunchImpulse = 1200.0f;
 
     // เวลาสร้างกำแพง (วินาที)
     // ⚠ PLAYTEST PENDING
