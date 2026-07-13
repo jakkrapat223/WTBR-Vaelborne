@@ -35,3 +35,9 @@ float UWTBRTelornTrigger::GetCooldownDuration() const
     if (!IsValid(DataAsset)) return 1.0f;
     return DataAsset->TelornParams.TelornFireCooldown;
 }
+
+float UWTBRTelornTrigger::GetZoomFOV() const
+{
+    if (!IsValid(DataAsset)) return Super::GetZoomFOV();
+    return DataAsset->TelornParams.TelornZoomFOV;
+}

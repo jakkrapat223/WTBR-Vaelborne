@@ -462,6 +462,14 @@ struct FWTBRTelornParams
         Category = "Telorn | VFX",
         meta = (ClampMin = "1"))
     int32 TelornCubeSplitCount = 1;
+
+    // Camera FOV while zoomed (degrees) — Egret has the best range of all
+    // snipers (canon), so the deepest zoom of the three.
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Telorn | Zoom",
+        meta = (ClampMin = "5.0", ClampMax = "90.0"))
+    float TelornZoomFOV = 25.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -491,6 +499,13 @@ struct FWTBRPiercexParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | VFX", meta = (ClampMin = "1"))
     int32 PiercexCubeSplitCount = 1;
+
+    // Camera FOV while zoomed (degrees) — mid-depth zoom between Telorn/Fulgris.
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Piercex | Zoom",
+        meta = (ClampMin = "5.0", ClampMax = "90.0"))
+    float PiercexZoomFOV = 35.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -522,6 +537,14 @@ struct FWTBRFulgrisParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgris | VFX", meta = (ClampMin = "1"))
     int32 FulgrisCubeSplitCount = 2;
+
+    // Camera FOV while zoomed (degrees) — fastest/lowest-damage sniper gets
+    // the shallowest zoom of the three (canon: quickest, least precise).
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Fulgris | Zoom",
+        meta = (ClampMin = "5.0", ClampMax = "90.0"))
+    float FulgrisZoomFOV = 45.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

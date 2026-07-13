@@ -17,4 +17,5 @@ public:
         bool bIsDualWield) override;
 
     virtual float GetCooldownDuration() const override;
+    virtual float GetZoomFOV() const override;
 };

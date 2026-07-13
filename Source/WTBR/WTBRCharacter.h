@@ -638,6 +638,27 @@ private:
 
     FTimerHandle StaggerTimer;
 
+    // ─── Sniper zoom (client-only cosmetic, no server round trip) ─────────────
+    // Holding Fire while a Sniper Trigger (Fulgris/Piercex/Telorn) is the active
+    // Main/Sub narrows FollowCamera's FOV toward that weapon's GetZoomFOV().
+    // Purely visual — does not touch fire timing, accuracy, or the existing
+    // Server_Fire/Activate path, which still fires on press exactly as before.
+    void UpdateSniperZoom(bool bIsMain, bool bZoomIn);
+
+    UFUNCTION()
+    void TickSniperZoomLerp();
+
+    float DefaultCameraFOV = 90.0f;
+    float SniperZoomTargetFOV = 90.0f;
+    // Tracked per-slot (not a single bool) so releasing Main while Sub is
+    // also a held Sniper doesn't incorrectly snap the FOV back to default.
+    bool bMainWantsSniperZoom = false;
+    bool bSubWantsSniperZoom = false;
+    FTimerHandle SniperZoomLerpTimer;
+
+    static constexpr float SNIPER_ZOOM_LERP_SPEED = 8.0f;
+    static constexpr float SNIPER_ZOOM_TICK_INTERVAL = 0.016f;
+
     void AddDefaultMappingContext();
     void ApplyInputActionFallbacks();
     void ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir = FVector::ZeroVector);

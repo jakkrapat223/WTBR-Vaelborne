@@ -45,6 +45,7 @@
 #include "Trigger/WTBRNexilTrigger.h"
 #include "Trigger/WTBRPiercexTrigger.h"
 #include "Trigger/WTBRSerpveilTrigger.h"
+#include "Trigger/WTBRSniperTrigger.h"
 #include "Trigger/WTBRSolvarnTrigger.h"
 #include "Trigger/WTBRSoluxTrigger.h"
 #include "Trigger/WTBRTelornTrigger.h"
@@ -469,6 +470,7 @@ void AWTBRCharacter::FireMain(const FInputActionValue& Value)
         IsLocallyControlled() ? TEXT("true") : TEXT("false"),
         *ClientMoveInputDir.ToString());
     if (InputGestureComponent) InputGestureComponent->NotifyMainPressed();
+    UpdateSniperZoom(true, true);
     Server_Fire(true, true, ClientMoveInputDir);
 }
 
@@ -480,6 +482,7 @@ void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
         HasAuthority() ? TEXT("true") : TEXT("false"),
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifyMainReleased();
+    UpdateSniperZoom(true, false);
     Server_Fire(true, false, FVector::ZeroVector);
 }
 
@@ -493,6 +496,7 @@ void AWTBRCharacter::FireSub(const FInputActionValue& Value)
         IsLocallyControlled() ? TEXT("true") : TEXT("false"),
         *ClientMoveInputDir.ToString());
     if (InputGestureComponent) InputGestureComponent->NotifySubPressed();
+    UpdateSniperZoom(false, true);
     Server_Fire(false, true, ClientMoveInputDir);
 }
 
@@ -504,7 +508,60 @@ void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
         HasAuthority() ? TEXT("true") : TEXT("false"),
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifySubReleased();
+    UpdateSniperZoom(false, false);
     Server_Fire(false, false, FVector::ZeroVector);
+}
+
+void AWTBRCharacter::UpdateSniperZoom(bool bIsMain, bool bZoomIn)
+{
+    if (!IsLocallyControlled() || !FollowCamera || !TriggerSetComponent) return;
+
+    if (bIsMain) bMainWantsSniperZoom = bZoomIn;
+    else         bSubWantsSniperZoom  = bZoomIn;
+
+    // Only a real Sniper in the slot actually counts as "wants zoom" —
+    // grab both up front so the rest of this function can just read them.
+    UWTBRSniperTrigger* MainSniper = bMainWantsSniperZoom
+        ? Cast<UWTBRSniperTrigger>(TriggerSetComponent->GetActiveMainTrigger()) : nullptr;
+    UWTBRSniperTrigger* SubSniper = bSubWantsSniperZoom
+        ? Cast<UWTBRSniperTrigger>(TriggerSetComponent->GetActiveSubTrigger()) : nullptr;
+
+    const bool bWasZoomed = SniperZoomLerpTimer.IsValid()
+        || !FMath::IsNearlyEqual(FollowCamera->FieldOfView, DefaultCameraFOV, 0.1f);
+    if (!bWasZoomed && (MainSniper || SubSniper))
+    {
+        DefaultCameraFOV = FollowCamera->FieldOfView;
+    }
+
+    // Main takes priority if both slots are held Snipers at once.
+    SniperZoomTargetFOV = MainSniper ? MainSniper->GetZoomFOV()
+        : SubSniper ? SubSniper->GetZoomFOV()
+        : DefaultCameraFOV;
+
+    GetWorldTimerManager().SetTimer(
+        SniperZoomLerpTimer,
+        this, &AWTBRCharacter::TickSniperZoomLerp,
+        SNIPER_ZOOM_TICK_INTERVAL, true);
+}
+
+void AWTBRCharacter::TickSniperZoomLerp()
+{
+    if (!FollowCamera)
+    {
+        GetWorldTimerManager().ClearTimer(SniperZoomLerpTimer);
+        return;
+    }
+
+    const float Current = FollowCamera->FieldOfView;
+    const float NewFOV = FMath::FInterpTo(
+        Current, SniperZoomTargetFOV, SNIPER_ZOOM_TICK_INTERVAL, SNIPER_ZOOM_LERP_SPEED);
+    FollowCamera->SetFieldOfView(NewFOV);
+
+    if (FMath::IsNearlyEqual(NewFOV, SniperZoomTargetFOV, 0.1f))
+    {
+        FollowCamera->SetFieldOfView(SniperZoomTargetFOV);
+        GetWorldTimerManager().ClearTimer(SniperZoomLerpTimer);
+    }
 }
 
 void AWTBRCharacter::Interact(const FInputActionValue& /*Value*/)

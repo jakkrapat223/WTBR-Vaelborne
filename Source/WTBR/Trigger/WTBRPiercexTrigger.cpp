@@ -34,3 +34,9 @@ float UWTBRPiercexTrigger::GetCooldownDuration() const
     if (!IsValid(DataAsset)) return 1.0f;
     return DataAsset->PiercexParams.PiercexFireCooldown;
 }
+
+float UWTBRPiercexTrigger::GetZoomFOV() const
+{
+    if (!IsValid(DataAsset)) return Super::GetZoomFOV();
+    return DataAsset->PiercexParams.PiercexZoomFOV;
+}

@@ -123,3 +123,9 @@ float UWTBRFulgrisTrigger::GetCooldownDuration() const
     if (!IsValid(DataAsset)) return 1.0f;
     return DataAsset->FulgrisParams.FulgrisFireCooldown;
 }
+
+float UWTBRFulgrisTrigger::GetZoomFOV() const
+{
+    if (!IsValid(DataAsset)) return Super::GetZoomFOV();
+    return DataAsset->FulgrisParams.FulgrisZoomFOV;
+}

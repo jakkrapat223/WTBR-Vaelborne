@@ -16,6 +16,11 @@ public:
     UFUNCTION(BlueprintPure, Category = "WTBR | Sniper | State")
     bool IsOnCooldown() const { return bIsOnCooldown; }
 
+    // Client-side camera FOV to lerp toward while this Sniper's Fire button
+    // is held (AWTBRCharacter::UpdateSniperZoom). Cosmetic only.
+    UFUNCTION(BlueprintPure, Category = "WTBR | Sniper | Zoom")
+    virtual float GetZoomFOV() const { return 60.0f; }
+
 protected:
     AWTBRProjectileBase* FireSniper(
         TSubclassOf<AWTBRProjectileBase> ProjClass,
