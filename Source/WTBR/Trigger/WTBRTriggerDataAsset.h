@@ -234,7 +234,9 @@ struct FWTBRVoltisParams
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FWTBRAegornParams — Aegorn (โล่) + Aegorn Wall (กำแพง)
+// FWTBRAegornParams — Aegorn / Shield (โล่เคลื่อนที่ได้ โปร่งแสง)
+// Wall placement now lives on Escudo (FWTBREscudoParams) — canon splits these
+// into two distinct Triggers, not tap/hold of the same one.
 // ─────────────────────────────────────────────────────────────────────────────
 USTRUCT(BlueprintType)
 struct FWTBRAegornParams
@@ -255,28 +257,38 @@ struct FWTBRAegornParams
         meta = (ClampMin = "45.0", ClampMax = "180.0"))
     float ShieldCoverageAngle = 90.0f;
 
-    // HP ของ Aegorn Wall (กำแพงแยกต่างหากจากโล่)
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FWTBREscudoParams — Escudo (กำแพง Trion แข็ง วางตรึงจุด, แยกจาก Aegorn/Shield
+// ตาม canon: Escudo วางแล้วขยับไม่ได้ ทนทานกว่า Shield มาก กิน Vael สูง)
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBREscudoParams
+{
+    GENERATED_BODY()
+
+    // HP ของกำแพง Escudo
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
-        Category = "Aegorn | Wall",
+        Category = "Escudo | Wall",
         meta = (ClampMin = "1.0"))
-    float AegornWallHP = 300.0f;
+    float EscudoWallHP = 300.0f;
 
     // เวลาสร้างกำแพง (วินาที)
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
-        Category = "Aegorn | Wall",
+        Category = "Escudo | Wall",
         meta = (ClampMin = "0.1"))
-    float WallBuildTime = 0.3f;
+    float EscudoWallBuildTime = 0.3f;
 
     // ขนาดกำแพง (ความสูง × ความกว้าง)
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
-        Category = "Aegorn | Wall")
-    FVector2D WallSize = FVector2D(300.0f, 200.0f);
- 
+        Category = "Escudo | Wall")
+    FVector2D EscudoWallSize = FVector2D(300.0f, 200.0f);
 };
- 
+
 // ─────────────────────────────────────────────────────────────────────────────
 // FWTBRArcvenParams — Arcven (คลื่น Arc) + Arcven Dual
 // ─────────────────────────────────────────────────────────────────────────────
@@ -970,6 +982,12 @@ public:
         Category = "Trigger | Aegorn",
         meta = (EditCondition = "Category == ETriggerCategory::Defense"))
     FWTBRAegornParams AegornParams;
+
+    // ── Escudo ────────────────────────────────────────────────────────────
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Escudo",
+        meta = (EditCondition = "Category == ETriggerCategory::Defense"))
+    FWTBREscudoParams EscudoParams;
 
     // ── Arcven ────────────────────────────────────────────────────────────
     // Arcven เป็น Melee ที่ปล่อย Arc Wave ออกนอกร่าง

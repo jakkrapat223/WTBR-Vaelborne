@@ -4,6 +4,7 @@
 #include "WTBRValidationLog.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
 #include "Trigger/WTBRAegornTrigger.h"
+#include "Trigger/WTBREscudoTrigger.h"
 #include "Trigger/WTBRSerpveilTrigger.h"
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
@@ -976,16 +977,20 @@ void UWTBRTriggerSetComponent::Server_TEMP_TEST46_PlaceAegornWall_Implementation
     if (!WTBRShouldLogValidation()) return;
     if (!HasServerAuthority()) return;
 
+    // Escudo (wall placement) is now a real, independently-equippable Trigger
+    // reachable via the normal Activate() input path — this RPC is legacy
+    // PIE/BP-debug scaffolding kept only in case an existing debug widget
+    // still calls it.
     UWTBRTriggerBase* Trigger = bIsMain ? GetActiveMainTrigger() : GetActiveSubTrigger();
-    UWTBRAegornTrigger* AegornTrigger = Cast<UWTBRAegornTrigger>(Trigger);
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] TEMP_TEST46 Request | Owner=%s | Main=%s | Trigger=%s | IsAegorn=%s"),
+    UWTBREscudoTrigger* EscudoTrigger = Cast<UWTBREscudoTrigger>(Trigger);
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] TEMP_TEST46 Request | Owner=%s | Main=%s | Trigger=%s | IsEscudo=%s"),
         *GetNameSafe(GetOwner()),
         bIsMain ? TEXT("true") : TEXT("false"),
         *GetNameSafe(Trigger),
-        IsValid(AegornTrigger) ? TEXT("true") : TEXT("false"));
+        IsValid(EscudoTrigger) ? TEXT("true") : TEXT("false"));
 
-    if (!IsValid(AegornTrigger)) return;
-    AegornTrigger->PlaceWall();
+    if (!IsValid(EscudoTrigger)) return;
+    EscudoTrigger->Activate(FInputActionValue(), false);
 }
 
 void UWTBRTriggerSetComponent::OnRep_TriggerSlots()
