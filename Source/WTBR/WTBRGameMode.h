@@ -93,6 +93,24 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow", meta=(ClampMin="0.0"))
 	float CountdownDuration = 3.0f;
 
+	// Random spawn (design lock 2026-07-13, TeamThree15P/BR): per-map knobs for
+	// AssignRandomSpawnPositions, only used when the active match rules have
+	// bUseRandomSpawnPositions. Live on the GameMode (like Loadout/Countdown
+	// duration above) rather than the match-mode-rules DataAsset because the play
+	// area is a property of the LEVEL, not the ruleset — a level-specific
+	// AWTBRGameMode Blueprint subclass (or World Settings override) is the place
+	// to retune these per map. Placeholder values; real map sizes are ~1x1 km
+	// (15P) / ~3x3 km (BR) per the mode design lock, but exact spawn-area/spacing
+	// numbers are TBD via playtest on a real (non-graybox) map.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn")
+	FVector RandomSpawnAreaCenter = FVector::ZeroVector;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn", meta=(ClampMin="0.0"))
+	float RandomSpawnAreaRadius = 50000.0f; // 500 m placeholder.
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn", meta=(ClampMin="0.0"))
+	float MinSpawnDistance = 3000.0f; // 30 m placeholder.
+
 private:
 	FWTBRMatchModeRules ResolveDefaultMatchRules() const;
 	static FWTBRMatchModeRules MakeDefaultRulesForMode(EWTBRMatchMode MatchMode);
@@ -140,6 +158,22 @@ private:
 	void ClearMatchTimeLimitTimer();
 	void OnMatchTimeLimitExpired();
 
+	// Generates Count points uniformly inside a horizontal disc (Center, AreaRadius)
+	// via rejection sampling, trying to keep every pair at least MinDistance apart.
+	// Always returns exactly Count points (never fails/hangs): when the area is too
+	// small to satisfy MinDistance for every point, later points fall back to
+	// whichever sampled candidate had the largest achieved minimum distance. Z is
+	// fixed at Center.Z — ground-height resolution (line trace down) is a follow-up
+	// once this runs on a real (non-graybox) map, not needed to validate the
+	// spacing algorithm itself.
+	static TArray<FVector> GenerateRandomSpawnPoints(const FVector& Center, float AreaRadius, float MinDistance, int32 Count, FRandomStream& RandomStream);
+
+	// Teleports every AWTBRCharacter in the world to a freshly generated random
+	// spawn point (see GenerateRandomSpawnPoints). Only called when the active
+	// match rules have bUseRandomSpawnPositions; a no-op otherwise so legacy
+	// modes and the 1v1 harness keep using normal PlayerStart placement.
+	void ApplyRandomSpawnPositions();
+
 	// Shared by BeginPlay and WTBRRestartRound: enters LoadoutSetup, resets the
 	// per-round result-resolved flag, and (re)starts the LoadoutSetup -> Countdown
 	// timer. Does not touch match rules — callers that need a fresh rules reset
@@ -167,6 +201,20 @@ public:
 	// timers don't fire in the headless transient-world fixtures.
 	void ForceMatchTimeLimitExpiredForTest() { OnMatchTimeLimitExpired(); }
 	bool IsMatchTimeLimitTimerActiveForTest() const { return GetWorldTimerManager().IsTimerActive(MatchTimeLimitTimerHandle); }
+	// Exposes the pure spawn-point algorithm (deterministic via an explicit seed)
+	// so tests can assert its spacing/count guarantees without a GameMode/world.
+	static TArray<FVector> GenerateRandomSpawnPointsForTest(const FVector& Center, float AreaRadius, float MinDistance, int32 Count, int32 Seed)
+	{
+		FRandomStream Stream(Seed);
+		return GenerateRandomSpawnPoints(Center, AreaRadius, MinDistance, Count, Stream);
+	}
+	void ApplyRandomSpawnPositionsForTest() { ApplyRandomSpawnPositions(); }
+	void SetRandomSpawnParamsForTest(const FVector& Center, float AreaRadius, float MinDistance)
+	{
+		RandomSpawnAreaCenter = Center;
+		RandomSpawnAreaRadius = AreaRadius;
+		MinSpawnDistance = MinDistance;
+	}
 private:
 #endif
 

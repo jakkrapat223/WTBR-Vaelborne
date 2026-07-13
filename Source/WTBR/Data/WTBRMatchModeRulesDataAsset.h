@@ -81,6 +81,14 @@ struct FWTBRMatchModeRules
     // TeamThree15P — exact duration TBD via playtest.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode | Teams", meta=(ClampMin="0.0"))
     float MatchTimeLimitSeconds = 0.0f;
+
+    // When true, AWTBRGameMode scatters every combatant to a random point (with
+    // minimum spacing — see AWTBRGameMode::RandomSpawnAreaRadius/MinSpawnDistance,
+    // which are per-map GameMode knobs, not per-mode-ruleset) at InMatch entry
+    // instead of using normal PlayerStart placement. Off by default so the 1v1
+    // harness and legacy modes keep exact existing spawn behavior.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode | Spawn")
+    bool bUseRandomSpawnPositions = false;
 };
 
 UCLASS(BlueprintType)

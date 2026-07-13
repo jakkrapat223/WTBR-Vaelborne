@@ -343,6 +343,10 @@ void AWTBRGameMode::AdvanceToInMatch()
 	WTBRGameState->SetMatchWinner(nullptr);
 	WTBRGameState->ResetTeamScores();
 	AssignTeamsForRound(WTBRGameState->GetCurrentMatchRules());
+	if (WTBRGameState->GetCurrentMatchRules().bUseRandomSpawnPositions)
+	{
+		ApplyRandomSpawnPositions();
+	}
 
 	// Guarantee a clean start of round: every combatant enters InMatch at full HP,
 	// Alive, damage history cleared. Fixed loadout is unaffected (TriggerSlots are
@@ -398,6 +402,101 @@ void AWTBRGameMode::AssignTeamsForRound(const FWTBRMatchModeRules& Rules)
 		CombatantIndex,
 		TeamSize,
 		FMath::DivideAndRoundUp(CombatantIndex, TeamSize));
+}
+
+TArray<FVector> AWTBRGameMode::GenerateRandomSpawnPoints(const FVector& Center, float AreaRadius, float MinDistance, int32 Count, FRandomStream& RandomStream)
+{
+	TArray<FVector> Points;
+	if (Count <= 0)
+	{
+		return Points;
+	}
+	Points.Reserve(Count);
+
+	// Rejection sampling, per point: try several random candidates uniformly
+	// distributed inside the disc (sqrt(FRand()) keeps the distribution area-
+	// uniform rather than center-biased) and take the first one that clears
+	// MinDistance from every point already placed. If none of the attempts
+	// clear it — the area is too small for Count points at this spacing — fall
+	// back to whichever candidate achieved the largest minimum distance, so the
+	// function always terminates and always returns exactly Count points.
+	constexpr int32 MaxAttemptsPerPoint = 50;
+	const float SafeAreaRadius = FMath::Max(0.0f, AreaRadius);
+
+	for (int32 PointIndex = 0; PointIndex < Count; ++PointIndex)
+	{
+		FVector BestCandidate = Center;
+		float BestCandidateMinDistance = -1.0f;
+		bool bSatisfiedMinDistance = false;
+
+		for (int32 Attempt = 0; Attempt < MaxAttemptsPerPoint && !bSatisfiedMinDistance; ++Attempt)
+		{
+			const float Angle = RandomStream.FRandRange(0.0f, 2.0f * PI);
+			const float Radius = SafeAreaRadius * FMath::Sqrt(RandomStream.FRand());
+			const FVector Candidate = Center + FVector(Radius * FMath::Cos(Angle), Radius * FMath::Sin(Angle), 0.0f);
+
+			float CandidateMinDistance = TNumericLimits<float>::Max();
+			for (const FVector& Existing : Points)
+			{
+				CandidateMinDistance = FMath::Min(CandidateMinDistance, FVector::Dist(Candidate, Existing));
+			}
+
+			if (CandidateMinDistance > BestCandidateMinDistance)
+			{
+				BestCandidateMinDistance = CandidateMinDistance;
+				BestCandidate = Candidate;
+			}
+
+			if (CandidateMinDistance >= MinDistance)
+			{
+				bSatisfiedMinDistance = true;
+			}
+		}
+
+		Points.Add(BestCandidate);
+	}
+
+	return Points;
+}
+
+void AWTBRGameMode::ApplyRandomSpawnPositions()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	TArray<AWTBRCharacter*> Characters;
+	for (TActorIterator<AWTBRCharacter> It(World); It; ++It)
+	{
+		if (IsValid(*It))
+		{
+			Characters.Add(*It);
+		}
+	}
+
+	if (Characters.Num() == 0)
+	{
+		return;
+	}
+
+	FRandomStream RandomStream;
+	RandomStream.GenerateNewSeed();
+
+	const TArray<FVector> SpawnPoints = GenerateRandomSpawnPoints(
+		RandomSpawnAreaCenter, RandomSpawnAreaRadius, MinSpawnDistance, Characters.Num(), RandomStream);
+
+	for (int32 i = 0; i < Characters.Num(); ++i)
+	{
+		Characters[i]->SetActorLocation(SpawnPoints[i], /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: random spawn positions applied to %d combatants (Center=%s AreaRadius=%.0f MinDistance=%.0f)."),
+		Characters.Num(),
+		*RandomSpawnAreaCenter.ToString(),
+		RandomSpawnAreaRadius,
+		MinSpawnDistance);
 }
 
 void AWTBRGameMode::CollectAliveCombatants(UWorld* World, TArray<AWTBRCharacter*>& OutAlive)
@@ -795,6 +894,7 @@ FWTBRMatchModeRules AWTBRGameMode::MakeDefaultRulesForMode(EWTBRMatchMode MatchM
 		Rules.bAllowCorpseLoot = false;
 		Rules.bUseCorpseLootContainerOnDeath = false;
 		Rules.MatchTimeLimitSeconds = 900.0f;
+		Rules.bUseRandomSpawnPositions = true;
 		break;
 	case EWTBRMatchMode::BattleRoyale:
 		// Mode design lock 2026-07-13: ~60 players in teams of 3 (20 teams),
@@ -810,6 +910,7 @@ FWTBRMatchModeRules AWTBRGameMode::MakeDefaultRulesForMode(EWTBRMatchMode MatchM
 		Rules.bUseTeams = true;
 		Rules.bAssignTeamsAtMatchStart = true;
 		Rules.bScoreBasedTeamWinner = false;
+		Rules.bUseRandomSpawnPositions = true;
 		break;
 	case EWTBRMatchMode::None:
 	case EWTBRMatchMode::ThreeVThree:
