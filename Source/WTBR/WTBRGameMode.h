@@ -126,17 +126,23 @@ protected:
 	// duration above) rather than the match-mode-rules DataAsset because the play
 	// area is a property of the LEVEL, not the ruleset — a level-specific
 	// AWTBRGameMode Blueprint subclass (or World Settings override) is the place
-	// to retune these per map. Placeholder values; real map sizes are ~1x1 km
-	// (15P) / ~3x3 km (BR) per the mode design lock, but exact spawn-area/spacing
-	// numbers are TBD via playtest on a real (non-graybox) map.
+	// to retune these per map. Real map sizes are ~1x1 km (15P) / ~3x3 km (BR)
+	// per the mode design lock; exact spawn-area/spacing numbers are TBD via
+	// playtest on a real (non-graybox) map.
+	//
+	// ⚠ Current defaults are sized for the stock ThirdPersonMap graybox floor
+	// (small, centered near the origin), NOT the real 1x1/3x3 km maps — the old
+	// 500 m radius placed most spawn points off the graybox entirely, and with
+	// no ground trace (see ApplyRandomSpawnPositions) that meant falling into
+	// the void. Retune both once a real map exists.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn")
 	FVector RandomSpawnAreaCenter = FVector::ZeroVector;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn", meta=(ClampMin="0.0"))
-	float RandomSpawnAreaRadius = 50000.0f; // 500 m placeholder.
+	float RandomSpawnAreaRadius = 1200.0f; // ~12 m — fits the ThirdPersonMap graybox floor.
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn", meta=(ClampMin="0.0"))
-	float MinSpawnDistance = 3000.0f; // 30 m placeholder.
+	float MinSpawnDistance = 250.0f; // ~2.5 m — scaled down to match the smaller radius above.
 
 private:
 	FWTBRMatchModeRules ResolveDefaultMatchRules() const;
@@ -190,16 +196,25 @@ private:
 	// Always returns exactly Count points (never fails/hangs): when the area is too
 	// small to satisfy MinDistance for every point, later points fall back to
 	// whichever sampled candidate had the largest achieved minimum distance. Z is
-	// fixed at Center.Z — ground-height resolution (line trace down) is a follow-up
-	// once this runs on a real (non-graybox) map, not needed to validate the
-	// spacing algorithm itself.
+	// fixed at Center.Z — this is a pure, World-independent function (kept
+	// deterministic/testable via GenerateRandomSpawnPointsForTest); ground-height
+	// resolution happens afterward in ApplyRandomSpawnPositions, which has a World
+	// to trace against.
 	static TArray<FVector> GenerateRandomSpawnPoints(const FVector& Center, float AreaRadius, float MinDistance, int32 Count, FRandomStream& RandomStream);
 
 	// Teleports every AWTBRCharacter in the world to a freshly generated random
-	// spawn point (see GenerateRandomSpawnPoints). Only called when the active
-	// match rules have bUseRandomSpawnPositions; a no-op otherwise so legacy
-	// modes and the 1v1 harness keep using normal PlayerStart placement.
+	// spawn point (see GenerateRandomSpawnPoints), snapped down onto the ground via
+	// a line trace so points on sloped/uneven terrain (or a mismatched spawn-area
+	// config) don't drop characters into the void. Only called when the active
+	// match rules have bUseRandomSpawnPositions; a no-op otherwise so legacy modes
+	// and the 1v1 harness keep using normal PlayerStart placement.
 	void ApplyRandomSpawnPositions();
+
+	// Ground-snap helper for ApplyRandomSpawnPositions: traces straight down from
+	// well above InPoint and returns the impact location + a small clearance, or
+	// InPoint unchanged (with a warning log) if the trace finds no ground within
+	// range — e.g. the configured spawn area extends outside the level's floor.
+	static FVector SnapSpawnPointToGround(UWorld* World, const FVector& InPoint, const AActor* IgnoreActor);
 
 	// Called only by BeginLoadoutSetupCountdown's callers (BeginPlay via
 	// EnterLobbyAndWaitForPlayers, WTBRRestartRound directly): enters LoadoutSetup,

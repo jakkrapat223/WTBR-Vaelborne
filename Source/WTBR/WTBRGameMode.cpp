@@ -590,6 +590,31 @@ TArray<FVector> AWTBRGameMode::GenerateRandomSpawnPoints(const FVector& Center, 
 	return Points;
 }
 
+FVector AWTBRGameMode::SnapSpawnPointToGround(UWorld* World, const FVector& InPoint, const AActor* IgnoreActor)
+{
+	if (!World) return InPoint;
+
+	constexpr float TraceUpOffset = 1000.0f;
+	constexpr float TraceDownDistance = 20000.0f;
+	constexpr float GroundClearance = 92.0f; // roughly a standing capsule half-height
+
+	FHitResult Hit;
+	FCollisionQueryParams Params;
+	if (IgnoreActor) Params.AddIgnoredActor(IgnoreActor);
+
+	const FVector TraceStart = InPoint + FVector(0.0f, 0.0f, TraceUpOffset);
+	const FVector TraceEnd   = TraceStart - FVector(0.0f, 0.0f, TraceDownDistance);
+
+	if (World->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_WorldStatic, Params))
+	{
+		return Hit.ImpactPoint + FVector(0.0f, 0.0f, GroundClearance);
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("WTBR Match Flow: random spawn point %s found no ground within %.0f units — spawning unadjusted (character may fall). Check RandomSpawnAreaCenter/Radius against the level's actual floor bounds."),
+		*InPoint.ToString(), TraceDownDistance);
+	return InPoint;
+}
+
 void AWTBRGameMode::ApplyRandomSpawnPositions()
 {
 	UWorld* World = GetWorld();
@@ -620,7 +645,8 @@ void AWTBRGameMode::ApplyRandomSpawnPositions()
 
 	for (int32 i = 0; i < Characters.Num(); ++i)
 	{
-		Characters[i]->SetActorLocation(SpawnPoints[i], /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
+		const FVector GroundedPoint = SnapSpawnPointToGround(World, SpawnPoints[i], Characters[i]);
+		Characters[i]->SetActorLocation(GroundedPoint, /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: random spawn positions applied to %d combatants (Center=%s AreaRadius=%.0f MinDistance=%.0f)."),
