@@ -47,5 +47,5 @@ bool UWTBRSolvarnTrigger::Activate_Implementation(
 float UWTBRSolvarnTrigger::GetCooldownDuration() const
 {
     if (!IsValid(DataAsset)) return 2.0f;
-    return 5.0f; // ⚠ Playtest placeholder
+    return DataAsset->SolvarnParams.SolvarnFireCooldown;
 }

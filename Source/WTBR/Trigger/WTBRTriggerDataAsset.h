@@ -712,6 +712,9 @@ struct FWTBRVentryxParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ventryx | Projectile")
     TSubclassOf<AWTBRProjectileBase> VentryxProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ventryx | Combat", meta = (ClampMin = "0.1"))
+    float VentryxFireCooldown = 3.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -752,6 +755,9 @@ struct FWTBRFulgornParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgorn | Resources", meta = (ClampMin = "0.0"))
     float FulgornVaelCost = 100.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgorn | Combat", meta = (ClampMin = "0.1"))
+    float FulgornFireCooldown = 4.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -783,6 +789,9 @@ struct FWTBRSolvarnParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solvarn | Field")
     TSubclassOf<AWTBRSolvarnField> SolvarnFieldClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solvarn | Combat", meta = (ClampMin = "0.1"))
+    float SolvarnFireCooldown = 5.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -817,6 +826,10 @@ struct FWTBRKaldrixParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Kaldrix | Zone")
     TSubclassOf<AWTBRKaldrixZone> KaldrixZoneClass;
+
+    // Zone must arm before the next placement — keep >= KaldrixArmTime.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Kaldrix | Combat", meta = (ClampMin = "0.1"))
+    float KaldrixFireCooldown = 6.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -844,6 +857,10 @@ struct FWTBRNyxveilParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Nyxveil | Resources", meta = (ClampMin = "0.0"))
     float NyxveilVaelCost = 60.0f;
+
+    // Cooldown after the scan ends — keep >= NyxveilDuration so it can't re-fire mid-scan.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Nyxveil | Combat", meta = (ClampMin = "0.1"))
+    float NyxveilFireCooldown = 15.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

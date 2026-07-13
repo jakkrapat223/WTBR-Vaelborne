@@ -47,5 +47,5 @@ bool UWTBRKaldrixTrigger::Activate_Implementation(
 float UWTBRKaldrixTrigger::GetCooldownDuration() const
 {
     if (!IsValid(DataAsset)) return 2.0f;
-    return 6.0f; // ⚠ Playtest — zone must arm before next placement
+    return DataAsset->KaldrixParams.KaldrixFireCooldown;
 }

@@ -71,5 +71,5 @@ bool UWTBRFulgornTrigger::Activate_Implementation(
 float UWTBRFulgornTrigger::GetCooldownDuration() const
 {
     if (!IsValid(DataAsset)) return 2.0f;
-    return 4.0f; // ⚠ Playtest placeholder
+    return DataAsset->FulgornParams.FulgornFireCooldown;
 }

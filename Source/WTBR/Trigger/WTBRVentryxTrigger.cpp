@@ -33,5 +33,5 @@ bool UWTBRVentryxTrigger::Activate_Implementation(
 float UWTBRVentryxTrigger::GetCooldownDuration() const
 {
     if (!IsValid(DataAsset)) return 2.0f;
-    return 3.0f; // ⚠ Playtest — no DataAsset field yet for Ventryx cooldown
+    return DataAsset->VentryxParams.VentryxFireCooldown;
 }

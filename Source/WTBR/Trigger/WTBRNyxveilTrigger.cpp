@@ -101,5 +101,5 @@ void UWTBRNyxveilTrigger::Deactivate_Implementation()
 float UWTBRNyxveilTrigger::GetCooldownDuration() const
 {
     if (!IsValid(DataAsset)) return 2.0f;
-    return DataAsset->NyxveilParams.NyxveilDuration + 5.0f; // ⚠ Playtest
+    return DataAsset->NyxveilParams.NyxveilFireCooldown;
 }
