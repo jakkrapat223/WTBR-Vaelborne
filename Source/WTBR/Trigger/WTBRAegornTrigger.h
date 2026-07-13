@@ -84,6 +84,12 @@ private:
     bool IsSiblingAegornHeld() const;
     FVector GetAimDirection() const;
 
+    // Single source of truth for where a held shield should sit this frame,
+    // used by BOTH the initial hold spawn and every tracking tick so the Sub
+    // instance spawns directly at the rear (Full Guard) instead of spawning
+    // at the front and visibly snapping to the back one tick later.
+    void GetDesiredHeldShieldTransform(FVector& OutLoc, FRotator& OutRot) const;
+
     // Shared spawn path for both tap and hold — consumes Vael, loads
     // ShieldActorClass, spawns + initializes it, binds the destroy callback.
     // Returns nullptr (no Vael spent) on any failure; LogTag distinguishes

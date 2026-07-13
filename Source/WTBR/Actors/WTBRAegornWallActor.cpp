@@ -12,6 +12,13 @@ AWTBRAegornWallActor::AWTBRAegornWallActor()
 {
     PrimaryActorTick.bCanEverTick = false;
     bReplicates = true;
+    // A held Aegorn shield is repositioned ~20x/sec on the server
+    // (UWTBRAegornTrigger::TickHeldShield); replicate that movement and update
+    // often so clients see it track the caster's aim instead of lagging behind
+    // at a stale/crooked transform.
+    SetReplicateMovement(true);
+    NetUpdateFrequency = 60.0f;
+    MinNetUpdateFrequency = 30.0f;
 
     WallMesh = CreateDefaultSubobject<UStaticMeshComponent>(
         TEXT("WallMesh"));

@@ -133,8 +133,12 @@ AWTBRAegornWallActor* UWTBRAegornTrigger::SpawnShieldActor(
     FActorSpawnParameters Params;
     Params.Owner      = OwnerCharacter.Get();
     Params.Instigator = OwnerCharacter.Get();
+    // AlwaysSpawn (not AdjustIfPossible): with two shields raised at once for
+    // Full Guard, "adjust" would shove the second one off its intended spot
+    // when they briefly overlap at spawn, leaving it stuck at a crooked pose
+    // that then replicates to clients. We place them deliberately instead.
     Params.SpawnCollisionHandlingOverride =
-        ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+        ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
     AWTBRAegornWallActor* Shield =
         GetWorld()->SpawnActor<AWTBRAegornWallActor>(ShieldClass, Loc, Rot, Params);
@@ -174,16 +178,39 @@ void UWTBRAegornTrigger::PerformTap()
     }
 }
 
+void UWTBRAegornTrigger::GetDesiredHeldShieldTransform(FVector& OutLoc, FRotator& OutRot) const
+{
+    // Full Guard: when Aegorn is held in both Main and Sub simultaneously,
+    // the Sub instance flips to cover the caster's back instead of also
+    // facing forward — together the pair gives front+back coverage with
+    // zero extra input, matching canon's two-hemisphere Full Guard.
+    const bool bFlipToRear = !bIsMainSlot && IsSiblingAegornHeld();
+    FVector AimDir = GetAimDirection();
+    if (bFlipToRear) AimDir = -AimDir;
+
+    OutLoc = OwnerCharacter->GetActorLocation() + AimDir * SPAWN_FORWARD_OFFSET;
+    OutRot = AimDir.Rotation();
+}
+
 void UWTBRAegornTrigger::EnterHeldMode()
 {
     if (!OwnerCharacter.IsValid() || bShieldActive) return;
 
-    const FVector AimDir = GetAimDirection();
-    const FVector SpawnLoc = OwnerCharacter->GetActorLocation() + AimDir * SPAWN_FORWARD_OFFSET;
-
-    if (!SpawnShieldActor(SpawnLoc, AimDir.Rotation(), TEXT("HoldEnter"))) return;
-
+    // Mark held BEFORE spawning so that if this is the second Aegorn to enter
+    // (the sibling is already held), GetDesiredHeldShieldTransform sees a
+    // consistent state — and so the sibling's own next tick sees us held too.
     bIsHeldMode = true;
+
+    FVector SpawnLoc;
+    FRotator SpawnRot;
+    GetDesiredHeldShieldTransform(SpawnLoc, SpawnRot);
+
+    if (!SpawnShieldActor(SpawnLoc, SpawnRot, TEXT("HoldEnter")))
+    {
+        bIsHeldMode = false;
+        return;
+    }
+
     GetWorld()->GetTimerManager().SetTimer(
         HoldTrackingTimer,
         this, &UWTBRAegornTrigger::TickHeldShield,
@@ -202,16 +229,10 @@ void UWTBRAegornTrigger::TickHeldShield()
     }
     if (!OwnerCharacter->HasAuthority()) return;
 
-    // Full Guard: when Aegorn is held in both Main and Sub simultaneously,
-    // the Sub instance flips to cover the caster's back instead of also
-    // facing forward — together the pair gives front+back coverage with
-    // zero extra input, matching canon's two-hemisphere Full Guard.
-    const bool bFlipToRear = !bIsMainSlot && IsSiblingAegornHeld();
-    FVector AimDir = GetAimDirection();
-    if (bFlipToRear) AimDir = -AimDir;
-
-    const FVector NewLoc = OwnerCharacter->GetActorLocation() + AimDir * SPAWN_FORWARD_OFFSET;
-    ActiveShieldActor->SetActorLocationAndRotation(NewLoc, AimDir.Rotation());
+    FVector NewLoc;
+    FRotator NewRot;
+    GetDesiredHeldShieldTransform(NewLoc, NewRot);
+    ActiveShieldActor->SetActorLocationAndRotation(NewLoc, NewRot);
 }
 
 bool UWTBRAegornTrigger::IsSiblingAegornHeld() const
