@@ -109,15 +109,36 @@ private:
 	// the 1v1 harness behave exactly as before.
 	void AssignTeamsForRound(const FWTBRMatchModeRules& Rules);
 
-	// Team-mode round resolution (bUseTeams + at least one assigned TeamId among
-	// the alive set). Awards nothing by itself — kill points are added as
-	// eliminations stream in; this only decides END + WINNER: when at most one
-	// team has a non-eliminated member, the survivors' team receives +1 per living
-	// member, then the winner is the highest total score if
-	// Rules.bScoreBasedTeamWinner (TeamThree15P — a wiped team can win on kills),
-	// else simply the surviving team (BR). Ties resolve to the surviving team if
-	// it is among the leaders, otherwise a draw (WinningTeamId stays INDEX_NONE).
+	// Team-mode round resolution triggered by an elimination (bUseTeams + at
+	// least one assigned TeamId among the alive set). Ends the round only when
+	// at most one team has a non-eliminated member; otherwise the match
+	// continues. See ApplyTeamRoundEndScoringAndWinner for the scoring/winner
+	// logic shared with the time-limit path.
 	void ResolveTeamRoundIfOver(AWTBRGameState& WTBRGameState, const TArray<AWTBRCharacter*>& AliveCombatants);
+
+	// Builds TeamId -> living-member-count from AliveCombatants. Characters with
+	// no assigned TeamId are logged and excluded (should not happen — assignment
+	// covers everyone). OutTeamlessAliveCount is set to how many were excluded.
+	static TMap<int32, int32> BuildAliveCountByTeam(const TArray<AWTBRCharacter*>& AliveCombatants, int32& OutTeamlessAliveCount);
+
+	// Shared team-round-end scoring: every team present in AliveCountByTeam gets
+	// +1 survivor point per living member (generalizes the old
+	// single-surviving-team bonus to however many teams are alive when the round
+	// ends — natural last-team-standing has exactly one, a time-limit end can
+	// have several). Winner: Rules.bScoreBasedTeamWinner picks the highest total
+	// score (a wiped team can still win on kill points); ties break to whichever
+	// tied leader has the most living members right now, and remain a draw
+	// (WinningTeamId INDEX_NONE) if that's still tied. Non-score-based modes
+	// (BR) simply win with the sole alive team, drawing if more than one remains.
+	void ApplyTeamRoundEndScoringAndWinner(AWTBRGameState& WTBRGameState, const TMap<int32, int32>& AliveCountByTeam);
+
+	// Match time limit (design lock 2026-07-13, TeamThree15P): started at
+	// InMatch entry when Rules.MatchTimeLimitSeconds > 0; force-ends the round
+	// via ApplyTeamRoundEndScoringAndWinner even with multiple teams still
+	// alive. No-op for modes with no time limit set (0, incl. BR/1v1 today).
+	void StartMatchTimeLimitTimer(const FWTBRMatchModeRules& Rules);
+	void ClearMatchTimeLimitTimer();
+	void OnMatchTimeLimitExpired();
 
 	// Shared by BeginPlay and WTBRRestartRound: enters LoadoutSetup, resets the
 	// per-round result-resolved flag, and (re)starts the LoadoutSetup -> Countdown
@@ -127,6 +148,7 @@ private:
 
 	FTimerHandle LoadoutSetupTimerHandle;
 	FTimerHandle CountdownTimerHandle;
+	FTimerHandle MatchTimeLimitTimerHandle;
 	bool bMatchResultResolved = false;
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -141,6 +163,10 @@ public:
 	// production defaults (e.g. TeamThree15P must ship with corpse loot off)
 	// instead of hand-rolling a rules struct that could drift from production.
 	static FWTBRMatchModeRules MakeDefaultRulesForModeForTest(EWTBRMatchMode MatchMode) { return MakeDefaultRulesForMode(MatchMode); }
+	// Drives the match-time-limit expiry handler directly — real FTimerManager
+	// timers don't fire in the headless transient-world fixtures.
+	void ForceMatchTimeLimitExpiredForTest() { OnMatchTimeLimitExpired(); }
+	bool IsMatchTimeLimitTimerActiveForTest() const { return GetWorldTimerManager().IsTimerActive(MatchTimeLimitTimerHandle); }
 private:
 #endif
 

@@ -70,6 +70,17 @@ struct FWTBRMatchModeRules
     // team simply wins.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode | Teams")
     bool bScoreBasedTeamWinner = false;
+
+    // Match time limit for team modes (design lock 2026-07-13): when set (>0),
+    // the round force-ends this many seconds into InMatch even if MORE than one
+    // team still has a living member (e.g. 3 teams left) — it does NOT wait for
+    // last-team-standing. Scoring at that point works exactly as a natural round
+    // end: every team with a living member gets its survivor bonus, and (when
+    // bScoreBasedTeamWinner) the highest total still wins. 0 = no time limit (BR
+    // relies on the zone instead, once implemented). Placeholder value on
+    // TeamThree15P — exact duration TBD via playtest.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode | Teams", meta=(ClampMin="0.0"))
+    float MatchTimeLimitSeconds = 0.0f;
 };
 
 UCLASS(BlueprintType)
