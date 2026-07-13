@@ -8,7 +8,11 @@
 class UBoxComponent;
 class UStaticMeshComponent;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnWallDestroyed);
+// bExpiredNaturally: true = lifetime/Duration ran out on its own; false = HP
+// was driven to zero by damage (or a deliberate self-damage collapse, e.g.
+// UWTBRAegornTrigger::CancelShield). Lets listeners tell "ran its course"
+// apart from "got beaten."
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWallDestroyed, bool, bExpiredNaturally);
 
 UCLASS()
 class WTBR_API AWTBRAegornWallActor : public AActor
@@ -81,7 +85,7 @@ protected:
                        const FHitResult& SweepResult);
 
 private:
-    void DestroyWall();
+    void DestroyWall(bool bExpiredNaturally);
 
     UFUNCTION()
     void OnLifetimeExpired();

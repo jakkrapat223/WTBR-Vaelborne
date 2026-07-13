@@ -269,6 +269,10 @@ bool UWTBRAegornTrigger::CancelShield()
     // Collapse the shield by draining its own remaining HP — reuses the same
     // break path a projectile hit would take (TakeDamageFromProjectile ->
     // DestroyWall -> OnWallDestroyed -> NotifyShieldDestroyed clears state).
+    // Flagged as a manual cancel first so NotifyShieldDestroyed knows this
+    // wasn't actually "beaten by damage" even though it goes through the
+    // same HP-to-zero path.
+    bPendingManualCancel = true;
     ActiveShieldActor->TakeDamageFromProjectile(ActiveShieldActor->WallHP);
 
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Cancel Test] AegornShieldCanceled | Owner=%s | ShieldActive=false"),
@@ -276,10 +280,16 @@ bool UWTBRAegornTrigger::CancelShield()
     return true;
 }
 
-void UWTBRAegornTrigger::NotifyShieldDestroyed()
+void UWTBRAegornTrigger::NotifyShieldDestroyed(bool bExpiredNaturally)
 {
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Aegorn Test] ShieldDestroyed Notify | Shield=%s"),
-        *GetNameSafe(ActiveShieldActor.Get()));
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Aegorn Test] ShieldDestroyed Notify | Shield=%s | ExpiredNaturally=%s | ManualCancel=%s"),
+        *GetNameSafe(ActiveShieldActor.Get()),
+        bExpiredNaturally ? TEXT("true") : TEXT("false"),
+        bPendingManualCancel ? TEXT("true") : TEXT("false"));
+
+    const bool bWasManualCancel = bPendingManualCancel;
+    bPendingManualCancel = false;
+
     if (GetWorld())
         GetWorld()->GetTimerManager().ClearTimer(HoldTrackingTimer);
     ActiveShieldActor = nullptr;
@@ -288,12 +298,15 @@ void UWTBRAegornTrigger::NotifyShieldDestroyed()
     OnShieldChanged.Broadcast(false);
     OnAegornShieldLowered();
 
-    // Single unified end-of-shield path — covers tap breaking/expiring, a
-    // held shield released normally, AND a held shield destroyed early by
-    // damage or ShieldDuration while still held. Without this, that last
-    // case let the player raise a brand new shield the instant the old one
-    // ended even though their finger never left the button.
-    StartCooldown();
+    // Cooldown applies only when the shield was actually beaten — driven to
+    // 0 HP by real damage. It does NOT apply when the Duration simply ran
+    // out (bExpiredNaturally) or the player ended it themselves (hold
+    // release, slot switch, explicit cancel — bWasManualCancel). Same rule
+    // for both tap and hold shields; they share this one destroy path.
+    if (!bExpiredNaturally && !bWasManualCancel)
+    {
+        StartCooldown();
+    }
 }
 
 void UWTBRAegornTrigger::StartCooldown()

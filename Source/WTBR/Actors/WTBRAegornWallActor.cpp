@@ -110,7 +110,7 @@ void AWTBRAegornWallActor::OnLifetimeExpired()
 {
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] LifetimeExpired | Wall=%s"),
         *GetNameSafe(this));
-    DestroyWall();
+    DestroyWall(/*bExpiredNaturally=*/true);
 }
 
 void AWTBRAegornWallActor::TakeDamageFromProjectile(float DamageAmount)
@@ -133,7 +133,7 @@ void AWTBRAegornWallActor::TakeDamageFromProjectile(float DamageAmount)
     {
         WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] WallDestroyed | Wall=%s"),
             *GetNameSafe(this));
-        DestroyWall();
+        DestroyWall(/*bExpiredNaturally=*/false);
     }
 }
 
@@ -240,12 +240,13 @@ bool AWTBRAegornWallActor::HandleProjectileContact(AActor* OtherActor, const TCH
     return false;
 }
 
-void AWTBRAegornWallActor::DestroyWall()
+void AWTBRAegornWallActor::DestroyWall(bool bExpiredNaturally)
 {
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] DestroyWall | Wall=%s | HasAuthority=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] DestroyWall | Wall=%s | HasAuthority=%s | ExpiredNaturally=%s"),
         *GetNameSafe(this),
-        HasAuthority() ? TEXT("true") : TEXT("false"));
-    OnWallDestroyed.Broadcast();
+        HasAuthority() ? TEXT("true") : TEXT("false"),
+        bExpiredNaturally ? TEXT("true") : TEXT("false"));
+    OnWallDestroyed.Broadcast(bExpiredNaturally);
     OnWallCollapsed();
     Destroy();
 }

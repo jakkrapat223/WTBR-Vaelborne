@@ -92,7 +92,7 @@ private:
         const FVector& Loc, const FRotator& Rot, const TCHAR* LogTag);
 
     UFUNCTION()
-    void NotifyShieldDestroyed();
+    void NotifyShieldDestroyed(bool bExpiredNaturally);
 
     UFUNCTION()
     void OnHoldThresholdReached();
@@ -117,6 +117,13 @@ private:
     bool bWaitingForHoldDecision = false;
     bool bIsHeldMode = false;
     bool bIsOnCooldown = false;
+
+    // Set right before CancelShield's self-damage collapse so
+    // NotifyShieldDestroyed can tell "player chose to end this" (normal
+    // hold release, slot switch, explicit cancel — no cooldown) apart from
+    // "an enemy actually broke it" (bExpiredNaturally=false with this still
+    // clear — cooldown applies).
+    bool bPendingManualCancel = false;
 
     FTimerHandle HoldThresholdTimer;
     FTimerHandle HoldTrackingTimer;
