@@ -137,6 +137,10 @@ public:
 	void AdvanceToCountdownForTest() { AdvanceToCountdown(); }
 	void AdvanceToInMatchForTest() { AdvanceToInMatch(); }
 	bool IsMatchResultResolvedForTest() const { return bMatchResultResolved; }
+	// Exposes the real per-mode default rules generator so tests can lock the
+	// production defaults (e.g. TeamThree15P must ship with corpse loot off)
+	// instead of hand-rolling a rules struct that could drift from production.
+	static FWTBRMatchModeRules MakeDefaultRulesForModeForTest(EWTBRMatchMode MatchMode) { return MakeDefaultRulesForMode(MatchMode); }
 private:
 #endif
 
