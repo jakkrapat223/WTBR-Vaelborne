@@ -88,7 +88,7 @@ namespace
         return Character;
     }
 
-    void DriveDown(AWTBRCharacter* Victim, AWTBRCharacter* Attacker)
+    void ReviveInteractTest_DriveDown(AWTBRCharacter* Victim, AWTBRCharacter* Attacker)
     {
         Victim->HealthComponent->ApplyDamage(10000.0f, Attacker);
     }
@@ -117,8 +117,8 @@ bool FWTBRReviveFocusOnlyDownedTeammateTest::RunTest(const FString& /*Parameters
     AliveTeammate->SetTeamId(0);
     DownedEnemy->SetTeamId(1);
     DownedTeammate->SetTeamId(0);
-    DriveDown(DownedEnemy, Reviver);
-    DriveDown(DownedTeammate, DownedEnemy);
+    ReviveInteractTest_DriveDown(DownedEnemy, Reviver);
+    ReviveInteractTest_DriveDown(DownedTeammate, DownedEnemy);
 
     // Focused on a living teammate: not revivable (nothing to revive).
     Reviver->InteractionComponent->SetFocusedRevivableTeammateOverrideForTest(nullptr);
@@ -155,7 +155,7 @@ bool FWTBRReviveInteractStartTest::RunTest(const FString& /*Parameters*/)
     Reviver->SetTeamId(0);
     Teammate->SetTeamId(0);
     Enemy->SetTeamId(1);
-    DriveDown(Teammate, Enemy);
+    ReviveInteractTest_DriveDown(Teammate, Enemy);
 
     Reviver->InteractionComponent->SetFocusedRevivableTeammateOverrideForTest(Teammate);
 
@@ -198,7 +198,7 @@ bool FWTBRReviveInteractStopOnReleaseTest::RunTest(const FString& /*Parameters*/
     Reviver->SetTeamId(0);
     Teammate->SetTeamId(0);
     Enemy->SetTeamId(1);
-    DriveDown(Teammate, Enemy);
+    ReviveInteractTest_DriveDown(Teammate, Enemy);
 
     Reviver->InteractionComponent->SetFocusedRevivableTeammateOverrideForTest(Teammate);
     Reviver->InteractionComponent->RequestContextInteract();
@@ -243,7 +243,7 @@ bool FWTBRReviveInteractStaleReleaseDoesNotCancelOtherReviverTest::RunTest(const
     ReviverB->SetTeamId(0);
     Teammate->SetTeamId(0);
     Enemy->SetTeamId(1);
-    DriveDown(Teammate, Enemy);
+    ReviveInteractTest_DriveDown(Teammate, Enemy);
 
     // Reviver A "starts" but is rejected server-side because Reviver B already
     // has an active revive on the same teammate (server processes B first).
@@ -290,7 +290,7 @@ bool FWTBRReviveInteractPriorityAndFallthroughTest::RunTest(const FString& /*Par
     Reviver->SetTeamId(0);
     Teammate->SetTeamId(0);
     Enemy->SetTeamId(1);
-    DriveDown(Teammate, Enemy);
+    ReviveInteractTest_DriveDown(Teammate, Enemy);
 
     // No revivable teammate focused -> falls through to the existing no-op path
     // (no corpse/dropped-trigger/ground-item focused either in this fixture).
