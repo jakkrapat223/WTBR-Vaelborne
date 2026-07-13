@@ -87,9 +87,10 @@ void AWTBRGameMode::BeginPlay()
 
 	WTBRGameState->SetCurrentMatchRules(ResolveDefaultMatchRules());
 
-	// Phase 7B: auto-advance the round loop without needing console commands.
-	// LoadoutSetup -> Countdown -> InMatch. Fixed loadout only this phase.
-	BeginLoadoutSetupCountdown();
+	// Wait-for-players (design gap 2026-07-13), then auto-advance the round loop
+	// without needing console commands: Lobby -> LoadoutSetup -> Countdown ->
+	// InMatch. Fixed loadout only this phase.
+	EnterLobbyAndWaitForPlayers();
 
 #if !UE_BUILD_SHIPPING
 	// ExecCmds processes at tick [1], which is after BeginPlay fires during LoadMap.
@@ -135,7 +136,13 @@ void AWTBRGameMode::WTBRDebugSetMatchPhase(const FString& PhaseName)
 
 void AWTBRGameMode::BeginLoadoutSetupCountdown()
 {
-	if (AWTBRGameState* WTBRGameState = GetGameState<AWTBRGameState>())
+	// World-based lookup, not GetGameState<T>() (see AdvanceToCountdown/
+	// AdvanceToInMatch/WTBRRestartRound): correct in real gameplay either way,
+	// but also correct in headless automation fixtures that register a
+	// GameState via World->SetGameState() without driving the full InitGame
+	// flow — that path never populates the GameModeBase-cached member. Reached
+	// by EnterLobbyAndWaitForPlayers/WTBRForceStartMatch, both test-seamed.
+	if (AWTBRGameState* WTBRGameState = GetWorld() ? GetWorld()->GetGameState<AWTBRGameState>() : nullptr)
 	{
 		WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::LoadoutSetup);
 	}
@@ -146,6 +153,129 @@ void AWTBRGameMode::BeginLoadoutSetupCountdown()
 		FTimerDelegate::CreateUObject(this, &AWTBRGameMode::AdvanceToCountdown),
 		FMath::Max(0.01f, LoadoutSetupDuration),
 		/*bLoop=*/false);
+}
+
+void AWTBRGameMode::EnterLobbyAndWaitForPlayers()
+{
+	// World-based lookup — see the comment in BeginLoadoutSetupCountdown; test
+	// seam EnterLobbyAndWaitForPlayersForTest calls this directly.
+	if (AWTBRGameState* WTBRGameState = GetWorld() ? GetWorld()->GetGameState<AWTBRGameState>() : nullptr)
+	{
+		WTBRGameState->SetCurrentMatchPhase(EWTBRMatchPhase::Lobby);
+	}
+
+	if (const UWorld* World = GetWorld())
+	{
+		LobbyEnteredWorldTimeSeconds = World->GetTimeSeconds();
+	}
+
+	// Check immediately: covers the common MinPlayersToStart=1 solo/PIE/1v1-
+	// harness case without waiting a full poll interval if a player is already
+	// connected by the time BeginPlay fires.
+	if (IsLobbyReadyToStart())
+	{
+		UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: Lobby ready immediately (%d/%d players) — advancing to LoadoutSetup."),
+			CountConnectedPlayers(GetWorld()), MinPlayersToStart);
+		BeginLoadoutSetupCountdown();
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: Phase -> Lobby, waiting for %d/%d players (polling every %.1fs)."),
+		CountConnectedPlayers(GetWorld()), MinPlayersToStart, LobbyPollIntervalSeconds);
+
+	GetWorldTimerManager().SetTimer(
+		LobbyPollTimerHandle,
+		this, &AWTBRGameMode::PollLobbyReadyToStart,
+		LobbyPollIntervalSeconds,
+		/*bLoop=*/true);
+}
+
+int32 AWTBRGameMode::CountConnectedPlayers(UWorld* World)
+{
+	int32 PlayerCount = 0;
+	if (!World)
+	{
+		return PlayerCount;
+	}
+
+	for (TActorIterator<APlayerController> It(World); It; ++It)
+	{
+		if (IsValid(*It))
+		{
+			++PlayerCount;
+		}
+	}
+
+	return PlayerCount;
+}
+
+bool AWTBRGameMode::IsLobbyReadyToStart() const
+{
+	if (CountConnectedPlayers(GetWorld()) >= MinPlayersToStart)
+	{
+		return true;
+	}
+
+	if (LobbyMaxWaitSeconds > 0.0f)
+	{
+		if (const UWorld* World = GetWorld())
+		{
+			if ((World->GetTimeSeconds() - LobbyEnteredWorldTimeSeconds) >= LobbyMaxWaitSeconds)
+			{
+				UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: Lobby wait timed out after %.1fs with %d/%d players — starting anyway."),
+					LobbyMaxWaitSeconds, CountConnectedPlayers(GetWorld()), MinPlayersToStart);
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+void AWTBRGameMode::PollLobbyReadyToStart()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	const AWTBRGameState* WTBRGameState = GetWorld() ? GetWorld()->GetGameState<AWTBRGameState>() : nullptr;
+	if (!IsValid(WTBRGameState) || WTBRGameState->GetCurrentMatchPhase() != EWTBRMatchPhase::Lobby)
+	{
+		// Already left Lobby (e.g. WTBRForceStartMatch fired) — stop polling.
+		GetWorldTimerManager().ClearTimer(LobbyPollTimerHandle);
+		return;
+	}
+
+	if (IsLobbyReadyToStart())
+	{
+		GetWorldTimerManager().ClearTimer(LobbyPollTimerHandle);
+		UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: Lobby ready (%d/%d players) — advancing to LoadoutSetup."),
+			CountConnectedPlayers(GetWorld()), MinPlayersToStart);
+		BeginLoadoutSetupCountdown();
+	}
+}
+
+void AWTBRGameMode::WTBRForceStartMatch()
+{
+	if (!HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRForceStartMatch rejected: GameMode does not have authority."));
+		return;
+	}
+
+	AWTBRGameState* WTBRGameState = GetWorld() ? GetWorld()->GetGameState<AWTBRGameState>() : nullptr;
+	if (!IsValid(WTBRGameState) || WTBRGameState->GetCurrentMatchPhase() != EWTBRMatchPhase::Lobby)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBRForceStartMatch rejected: only valid from Lobby (current Phase=%s)."),
+			IsValid(WTBRGameState) ? *UEnum::GetValueAsString(WTBRGameState->GetCurrentMatchPhase()) : TEXT("NoGameState"));
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(LobbyPollTimerHandle);
+	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: WTBRForceStartMatch invoked (%d/%d players) — advancing to LoadoutSetup."),
+		CountConnectedPlayers(GetWorld()), MinPlayersToStart);
+	BeginLoadoutSetupCountdown();
 }
 
 void AWTBRGameMode::WTBRRestartRound()
@@ -180,6 +310,7 @@ void AWTBRGameMode::WTBRRestartRound()
 
 	GetWorldTimerManager().ClearTimer(LoadoutSetupTimerHandle);
 	GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
+	GetWorldTimerManager().ClearTimer(LobbyPollTimerHandle);
 	ClearMatchTimeLimitTimer();
 
 	WTBRGameState->SetMatchWinner(nullptr);

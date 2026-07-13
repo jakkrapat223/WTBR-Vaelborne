@@ -46,6 +46,13 @@ public:
 	UFUNCTION(Exec)
 	void WTBRRestartRound();
 
+	// Wait-for-players (design gap flagged 2026-07-13): host/dev override to skip
+	// the remaining Lobby wait and start immediately, even under
+	// MinPlayersToStart. Only valid from Lobby (no-op + warning otherwise).
+	// BlueprintCallable so a future "Start Match" UI button can call it directly.
+	UFUNCTION(Exec, BlueprintCallable, Category="WTBR | Match Flow")
+	void WTBRForceStartMatch();
+
 	UFUNCTION(Exec)
 	void WTBRDebugPrintMatchState() const;
 
@@ -92,6 +99,26 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow", meta=(ClampMin="0.0"))
 	float CountdownDuration = 3.0f;
+
+	// Wait-for-players (design gap flagged 2026-07-13): BeginPlay now enters a
+	// real Lobby phase and holds there — polling GetNumPlayers() — until at
+	// least MinPlayersToStart PlayerControllers are connected, instead of
+	// jumping straight into LoadoutSetup with whoever (if anyone) happened to be
+	// connected at that exact instant. Default 1 preserves existing solo/PIE/
+	// 1v1-harness behavior (starts on the next ~1s poll after the local player
+	// connects); a 15P/BR deployment should raise this via a level-specific
+	// GameMode Blueprint/World Settings override. A host/dev can always skip the
+	// rest of the wait via WTBRForceStartMatch. WTBRRestartRound is unaffected —
+	// a round restart skips Lobby entirely (players are already connected).
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Lobby", meta=(ClampMin="1"))
+	int32 MinPlayersToStart = 1;
+
+	// Safety valve: 0 = wait indefinitely for MinPlayersToStart. >0 = force-start
+	// after this many seconds even if still under MinPlayersToStart, so a match
+	// can never hang forever short a few players. Placeholder; TBD via playtest
+	// once real 15P/BR player counts and matchmaking are in place.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Lobby", meta=(ClampMin="0.0"))
+	float LobbyMaxWaitSeconds = 0.0f;
 
 	// Random spawn (design lock 2026-07-13, TeamThree15P/BR): per-map knobs for
 	// AssignRandomSpawnPositions, only used when the active match rules have
@@ -174,15 +201,42 @@ private:
 	// modes and the 1v1 harness keep using normal PlayerStart placement.
 	void ApplyRandomSpawnPositions();
 
-	// Shared by BeginPlay and WTBRRestartRound: enters LoadoutSetup, resets the
-	// per-round result-resolved flag, and (re)starts the LoadoutSetup -> Countdown
-	// timer. Does not touch match rules — callers that need a fresh rules reset
-	// (BeginPlay only) apply that separately before calling this.
+	// Called only by BeginLoadoutSetupCountdown's callers (BeginPlay via
+	// EnterLobbyAndWaitForPlayers, WTBRRestartRound directly): enters LoadoutSetup,
+	// resets the per-round result-resolved flag, and (re)starts the
+	// LoadoutSetup -> Countdown timer. Does not touch match rules — callers that
+	// need a fresh rules reset (BeginPlay only) apply that separately before
+	// calling this.
 	void BeginLoadoutSetupCountdown();
+
+	// Enters Lobby and holds until IsLobbyReadyToStart(), polling every
+	// LobbyPollIntervalSeconds, then calls BeginLoadoutSetupCountdown(). Checks
+	// immediately on entry too, so the common MinPlayersToStart=1 case doesn't
+	// wait a full poll interval if a player is already connected.
+	void EnterLobbyAndWaitForPlayers();
+	void PollLobbyReadyToStart();
+	bool IsLobbyReadyToStart() const;
+
+	// Counts live APlayerController actors in World. Deliberately NOT
+	// AGameModeBase::GetNumPlayers() (reads UWorld::PlayerControllerList,
+	// populated only by the real network login/join flow) and deliberately NOT
+	// gated on PlayerState (AController::InitPlayerState() itself requires
+	// World->GetAuthGameMode() to already be set via the full URL-based
+	// UWorld::SetGameMode() flow — never true in a headless fixture that merely
+	// SpawnActor's a GameMode, so PlayerState never gets created there either).
+	// Plain actor-counting matches every real connected player today (this
+	// project has no spectator mode yet — revisit alongside IsOnlyASpectator()
+	// if one is ever added) and is verifiable headlessly with a bare
+	// SpawnActor<APlayerController>().
+	static int32 CountConnectedPlayers(UWorld* World);
+
+	static constexpr float LobbyPollIntervalSeconds = 1.0f;
 
 	FTimerHandle LoadoutSetupTimerHandle;
 	FTimerHandle CountdownTimerHandle;
 	FTimerHandle MatchTimeLimitTimerHandle;
+	FTimerHandle LobbyPollTimerHandle;
+	float LobbyEnteredWorldTimeSeconds = 0.0f;
 	bool bMatchResultResolved = false;
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -215,6 +269,16 @@ public:
 		RandomSpawnAreaRadius = AreaRadius;
 		MinSpawnDistance = MinDistance;
 	}
+	// Wait-for-players test seams: real FTimerManager polling doesn't fire in the
+	// headless transient-world fixtures, and World->GetTimeSeconds() doesn't
+	// advance without ticking, so both the poll and the elapsed-wait check are
+	// driven directly.
+	void EnterLobbyAndWaitForPlayersForTest() { EnterLobbyAndWaitForPlayers(); }
+	void PollLobbyReadyToStartForTest() { PollLobbyReadyToStart(); }
+	bool IsLobbyPollTimerActiveForTest() const { return GetWorldTimerManager().IsTimerActive(LobbyPollTimerHandle); }
+	void SetMinPlayersToStartForTest(int32 Value) { MinPlayersToStart = Value; }
+	void SetLobbyMaxWaitSecondsForTest(float Value) { LobbyMaxWaitSeconds = Value; }
+	void SetLobbyEnteredWorldTimeForTest(float Value) { LobbyEnteredWorldTimeSeconds = Value; }
 private:
 #endif
 
