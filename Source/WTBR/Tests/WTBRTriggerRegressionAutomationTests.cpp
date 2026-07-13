@@ -520,10 +520,16 @@ bool FWTBRTelornFireConfiguresProjectileTest::RunTest(const FString& /*Parameter
     TestEqual(TEXT("GetCooldownDuration reads TelornFireCooldown from DataAsset"),
         Telorn->GetCooldownDuration(), 1.5f);
 
+    // Aim-then-fire: press only starts aiming, no Vael/projectile yet.
     const bool bActivated = Telorn->Activate(FInputActionValue(), false);
+    TestTrue(TEXT("Activation (aim start) succeeds"), bActivated);
+    TestEqual(TEXT("Vael not yet consumed while aiming"), Owner->VaelComponent->GetCurrentVael(), 100.0f);
+    TestEqual(TEXT("No projectile spawned while still aiming"), TriggerRegressionTest_CountProjectiles(World), 0);
 
-    TestTrue(TEXT("Activation succeeds"), bActivated);
-    TestEqual(TEXT("Vael consumed"), Owner->VaelComponent->GetCurrentVael(), 90.0f);
+    // Release actually fires.
+    Telorn->OnReleased(FInputActionValue(), false);
+
+    TestEqual(TEXT("Vael consumed on release"), Owner->VaelComponent->GetCurrentVael(), 90.0f);
 
     AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
     TestNotNull(TEXT("Exactly one bolt spawned"), Proj);
@@ -561,10 +567,14 @@ bool FWTBRTelornInsufficientVaelBlocksFireTest::RunTest(const FString& /*Paramet
     UWTBRTelornTrigger* Telorn = NewObject<UWTBRTelornTrigger>(Owner);
     Telorn->InitializeTrigger(Owner, DataAsset);
 
+    // Aim-then-fire: the Vael check now happens on release (ExecuteFire), not
+    // on press — Activate only gates on cooldown, so it succeeds here.
     const bool bActivated = Telorn->Activate(FInputActionValue(), false);
+    TestTrue(TEXT("Activation (aim start) succeeds even with insufficient Vael"), bActivated);
 
-    TestFalse(TEXT("Activation rejected: insufficient Vael (fail-closed)"), bActivated);
-    TestEqual(TEXT("Vael unchanged"), Owner->VaelComponent->GetCurrentVael(), 5.0f);
+    Telorn->OnReleased(FInputActionValue(), false);
+
+    TestEqual(TEXT("Vael unchanged — release fire rejected (fail-closed)"), Owner->VaelComponent->GetCurrentVael(), 5.0f);
     TestEqual(TEXT("No projectile spawned"), TriggerRegressionTest_CountProjectiles(World), 0);
     TestFalse(TEXT("Not left on cooldown"), Telorn->IsOnCooldown());
 
@@ -598,8 +608,10 @@ bool FWTBRTelornMissingProjectileClassTest::RunTest(const FString& /*Parameters*
     Telorn->InitializeTrigger(Owner, DataAsset);
 
     const bool bActivated = Telorn->Activate(FInputActionValue(), false);
+    TestTrue(TEXT("Activate (aim start) succeeds"), bActivated);
 
-    TestTrue(TEXT("Activate still reports success (existing quirk, not fixed here)"), bActivated);
+    Telorn->OnReleased(FInputActionValue(), false);
+
     TestEqual(TEXT("Vael still consumed despite no projectile spawning"),
         Owner->VaelComponent->GetCurrentVael(), 90.0f);
     TestEqual(TEXT("No projectile actually spawned"), TriggerRegressionTest_CountProjectiles(World), 0);
@@ -630,7 +642,9 @@ bool FWTBRTelornCooldownBlocksImmediateReactivationTest::RunTest(const FString& 
     UWTBRTelornTrigger* Telorn = NewObject<UWTBRTelornTrigger>(Owner);
     Telorn->InitializeTrigger(Owner, DataAsset);
 
-    TestTrue(TEXT("First activation succeeds"), Telorn->Activate(FInputActionValue(), false));
+    TestTrue(TEXT("First activation (aim start) succeeds"), Telorn->Activate(FInputActionValue(), false));
+    Telorn->OnReleased(FInputActionValue(), false); // fires the shot, starts the (999s) cooldown
+
     const bool bSecondActivate = Telorn->Activate(FInputActionValue(), false);
 
     TestFalse(TEXT("Second immediate activation rejected by cooldown"), bSecondActivate);
@@ -674,10 +688,16 @@ bool FWTBRPiercexFireConfiguresProjectileTest::RunTest(const FString& /*Paramete
     TestEqual(TEXT("GetCooldownDuration reads PiercexFireCooldown from DataAsset"),
         Piercex->GetCooldownDuration(), 2.0f);
 
+    // Aim-then-fire: press only starts aiming, no Vael/projectile yet.
     const bool bActivated = Piercex->Activate(FInputActionValue(), false);
+    TestTrue(TEXT("Activation (aim start) succeeds"), bActivated);
+    TestEqual(TEXT("Vael not yet consumed while aiming"), Owner->VaelComponent->GetCurrentVael(), 100.0f);
+    TestEqual(TEXT("No projectile spawned while still aiming"), TriggerRegressionTest_CountProjectiles(World), 0);
 
-    TestTrue(TEXT("Activation succeeds"), bActivated);
-    TestEqual(TEXT("Vael consumed"), Owner->VaelComponent->GetCurrentVael(), 90.0f);
+    // Release actually fires.
+    Piercex->OnReleased(FInputActionValue(), false);
+
+    TestEqual(TEXT("Vael consumed on release"), Owner->VaelComponent->GetCurrentVael(), 90.0f);
 
     AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
     TestNotNull(TEXT("Exactly one bolt spawned"), Proj);
@@ -714,10 +734,14 @@ bool FWTBRPiercexInsufficientVaelBlocksFireTest::RunTest(const FString& /*Parame
     UWTBRPiercexTrigger* Piercex = NewObject<UWTBRPiercexTrigger>(Owner);
     Piercex->InitializeTrigger(Owner, DataAsset);
 
+    // Aim-then-fire: the Vael check now happens on release (ExecuteFire), not
+    // on press — Activate only gates on cooldown, so it succeeds here.
     const bool bActivated = Piercex->Activate(FInputActionValue(), false);
+    TestTrue(TEXT("Activation (aim start) succeeds even with insufficient Vael"), bActivated);
 
-    TestFalse(TEXT("Activation rejected: insufficient Vael (fail-closed)"), bActivated);
-    TestEqual(TEXT("Vael unchanged"), Owner->VaelComponent->GetCurrentVael(), 5.0f);
+    Piercex->OnReleased(FInputActionValue(), false);
+
+    TestEqual(TEXT("Vael unchanged — release fire rejected (fail-closed)"), Owner->VaelComponent->GetCurrentVael(), 5.0f);
     TestEqual(TEXT("No projectile spawned"), TriggerRegressionTest_CountProjectiles(World), 0);
     TestFalse(TEXT("Not left on cooldown"), Piercex->IsOnCooldown());
 
@@ -746,7 +770,9 @@ bool FWTBRPiercexCooldownBlocksImmediateReactivationTest::RunTest(const FString&
     UWTBRPiercexTrigger* Piercex = NewObject<UWTBRPiercexTrigger>(Owner);
     Piercex->InitializeTrigger(Owner, DataAsset);
 
-    TestTrue(TEXT("First activation succeeds"), Piercex->Activate(FInputActionValue(), false));
+    TestTrue(TEXT("First activation (aim start) succeeds"), Piercex->Activate(FInputActionValue(), false));
+    Piercex->OnReleased(FInputActionValue(), false); // fires the shot, starts the (999s) cooldown
+
     const bool bSecondActivate = Piercex->Activate(FInputActionValue(), false);
 
     TestFalse(TEXT("Second immediate activation rejected by cooldown"), bSecondActivate);

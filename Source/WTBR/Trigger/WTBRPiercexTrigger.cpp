@@ -5,12 +5,9 @@
 #include "Trigger/WTBRTriggerDataAsset.h"
 #include "Actors/WTBRProjectileBase.h"
 
-bool UWTBRPiercexTrigger::Activate_Implementation(
-    const FInputActionValue& InputValue,
-    bool bIsDualWield)
+bool UWTBRPiercexTrigger::ExecuteFire()
 {
-    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
-    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
+    if (!IsValid(DataAsset)) return false;
 
     if (!OwnerCharacter->VaelComponent ||
         !OwnerCharacter->VaelComponent->TryConsumeVael(DataAsset->VaelCostPerUse))
@@ -25,7 +22,6 @@ bool UWTBRPiercexTrigger::Activate_Implementation(
     const int32 CubeSplit = DataAsset->PiercexParams.PiercexCubeSplitCount;
 
     FireSniper(ProjClass, Damage, Speed, Range, true, CubeSplit);
-    StartCooldown();
     return true;
 }
 

@@ -13,10 +13,9 @@ class WTBR_API UWTBRFulgrisTrigger : public UWTBRSniperTrigger
     GENERATED_BODY()
 
 public:
-    virtual bool Activate_Implementation(
-        const FInputActionValue& InputValue,
-        bool bIsDualWield) override;
-
     virtual float GetCooldownDuration() const override;
     virtual float GetZoomFOV() const override;
+
+protected:
+    virtual bool ExecuteFire() override;
 };

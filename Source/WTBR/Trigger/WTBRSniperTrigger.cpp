@@ -7,6 +7,37 @@
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 
+bool UWTBRSniperTrigger::Activate_Implementation(
+    const FInputActionValue& InputValue, bool bIsDualWield)
+{
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
+    if (IsOnCooldown()) return false;
+
+    // Don't fire yet — just start aiming. ExecuteFire runs on release.
+    bIsAiming = true;
+    return true;
+}
+
+void UWTBRSniperTrigger::OnReleased_Implementation(
+    const FInputActionValue& InputValue, bool bIsDualWield)
+{
+    if (!bIsAiming) return;
+    bIsAiming = false;
+
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return;
+
+    if (ExecuteFire())
+    {
+        StartCooldown();
+    }
+}
+
+void UWTBRSniperTrigger::Deactivate_Implementation()
+{
+    bIsAiming = false;
+    Super::Deactivate_Implementation();
+}
+
 FVector UWTBRSniperTrigger::GetFireDirection() const
 {
     return OwnerCharacter->GetController()
