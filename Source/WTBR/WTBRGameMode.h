@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Data/WTBRMatchModeRulesDataAsset.h"
+#include "Data/WTBRRandomSpawnConfigDataAsset.h"
 #include "GameFramework/GameModeBase.h"
 #include "WTBRGameState.h"
 #include "WTBRGameMode.generated.h"
@@ -120,29 +121,19 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Lobby", meta=(ClampMin="0.0"))
 	float LobbyMaxWaitSeconds = 0.0f;
 
-	// Random spawn (design lock 2026-07-13, TeamThree15P/BR): per-map knobs for
-	// AssignRandomSpawnPositions, only used when the active match rules have
-	// bUseRandomSpawnPositions. Live on the GameMode (like Loadout/Countdown
-	// duration above) rather than the match-mode-rules DataAsset because the play
-	// area is a property of the LEVEL, not the ruleset — a level-specific
-	// AWTBRGameMode Blueprint subclass (or World Settings override) is the place
-	// to retune these per map. Real map sizes are ~1x1 km (15P) / ~3x3 km (BR)
-	// per the mode design lock; exact spawn-area/spacing numbers are TBD via
-	// playtest on a real (non-graybox) map.
-	//
-	// ⚠ Current defaults are sized for the stock ThirdPersonMap graybox floor
-	// (small, centered near the origin), NOT the real 1x1/3x3 km maps — the old
-	// 500 m radius placed most spawn points off the graybox entirely, and with
-	// no ground trace (see ApplyRandomSpawnPositions) that meant falling into
-	// the void. Retune both once a real map exists.
+	// Random spawn (design lock 2026-07-13, TeamThree15P/BR): per-LEVEL spawn
+	// area, only used when the active match rules have bUseRandomSpawnPositions.
+	// A DataAsset (not raw UPROPERTY floats) so each level can get its own
+	// config without a C++ recompile or a level-specific GameMode Blueprint
+	// subclass — assign the DA that matches this level's actual floor size.
+	// If left unset, ApplyRandomSpawnPositions skips random spawn entirely
+	// (falls back to normal PlayerStart placement) rather than guessing
+	// map-inappropriate defaults. Real map sizes are ~1x1 km (15P) / ~3x3 km
+	// (BR) per the mode design lock; exact numbers are TBD via playtest on a
+	// real (non-graybox) map — the shipped default DA values are sized for the
+	// stock ThirdPersonMap graybox floor only.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn")
-	FVector RandomSpawnAreaCenter = FVector::ZeroVector;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn", meta=(ClampMin="0.0"))
-	float RandomSpawnAreaRadius = 300.0f; // ~3 m — 1200 (12 m) still landed points off the graybox floor.
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Flow | Spawn", meta=(ClampMin="0.0"))
-	float MinSpawnDistance = 80.0f; // ~0.8 m — scaled down to match the smaller radius above.
+	TObjectPtr<UWTBRRandomSpawnConfigDataAsset> RandomSpawnConfig;
 
 private:
 	FWTBRMatchModeRules ResolveDefaultMatchRules() const;
@@ -278,12 +269,19 @@ public:
 		return GenerateRandomSpawnPoints(Center, AreaRadius, MinDistance, Count, Stream);
 	}
 	void ApplyRandomSpawnPositionsForTest() { ApplyRandomSpawnPositions(); }
+	// Builds a transient config DA and assigns it to RandomSpawnConfig — tests
+	// exercise the real DA-driven production path, not a bypass of it.
 	void SetRandomSpawnParamsForTest(const FVector& Center, float AreaRadius, float MinDistance)
 	{
-		RandomSpawnAreaCenter = Center;
-		RandomSpawnAreaRadius = AreaRadius;
-		MinSpawnDistance = MinDistance;
+		UWTBRRandomSpawnConfigDataAsset* Config = NewObject<UWTBRRandomSpawnConfigDataAsset>(this);
+		Config->SpawnAreaCenter = Center;
+		Config->SpawnAreaRadius = AreaRadius;
+		Config->MinSpawnDistance = MinDistance;
+		RandomSpawnConfig = Config;
 	}
+	// Simulates a level with no spawn config assigned — for the "skip cleanly,
+	// don't fall back to guessed defaults" regression test.
+	void ClearRandomSpawnConfigForTest() { RandomSpawnConfig = nullptr; }
 	// Wait-for-players test seams: real FTimerManager polling doesn't fire in the
 	// headless transient-world fixtures, and World->GetTimeSeconds() doesn't
 	// advance without ticking, so both the poll and the elapsed-wait check are

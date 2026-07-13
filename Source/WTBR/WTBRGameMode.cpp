@@ -610,7 +610,7 @@ FVector AWTBRGameMode::SnapSpawnPointToGround(UWorld* World, const FVector& InPo
 		return Hit.ImpactPoint + FVector(0.0f, 0.0f, GroundClearance);
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("WTBR Match Flow: random spawn point %s found no ground within %.0f units — spawning unadjusted (character may fall). Check RandomSpawnAreaCenter/Radius against the level's actual floor bounds."),
+	UE_LOG(LogTemp, Warning, TEXT("WTBR Match Flow: random spawn point %s found no ground within %.0f units — spawning unadjusted (character may fall). Check RandomSpawnConfig's Center/Radius against the level's actual floor bounds."),
 		*InPoint.ToString(), TraceDownDistance);
 	return InPoint;
 }
@@ -620,6 +620,12 @@ void AWTBRGameMode::ApplyRandomSpawnPositions()
 	UWorld* World = GetWorld();
 	if (!World)
 	{
+		return;
+	}
+
+	if (!IsValid(RandomSpawnConfig))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("WTBR Match Flow: bUseRandomSpawnPositions is set but no RandomSpawnConfig DataAsset is assigned on this GameMode — skipping random spawn, using default PlayerStart placement instead."));
 		return;
 	}
 
@@ -640,8 +646,12 @@ void AWTBRGameMode::ApplyRandomSpawnPositions()
 	FRandomStream RandomStream;
 	RandomStream.GenerateNewSeed();
 
+	const FVector Center      = RandomSpawnConfig->SpawnAreaCenter;
+	const float   AreaRadius  = RandomSpawnConfig->SpawnAreaRadius;
+	const float   MinDistance = RandomSpawnConfig->MinSpawnDistance;
+
 	const TArray<FVector> SpawnPoints = GenerateRandomSpawnPoints(
-		RandomSpawnAreaCenter, RandomSpawnAreaRadius, MinSpawnDistance, Characters.Num(), RandomStream);
+		Center, AreaRadius, MinDistance, Characters.Num(), RandomStream);
 
 	for (int32 i = 0; i < Characters.Num(); ++i)
 	{
@@ -651,9 +661,9 @@ void AWTBRGameMode::ApplyRandomSpawnPositions()
 
 	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: random spawn positions applied to %d combatants (Center=%s AreaRadius=%.0f MinDistance=%.0f)."),
 		Characters.Num(),
-		*RandomSpawnAreaCenter.ToString(),
-		RandomSpawnAreaRadius,
-		MinSpawnDistance);
+		*Center.ToString(),
+		AreaRadius,
+		MinDistance);
 }
 
 void AWTBRGameMode::CollectAliveCombatants(UWorld* World, TArray<AWTBRCharacter*>& OutAlive)

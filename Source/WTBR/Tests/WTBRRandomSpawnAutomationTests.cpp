@@ -237,6 +237,38 @@ bool FWTBRApplyRandomSpawnPositionsTest::RunTest(const FString& /*Parameters*/)
     return true;
 }
 
+// ── No RandomSpawnConfig assigned: skip cleanly, don't guess defaults ──────────
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRRandomSpawnNoConfigTest,
+    "WTBR.Combat.Team.Spawn.SkippedWithoutConfigDataAsset",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRRandomSpawnNoConfigTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRSpawnWorldFixture Fixture(TEXT("WTBR_Spawn_NoConfig"));
+    UWorld* World = Fixture.GetWorld();
+
+    AWTBRGameMode* GameMode = World->SpawnActor<AWTBRGameMode>(AWTBRGameMode::StaticClass());
+    TestNotNull(TEXT("GameMode spawns"), GameMode);
+    if (!GameMode) return false;
+
+    // A fresh GameMode has no RandomSpawnConfig assigned by default —
+    // explicit for clarity/documentation of the seam's intent.
+    GameMode->ClearRandomSpawnConfigForTest();
+
+    AWTBRCharacter* Character = SpawnPlainCharacter(World, FVector::ZeroVector);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!Character) return false;
+
+    GameMode->ApplyRandomSpawnPositionsForTest();
+
+    TestTrue(TEXT("Character left untouched at its original location when no spawn config is assigned"),
+        Character->GetActorLocation().Equals(FVector::ZeroVector, 1.0f));
+
+    return true;
+}
+
 // ── Gate: modes without bUseRandomSpawnPositions never call the relocation ─────
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
