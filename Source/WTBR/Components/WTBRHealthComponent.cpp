@@ -119,6 +119,32 @@ void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstiga
             DamageAmount);
         return;
     }
+    // Friendly fire gate — only bites once teams are actually assigned (both
+    // sides TeamId != INDEX_NONE), so individual/1v1 rounds are untouched. The
+    // match rules flag (DA-driven) can re-enable team damage; with no GameState
+    // registered (bare fixtures) same-team damage stays blocked, which is the
+    // safe default.
+    if (AWTBRCharacter* InstigatorCharacter = Cast<AWTBRCharacter>(DamageInstigator))
+    {
+        const AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
+        if (IsValid(VictimCharacter) && InstigatorCharacter != VictimCharacter
+            && VictimCharacter->IsSameTeamAs(InstigatorCharacter))
+        {
+            const AWTBRGameState* WTBRGameState = GetWorld() ? GetWorld()->GetGameState<AWTBRGameState>() : nullptr;
+            const bool bAllowFriendlyFire = IsValid(WTBRGameState)
+                && WTBRGameState->GetCurrentMatchRules().bAllowFriendlyFire;
+            if (!bAllowFriendlyFire)
+            {
+                WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyDamage Rejected | Target=%s | Reason=FriendlyFire | Instigator=%s | TeamId=%d | Damage=%.1f"),
+                    *GetNameSafe(GetOwner()),
+                    *GetNameSafe(DamageInstigator),
+                    VictimCharacter->GetTeamId(),
+                    DamageAmount);
+                return;
+            }
+        }
+    }
+
     if (CurrentCombatState == EWTBRCombatState::Downed && bIsInvulnerable)
     {
         WTBR_VALIDATION_LOG(Verbose, TEXT("[Test28 Server DamageIgnored_Invulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s | DamageAmount=%.1f"),
@@ -353,7 +379,7 @@ void UWTBRHealthComponent::EnterEliminatedState(AActor* FinalDamageInstigator)
         {
             if (AWTBRGameMode* WTBRGameMode = World->GetAuthGameMode<AWTBRGameMode>())
             {
-                WTBRGameMode->NotifyCombatantEliminated(VictimCharacter);
+                WTBRGameMode->NotifyCombatantEliminated(VictimCharacter, FinalDamageInstigator);
             }
         }
     }

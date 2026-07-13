@@ -457,6 +457,31 @@ public:
     UFUNCTION(Exec)
     void WTBRDebugCharacterListNearbyDroppedTriggers() const;
 
+    // Round-scoped team identity. INDEX_NONE = no team (individual/1v1 harness).
+    // Assigned server-side by AWTBRGameMode at InMatch entry when the active match
+    // rules have bAssignTeamsAtMatchStart; never set from client input. Lives on
+    // the Character (not PlayerState) deliberately: rounds re-assign it, the
+    // headless automation fixtures spawn bare characters, and every consumer
+    // (friendly fire, scoring) already holds an AWTBRCharacter.
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "WTBR | Character | Team")
+    int32 TeamId = INDEX_NONE;
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Character | Team")
+    int32 GetTeamId() const { return TeamId; }
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Character | Team")
+    bool HasTeam() const { return TeamId != INDEX_NONE; }
+
+    // Same assigned team only — two team-less characters are NOT teammates.
+    UFUNCTION(BlueprintPure, Category = "WTBR | Character | Team")
+    bool IsSameTeamAs(const AWTBRCharacter* Other) const
+    {
+        return Other != nullptr && HasTeam() && Other->TeamId == TeamId;
+    }
+
+    // Server-only; AWTBRGameMode team assignment is the intended caller.
+    void SetTeamId(int32 NewTeamId);
+
     UPROPERTY(ReplicatedUsing = OnRep_bIsStaggered, BlueprintReadOnly,
         Category = "WTBR | Character | Stagger")
     bool bIsStaggered = false;

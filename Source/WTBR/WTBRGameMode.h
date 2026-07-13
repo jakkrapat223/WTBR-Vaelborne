@@ -25,7 +25,12 @@ public:
 	// winner (or a draw, on simultaneous elimination) on AWTBRGameState and
 	// advances MatchPhase to PostMatch. No-ops outside InMatch and once the result
 	// has already been resolved for the current round (idempotent).
-	void NotifyCombatantEliminated(AWTBRCharacter* EliminatedCharacter);
+	//
+	// Team mode (any alive combatant has an assigned TeamId): FinalDamageInstigator
+	// earns their team 1 kill point (enemy kills only — team kills, self-kills and
+	// environment deaths score nothing), the round instead ends when at most one
+	// TEAM has a living member, and the winner comes from ResolveTeamRoundIfOver.
+	void NotifyCombatantEliminated(AWTBRCharacter* EliminatedCharacter, AActor* FinalDamageInstigator = nullptr);
 
 	UFUNCTION(Exec)
 	void WTBRDebugSetMatchPhase(const FString& PhaseName);
@@ -96,6 +101,23 @@ private:
 	void AdvanceToCountdown();
 	void AdvanceToInMatch();
 	static void CollectAliveCombatants(UWorld* World, TArray<AWTBRCharacter*>& OutAlive);
+
+	// Block-fills every AWTBRCharacter in the world into teams of Rules.TeamSize
+	// (spawn-iteration order: first TeamSize characters -> team 0, next -> team 1,
+	// ...). Runs at InMatch entry, only when Rules.bAssignTeamsAtMatchStart; other
+	// modes leave TeamId untouched (INDEX_NONE) so the individual round loop and
+	// the 1v1 harness behave exactly as before.
+	void AssignTeamsForRound(const FWTBRMatchModeRules& Rules);
+
+	// Team-mode round resolution (bUseTeams + at least one assigned TeamId among
+	// the alive set). Awards nothing by itself — kill points are added as
+	// eliminations stream in; this only decides END + WINNER: when at most one
+	// team has a non-eliminated member, the survivors' team receives +1 per living
+	// member, then the winner is the highest total score if
+	// Rules.bScoreBasedTeamWinner (TeamThree15P — a wiped team can win on kills),
+	// else simply the surviving team (BR). Ties resolve to the surviving team if
+	// it is among the leaders, otherwise a draw (WinningTeamId stays INDEX_NONE).
+	void ResolveTeamRoundIfOver(AWTBRGameState& WTBRGameState, const TArray<AWTBRCharacter*>& AliveCombatants);
 
 	// Shared by BeginPlay and WTBRRestartRound: enters LoadoutSetup, resets the
 	// per-round result-resolved flag, and (re)starts the LoadoutSetup -> Countdown

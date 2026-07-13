@@ -2728,11 +2728,25 @@ void AWTBRCharacter::OnRep_ActionPing()
 void AWTBRCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+    DOREPLIFETIME(AWTBRCharacter, TeamId);
     DOREPLIFETIME(AWTBRCharacter, bActionPingActive);
     DOREPLIFETIME(AWTBRCharacter, bIsStaggered);
     DOREPLIFETIME(AWTBRCharacter, bSerpveilChargeTelegraphActive);
     DOREPLIFETIME(AWTBRCharacter, bLacernExtendTelegraphActive);
     DOREPLIFETIME(AWTBRCharacter, bLacernExtendDualWield);
+}
+
+// ─── Team Identity ────────────────────────────────────────────────────────────
+
+void AWTBRCharacter::SetTeamId(int32 NewTeamId)
+{
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Team] SetTeamId rejected on %s: no authority."), *GetNameSafe(this));
+        return;
+    }
+
+    TeamId = NewTeamId;
 }
 
 // ─── Stagger System ───────────────────────────────────────────────────────────

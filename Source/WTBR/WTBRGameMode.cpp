@@ -159,7 +159,12 @@ void AWTBRGameMode::WTBRRestartRound()
 		return;
 	}
 
-	AWTBRGameState* WTBRGameState = GetGameState<AWTBRGameState>();
+	// World-based lookup, not GetGameState<T>() (see AdvanceToCountdown/
+	// AdvanceToInMatch): identical in real gameplay once InitGameState() has run,
+	// but also correct in headless automation fixtures that register a GameState
+	// via World->SetGameState() without driving the full InitGame flow — that
+	// path never populates the GameModeBase-cached GameState member.
+	AWTBRGameState* WTBRGameState = GetWorld() ? GetWorld()->GetGameState<AWTBRGameState>() : nullptr;
 	if (!IsValid(WTBRGameState))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("WTBRRestartRound rejected: WTBRGameState is missing."));
@@ -177,6 +182,7 @@ void AWTBRGameMode::WTBRRestartRound()
 	GetWorldTimerManager().ClearTimer(CountdownTimerHandle);
 
 	WTBRGameState->SetMatchWinner(nullptr);
+	WTBRGameState->ResetTeamScores();
 
 	// Restore every combatant to a clean baseline before the next round begins.
 	// ResetCombatRewardState() mirrors what AdvanceToInMatch already does every
@@ -334,6 +340,8 @@ void AWTBRGameMode::AdvanceToInMatch()
 
 	bMatchResultResolved = false;
 	WTBRGameState->SetMatchWinner(nullptr);
+	WTBRGameState->ResetTeamScores();
+	AssignTeamsForRound(WTBRGameState->GetCurrentMatchRules());
 
 	// Guarantee a clean start of round: every combatant enters InMatch at full HP,
 	// Alive, damage history cleared. Fixed loadout is unaffected (TriggerSlots are
@@ -357,6 +365,39 @@ void AWTBRGameMode::AdvanceToInMatch()
 		ResetCount);
 }
 
+void AWTBRGameMode::AssignTeamsForRound(const FWTBRMatchModeRules& Rules)
+{
+	if (!Rules.bAssignTeamsAtMatchStart || !Rules.bUseTeams)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const int32 TeamSize = FMath::Max(1, Rules.TeamSize);
+	int32 CombatantIndex = 0;
+	for (TActorIterator<AWTBRCharacter> It(World); It; ++It)
+	{
+		AWTBRCharacter* Character = *It;
+		if (!IsValid(Character))
+		{
+			continue;
+		}
+
+		Character->SetTeamId(CombatantIndex / TeamSize);
+		++CombatantIndex;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: teams assigned — %d combatants block-filled into teams of %d (%d teams)."),
+		CombatantIndex,
+		TeamSize,
+		FMath::DivideAndRoundUp(CombatantIndex, TeamSize));
+}
+
 void AWTBRGameMode::CollectAliveCombatants(UWorld* World, TArray<AWTBRCharacter*>& OutAlive)
 {
 	OutAlive.Reset();
@@ -376,7 +417,7 @@ void AWTBRGameMode::CollectAliveCombatants(UWorld* World, TArray<AWTBRCharacter*
 	}
 }
 
-void AWTBRGameMode::NotifyCombatantEliminated(AWTBRCharacter* EliminatedCharacter)
+void AWTBRGameMode::NotifyCombatantEliminated(AWTBRCharacter* EliminatedCharacter, AActor* FinalDamageInstigator)
 {
 	if (!HasAuthority())
 	{
@@ -399,12 +440,38 @@ void AWTBRGameMode::NotifyCombatantEliminated(AWTBRCharacter* EliminatedCharacte
 		return;
 	}
 
+	// Team mode engages only when teams were actually assigned this round —
+	// bUseTeams defaults true across existing rules structs, so the flag alone
+	// must not reroute the legacy individual path (1v1 harness, old fixtures).
+	const bool bTeamsActive = WTBRGameState->GetCurrentMatchRules().bUseTeams
+		&& IsValid(EliminatedCharacter) && EliminatedCharacter->HasTeam();
+
+	if (bTeamsActive)
+	{
+		// Kill point at Eliminated only (design lock 2026-07-13). Enemy kills only:
+		// team kills, self-elimination, and environment deaths score nothing.
+		AWTBRCharacter* KillerCharacter = Cast<AWTBRCharacter>(FinalDamageInstigator);
+		if (IsValid(KillerCharacter)
+			&& KillerCharacter != EliminatedCharacter
+			&& KillerCharacter->HasTeam()
+			&& !KillerCharacter->IsSameTeamAs(EliminatedCharacter))
+		{
+			WTBRGameState->AddTeamKillPoint(KillerCharacter->GetTeamId());
+		}
+	}
+
 	TArray<AWTBRCharacter*> AliveCombatants;
 	CollectAliveCombatants(GetWorld(), AliveCombatants);
 
 	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: combatant eliminated (%s). AliveCombatantsRemaining=%d."),
 		*GetNameSafe(EliminatedCharacter),
 		AliveCombatants.Num());
+
+	if (bTeamsActive)
+	{
+		ResolveTeamRoundIfOver(*WTBRGameState, AliveCombatants);
+		return;
+	}
 
 	if (AliveCombatants.Num() > 1)
 	{
@@ -423,6 +490,100 @@ void AWTBRGameMode::NotifyCombatantEliminated(AWTBRCharacter* EliminatedCharacte
 	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: ROUND OVER. Winner=%s (PlayerState=%s). Phase -> PostMatch."),
 		*GetNameSafe(WinnerCharacter),
 		*GetNameSafe(WinnerPlayerState));
+}
+
+void AWTBRGameMode::ResolveTeamRoundIfOver(AWTBRGameState& WTBRGameState, const TArray<AWTBRCharacter*>& AliveCombatants)
+{
+	// Count the distinct factions still standing. A team-less character in a team
+	// round should not happen (assignment covers every AWTBRCharacter), but if one
+	// slips through it counts as its own faction rather than silently ending the
+	// round early.
+	TSet<int32> AliveTeams;
+	int32 TeamlessAliveCount = 0;
+	for (const AWTBRCharacter* Alive : AliveCombatants)
+	{
+		if (!IsValid(Alive))
+		{
+			continue;
+		}
+
+		if (Alive->HasTeam())
+		{
+			AliveTeams.Add(Alive->GetTeamId());
+		}
+		else
+		{
+			++TeamlessAliveCount;
+			UE_LOG(LogTemp, Warning, TEXT("WTBR Match Flow: alive combatant %s has no TeamId during a team round."),
+				*GetNameSafe(Alive));
+		}
+	}
+
+	const int32 RemainingFactions = AliveTeams.Num() + TeamlessAliveCount;
+	if (RemainingFactions > 1)
+	{
+		// Match continues — more than one team still has a living member.
+		return;
+	}
+
+	bMatchResultResolved = true;
+
+	const int32 SurvivingTeamId = (AliveTeams.Num() == 1 && TeamlessAliveCount == 0)
+		? *AliveTeams.CreateConstIterator()
+		: INDEX_NONE;
+
+	if (SurvivingTeamId != INDEX_NONE)
+	{
+		WTBRGameState.AddTeamSurvivorBonus(SurvivingTeamId, AliveCombatants.Num());
+	}
+
+	int32 WinningTeam = INDEX_NONE;
+	if (WTBRGameState.GetCurrentMatchRules().bScoreBasedTeamWinner)
+	{
+		// TeamThree15P: highest total score wins — the surviving team is only the
+		// tiebreaker, an already-wiped team can win on kill points.
+		int32 BestTotal = -1;
+		TArray<int32> LeadingTeams;
+		for (const FWTBRTeamScore& Score : WTBRGameState.GetTeamScores())
+		{
+			const int32 Total = Score.GetTotalScore();
+			if (Total > BestTotal)
+			{
+				BestTotal = Total;
+				LeadingTeams.Reset();
+				LeadingTeams.Add(Score.TeamId);
+			}
+			else if (Total == BestTotal)
+			{
+				LeadingTeams.Add(Score.TeamId);
+			}
+		}
+
+		if (LeadingTeams.Num() == 1)
+		{
+			WinningTeam = LeadingTeams[0];
+		}
+		else if (LeadingTeams.Contains(SurvivingTeamId))
+		{
+			WinningTeam = SurvivingTeamId;
+		}
+		// else: multi-team score tie with no surviving leader — draw (INDEX_NONE).
+	}
+	else
+	{
+		WinningTeam = SurvivingTeamId;
+	}
+
+	WTBRGameState.SetWinningTeamId(WinningTeam);
+	// Individual winner field stays null in team mode — team results live in
+	// WinningTeamId/TeamScores.
+	WTBRGameState.SetMatchWinner(nullptr);
+	WTBRGameState.SetCurrentMatchPhase(EWTBRMatchPhase::PostMatch);
+
+	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: TEAM ROUND OVER. SurvivingTeam=%d WinningTeam=%d (score-based=%s). Phase -> PostMatch."),
+		SurvivingTeamId,
+		WinningTeam,
+		WTBRGameState.GetCurrentMatchRules().bScoreBasedTeamWinner ? TEXT("true") : TEXT("false"));
 }
 
 FWTBRMatchModeRules AWTBRGameMode::ResolveDefaultMatchRules() const
@@ -510,19 +671,30 @@ FWTBRMatchModeRules AWTBRGameMode::MakeDefaultRulesForMode(EWTBRMatchMode MatchM
 		Rules.MaxPlayers = 6;
 		break;
 	case EWTBRMatchMode::TeamThree15P:
+		// Mode design lock 2026-07-13: 5 teams of 3, no zone, no corpse loot/bag,
+		// kill+survivor point scoring where the highest total wins (a wiped team
+		// can beat the survivors on kills).
 		Rules.TeamSize = 3;
 		Rules.MaxPlayers = 15;
+		Rules.bAssignTeamsAtMatchStart = true;
+		Rules.bScoreBasedTeamWinner = true;
+		Rules.bAllowCorpseLoot = false;
+		Rules.bUseCorpseLootContainerOnDeath = false;
 		break;
 	case EWTBRMatchMode::BattleRoyale:
-		Rules.TeamSize = 1;
-		Rules.MaxPlayers = 0; // Placeholder until BR target population is locked.
+		// Mode design lock 2026-07-13: ~60 players in teams of 3 (20 teams),
+		// standard last-team-standing winner (not score-based).
+		Rules.TeamSize = 3;
+		Rules.MaxPlayers = 60;
 		Rules.bEnablePassiveVaelRegen = true;
 		Rules.VaelRegenPerSecond = 2.0f;
 		Rules.bAllowCorpseLoot = true;
 		Rules.bAllowTriggerPickup = true;
 		Rules.bAllowTriggerSwapDuringMatch = true;
 		Rules.bAllowLoadoutEditDuringMatch = true;
-		Rules.bUseTeams = false;
+		Rules.bUseTeams = true;
+		Rules.bAssignTeamsAtMatchStart = true;
+		Rules.bScoreBasedTeamWinner = false;
 		break;
 	case EWTBRMatchMode::None:
 	case EWTBRMatchMode::ThreeVThree:

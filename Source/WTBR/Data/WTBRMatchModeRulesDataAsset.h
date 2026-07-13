@@ -53,6 +53,23 @@ struct FWTBRMatchModeRules
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode | Teams")
     bool bUseTeams = true;
+
+    // When true the GameMode block-fills every AWTBRCharacter into teams of
+    // TeamSize at InMatch entry. Off by default so the 1v1 test harness and the
+    // legacy individual round loop keep their exact behavior (characters stay at
+    // TeamId INDEX_NONE and the individual winner path runs).
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode | Teams")
+    bool bAssignTeamsAtMatchStart = false;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode | Teams")
+    bool bAllowFriendlyFire = false;
+
+    // TeamThree15P: 1 kill = 1 team point, last surviving team gets +1 per member
+    // still alive, and the WINNER is the team with the highest total — a wiped-out
+    // team with more kills can beat the survivors. When false (BR), the surviving
+    // team simply wins.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | Match Mode | Teams")
+    bool bScoreBasedTeamWinner = false;
 };
 
 UCLASS(BlueprintType)

@@ -34,6 +34,33 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
     FWTBRMatchWinnerChanged,
     APlayerState*, WinnerPlayerState);
 
+// Team-mode scoring (TeamThree15P design lock 2026-07-13): 1 kill = 1 point,
+// awarded at Eliminated only; when the round ends the last surviving team gets
+// +1 per member still alive; the winner is the highest TOTAL — the surviving
+// team does NOT automatically win.
+USTRUCT(BlueprintType)
+struct FWTBRTeamScore
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Team Score")
+    int32 TeamId = INDEX_NONE;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Team Score")
+    int32 KillPoints = 0;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Team Score")
+    int32 SurvivorBonus = 0;
+
+    int32 GetTotalScore() const { return KillPoints + SurvivorBonus; }
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRTeamScoresChanged);
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(
+    FWTBRWinningTeamChanged,
+    int32, WinningTeamId);
+
 UCLASS()
 class WTBR_API AWTBRGameState : public AGameStateBase
 {
@@ -118,6 +145,39 @@ public:
     UFUNCTION(BlueprintPure, Category="WTBR | Match Result")
     bool HasMatchWinner() const { return MatchWinnerPlayerState != nullptr; }
 
+    // ── Team scoring (server-authoritative; AWTBRGameMode is the intended caller) ──
+
+    // +1 kill point for TeamId (entry auto-created). No-op for INDEX_NONE.
+    UFUNCTION(BlueprintCallable, Category="WTBR | Team Score")
+    void AddTeamKillPoint(int32 TeamId);
+
+    // Round-end survivor bonus: +BonusPoints to TeamId's SurvivorBonus.
+    UFUNCTION(BlueprintCallable, Category="WTBR | Team Score")
+    void AddTeamSurvivorBonus(int32 TeamId, int32 BonusPoints);
+
+    // Clears all team scores and the winning team. Round reset path.
+    UFUNCTION(BlueprintCallable, Category="WTBR | Team Score")
+    void ResetTeamScores();
+
+    UFUNCTION(BlueprintCallable, Category="WTBR | Match Result")
+    void SetWinningTeamId(int32 NewWinningTeamId);
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Team Score")
+    const TArray<FWTBRTeamScore>& GetTeamScores() const { return TeamScores; }
+
+    // Zero-score teams have no entry; missing TeamId reads as 0/0.
+    UFUNCTION(BlueprintPure, Category="WTBR | Team Score")
+    FWTBRTeamScore GetTeamScore(int32 TeamId) const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Team Score")
+    int32 GetTeamTotalScore(int32 TeamId) const { return GetTeamScore(TeamId).GetTotalScore(); }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Match Result")
+    int32 GetWinningTeamId() const { return WinningTeamId; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Match Result")
+    bool HasWinningTeam() const { return WinningTeamId != INDEX_NONE; }
+
     UPROPERTY(BlueprintAssignable, Category="WTBR | Match Mode")
     FWTBRMatchModeRulesChanged OnMatchModeRulesChanged;
 
@@ -126,6 +186,12 @@ public:
 
     UPROPERTY(BlueprintAssignable, Category="WTBR | Match Result")
     FWTBRMatchWinnerChanged OnMatchWinnerChanged;
+
+    UPROPERTY(BlueprintAssignable, Category="WTBR | Team Score")
+    FWTBRTeamScoresChanged OnTeamScoresChanged;
+
+    UPROPERTY(BlueprintAssignable, Category="WTBR | Match Result")
+    FWTBRWinningTeamChanged OnWinningTeamChanged;
 
 protected:
     UPROPERTY(ReplicatedUsing=OnRep_CurrentMatchMode, BlueprintReadOnly, Category="WTBR | Match Mode")
@@ -140,6 +206,12 @@ protected:
     UPROPERTY(ReplicatedUsing=OnRep_MatchWinnerPlayerState, BlueprintReadOnly, Category="WTBR | Match Result")
     TObjectPtr<APlayerState> MatchWinnerPlayerState = nullptr;
 
+    UPROPERTY(ReplicatedUsing=OnRep_TeamScores, BlueprintReadOnly, Category="WTBR | Team Score")
+    TArray<FWTBRTeamScore> TeamScores;
+
+    UPROPERTY(ReplicatedUsing=OnRep_WinningTeamId, BlueprintReadOnly, Category="WTBR | Match Result")
+    int32 WinningTeamId = INDEX_NONE;
+
     UFUNCTION()
     void OnRep_CurrentMatchMode();
 
@@ -152,10 +224,19 @@ protected:
     UFUNCTION()
     void OnRep_MatchWinnerPlayerState();
 
+    UFUNCTION()
+    void OnRep_TeamScores();
+
+    UFUNCTION()
+    void OnRep_WinningTeamId();
+
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 private:
     void BroadcastMatchModeRulesChanged();
     void BroadcastMatchPhaseChanged();
     void BroadcastMatchWinnerChanged();
+
+    // Existing entry or newly-appended zeroed entry for TeamId.
+    FWTBRTeamScore& FindOrAddTeamScore(int32 TeamId);
 };
