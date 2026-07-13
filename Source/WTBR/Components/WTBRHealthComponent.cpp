@@ -185,6 +185,15 @@ void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstiga
 
     RecordDamageContribution(DamageAmount, DamageInstigator);
 
+    // Track the most recent actor to land real damage — this is who earns the kill
+    // credit if the target later bleeds out with no finishing blow (design lock
+    // 2026-07-13: last damager). Only overwrite for a valid instigator so that
+    // environment/self drains (null instigator) never erase the last attacker.
+    if (IsValid(DamageInstigator))
+    {
+        LastDamageInstigator = DamageInstigator;
+    }
+
     if (CurrentCombatState == EWTBRCombatState::Alive)
     {
         CurrentHP = FMath::Max(0.f, CurrentHP - DamageAmount);
@@ -229,6 +238,9 @@ void UWTBRHealthComponent::ResetCombatRewardState()
         World->GetTimerManager().ClearTimer(KnockdownIFrameTimerHandle);
     }
 
+    ClearReviveState(/*bResumeBleedOut=*/false);
+    ClearBleedOutTimer();
+    LastDamageInstigator = nullptr;
     ClearDamageHistory(TEXT("ResetCombatRewardState"));
     bDownRewardResolved = false;
     bDeathRewardsResolved = false;
@@ -344,6 +356,7 @@ void UWTBRHealthComponent::EnterDownedState(AActor* DownInstigator)
     ResolveDownReward(DownInstigator);
     StartKnockdownIFrame();
     SetCombatState(EWTBRCombatState::Downed);
+    StartBleedOutTimer();
 }
 
 void UWTBRHealthComponent::EnterEliminatedState(AActor* FinalDamageInstigator)
@@ -363,6 +376,11 @@ void UWTBRHealthComponent::EnterEliminatedState(AActor* FinalDamageInstigator)
     {
         World->GetTimerManager().ClearTimer(KnockdownIFrameTimerHandle);
     }
+
+    // A revive can never outrace elimination: tear down any in-progress revive and
+    // the bleed-out countdown before the combatant leaves the Downed state.
+    ClearReviveState(/*bResumeBleedOut=*/false);
+    ClearBleedOutTimer();
 
     CurrentDownedHP = 0.0f;
     SetInvulnerable(false);
@@ -384,6 +402,216 @@ void UWTBRHealthComponent::EnterEliminatedState(AActor* FinalDamageInstigator)
         }
     }
 }
+
+// ─── Bleed-out ────────────────────────────────────────────────────────────────
+
+void UWTBRHealthComponent::StartBleedOutTimer()
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
+
+    UWorld* World = GetWorld();
+    const UWTBRCoreStatsDataAsset* S = GetStats();
+    if (!World || !S)
+    {
+        return;
+    }
+
+    // BleedOutDuration <= 0 means "no bleed-out" (downed indefinitely until a
+    // finishing blow) — leave the timer unset rather than expiring instantly.
+    if (S->BleedOutDuration <= 0.0f)
+    {
+        return;
+    }
+
+    World->GetTimerManager().SetTimer(
+        BleedOutTimerHandle,
+        this, &UWTBRHealthComponent::OnBleedOutExpired,
+        S->BleedOutDuration,
+        /*bLoop=*/false);
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR BleedOut: started %.1fs countdown on %s."),
+        S->BleedOutDuration, *GetNameSafe(GetOwner()));
+}
+
+void UWTBRHealthComponent::OnBleedOutExpired()
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
+    if (CurrentCombatState != EWTBRCombatState::Downed) return;
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR BleedOut: %s bled out — Eliminated (credit last damager %s)."),
+        *GetNameSafe(GetOwner()),
+        *GetNameSafe(LastDamageInstigator.Get()));
+
+    // Credit the last actor to have damaged this combatant (design lock
+    // 2026-07-13). GameMode's scoring already filters self/team/team-less.
+    EnterEliminatedState(LastDamageInstigator.Get());
+}
+
+void UWTBRHealthComponent::ClearBleedOutTimer()
+{
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(BleedOutTimerHandle);
+    }
+}
+
+// ─── Revive ───────────────────────────────────────────────────────────────────
+
+bool UWTBRHealthComponent::TryStartRevive(AWTBRCharacter* Reviver)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority())
+    {
+        return false;
+    }
+    if (CurrentCombatState != EWTBRCombatState::Downed)
+    {
+        return false;
+    }
+    if (bReviveInProgress)
+    {
+        // Already being revived — one reviver at a time (first come, first served).
+        return false;
+    }
+
+    const AWTBRCharacter* VictimCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(Reviver) || !IsValid(VictimCharacter) || Reviver == VictimCharacter)
+    {
+        return false;
+    }
+    // Reviver must be a living teammate. Team-less pairs are never teammates, so a
+    // revive requires an actual assigned team shared by both (15P/BR only).
+    if (!IsValid(Reviver->HealthComponent) || !Reviver->HealthComponent->IsAlive())
+    {
+        return false;
+    }
+    if (!VictimCharacter->IsSameTeamAs(Reviver))
+    {
+        return false;
+    }
+
+    UWorld* World = GetWorld();
+    const UWTBRCoreStatsDataAsset* S = GetStats();
+    if (!World || !S)
+    {
+        return false;
+    }
+
+    CurrentReviver = Reviver;
+    SetReviveInProgress(true);
+
+    // Freeze the bleed-out countdown at its remaining value while the hold lasts.
+    World->GetTimerManager().PauseTimer(BleedOutTimerHandle);
+
+    // Instant revive (ReviveHoldDuration <= 0) completes immediately; otherwise
+    // start the hold timer.
+    if (S->ReviveHoldDuration <= 0.0f)
+    {
+        CompleteRevive();
+    }
+    else
+    {
+        World->GetTimerManager().SetTimer(
+            ReviveTimerHandle,
+            this, &UWTBRHealthComponent::CompleteRevive,
+            S->ReviveHoldDuration,
+            /*bLoop=*/false);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR Revive: %s started reviving %s (bleed-out paused)."),
+        *GetNameSafe(Reviver), *GetNameSafe(GetOwner()));
+    return true;
+}
+
+void UWTBRHealthComponent::StopRevive()
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
+    if (!bReviveInProgress) return;
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR Revive: revive on %s stopped — bleed-out resumes from remaining."),
+        *GetNameSafe(GetOwner()));
+
+    // Resume (not reset) the bleed-out countdown from where it paused.
+    ClearReviveState(/*bResumeBleedOut=*/true);
+}
+
+void UWTBRHealthComponent::CompleteRevive()
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
+    if (CurrentCombatState != EWTBRCombatState::Downed) return;
+
+    const UWTBRCoreStatsDataAsset* S = GetStats();
+    const float RestoredHP = S ? S->ReviveHPRestored : 100.0f;
+
+    // The revive succeeded: the bleed-out countdown is over for good, tear down
+    // revive bookkeeping without resuming it.
+    ClearReviveState(/*bResumeBleedOut=*/false);
+    ClearBleedOutTimer();
+
+    CurrentDownedHP = 0.0f;
+    CurrentHP = FMath::Clamp(RestoredHP, 1.0f, GetMaxHP());
+    // Re-arm the down reward so a future down grants it again; the elimination
+    // reward was never resolved (they were revived, not killed).
+    bDownRewardResolved = false;
+    SetInvulnerable(false);
+    OnHPChanged.Broadcast(CurrentHP, GetMaxHP());
+    SetCombatState(EWTBRCombatState::Alive);
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR Revive: %s revived to Alive at %.0f HP."),
+        *GetNameSafe(GetOwner()), CurrentHP);
+}
+
+void UWTBRHealthComponent::ClearReviveState(bool bResumeBleedOut)
+{
+    UWorld* World = GetWorld();
+    if (World)
+    {
+        World->GetTimerManager().ClearTimer(ReviveTimerHandle);
+        if (bResumeBleedOut)
+        {
+            // UnPause is a no-op if the timer was never paused / not set.
+            World->GetTimerManager().UnPauseTimer(BleedOutTimerHandle);
+        }
+    }
+
+    CurrentReviver = nullptr;
+    SetReviveInProgress(false);
+}
+
+void UWTBRHealthComponent::SetReviveInProgress(bool bNewInProgress)
+{
+    if (bReviveInProgress == bNewInProgress)
+    {
+        return;
+    }
+
+    bReviveInProgress = bNewInProgress;
+    OnBeingRevivedChanged.Broadcast(bReviveInProgress);
+}
+
+void UWTBRHealthComponent::OnRep_bReviveInProgress()
+{
+    OnBeingRevivedChanged.Broadcast(bReviveInProgress);
+}
+
+#if WITH_DEV_AUTOMATION_TESTS
+bool UWTBRHealthComponent::IsBleedOutTimerActiveForTest() const
+{
+    const UWorld* World = GetWorld();
+    return World && World->GetTimerManager().IsTimerActive(BleedOutTimerHandle);
+}
+
+bool UWTBRHealthComponent::IsBleedOutTimerPausedForTest() const
+{
+    const UWorld* World = GetWorld();
+    return World && World->GetTimerManager().IsTimerPaused(BleedOutTimerHandle);
+}
+
+bool UWTBRHealthComponent::IsBleedOutTimerSetForTest() const
+{
+    const UWorld* World = GetWorld();
+    return World && World->GetTimerManager().TimerExists(BleedOutTimerHandle);
+}
+#endif
 
 void UWTBRHealthComponent::ResolveDownReward(AActor* DownInstigator)
 {
@@ -1145,5 +1373,6 @@ void UWTBRHealthComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
     DOREPLIFETIME(UWTBRHealthComponent, CurrentCombatState);
     DOREPLIFETIME(UWTBRHealthComponent, bIsInvulnerable);
     DOREPLIFETIME(UWTBRHealthComponent, CurrentDownedHP);
+    DOREPLIFETIME(UWTBRHealthComponent, bReviveInProgress);
     DOREPLIFETIME(UWTBRHealthComponent, LimbStates);
 }

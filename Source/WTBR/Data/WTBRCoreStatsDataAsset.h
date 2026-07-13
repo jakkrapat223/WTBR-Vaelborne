@@ -77,6 +77,21 @@ public:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat | Downed", meta = (ClampMin = "0"))
     float MaxDownedHP = 100.0f;
 
+    // Bleed-out: a downed combatant with no teammate reviving is Eliminated when
+    // this many seconds elapse (mode design lock 2026-07-13 for TeamThree15P/BR).
+    // The countdown PAUSES while a teammate is holding revive and RESUMES from the
+    // remaining value on release (never resets). Tunable; placeholder = 30 s.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat | Downed", meta = (ClampMin = "0"))
+    float BleedOutDuration = 30.0f;
+
+    // Uninterrupted hold time a teammate needs to complete a revive.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat | Revive", meta = (ClampMin = "0"))
+    float ReviveHoldDuration = 5.0f;
+
+    // HP a revived combatant returns to Alive with (clamped to MaxHP). Placeholder.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat | Revive", meta = (ClampMin = "0"))
+    float ReviveHPRestored = 100.0f;
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Combat | Knockdown", meta = (ClampMin = "0"))
     float KnockdownIFrameDuration = 1.5f;
 

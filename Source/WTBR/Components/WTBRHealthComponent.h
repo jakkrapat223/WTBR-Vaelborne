@@ -62,6 +62,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCharacterDeath);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnCharacterDowned);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnCombatStateChanged, EWTBRCombatState, NewState, EWTBRCombatState, OldState);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnInvulnerabilityChanged, bool, bNewInvulnerable);
+// Fires (server + clients) whenever the "is a teammate actively reviving me" flag flips.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBeingRevivedChanged, bool, bBeingRevived);
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
@@ -97,6 +99,9 @@ public:
 
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnInvulnerabilityChanged OnInvulnerabilityChanged;
+
+    UPROPERTY(BlueprintAssignable, Category="Events")
+    FOnBeingRevivedChanged OnBeingRevivedChanged;
 
     UFUNCTION(BlueprintCallable, Category="Health")
     void ApplyDamage(float DamageAmount, AActor* DamageInstigator = nullptr);
@@ -136,6 +141,28 @@ public:
     UFUNCTION(BlueprintPure, Category="Health")
     bool IsInvulnerable() const { return bIsInvulnerable; }
 
+    // ── Revive (server-authoritative; teammate-driven) ───────────────────────
+
+    // Begin a revive on this (Downed) combatant by Reviver. Server-only. Rejects
+    // unless: this component is Downed, no revive is already in progress, and
+    // Reviver is a valid, Alive character on the SAME team (team-less pairs are
+    // never teammates). While a revive is in progress the bleed-out countdown is
+    // PAUSED. Returns true if the revive actually started.
+    UFUNCTION(BlueprintCallable, Category="Revive")
+    bool TryStartRevive(AWTBRCharacter* Reviver);
+
+    // Stop an in-progress revive (reviver released the button, moved away, was
+    // downed, etc.). Server-only. Resumes the bleed-out countdown from its
+    // remaining value — it does NOT reset. No-op if no revive is in progress.
+    UFUNCTION(BlueprintCallable, Category="Revive")
+    void StopRevive();
+
+    UFUNCTION(BlueprintPure, Category="Revive")
+    bool IsBeingRevived() const { return bReviveInProgress; }
+
+    UFUNCTION(BlueprintPure, Category="Revive")
+    AWTBRCharacter* GetActiveReviver() const { return CurrentReviver.Get(); }
+
     UFUNCTION(BlueprintPure, Category="Health")
     EWTBRCombatState GetCombatState() const { return CurrentCombatState; }
 
@@ -156,6 +183,20 @@ public:
     // UWTBRTriggerSetComponent::SetSlotDataAssetForTest seam. Behaviour-neutral in
     // shipping (compiled out); still runs the same server-side drop logic.
     void SpawnDroppedTriggersForEliminatedCharacterForTest() { SpawnDroppedTriggersForEliminatedCharacter(); }
+
+    // Test-only seams for bleed-out + revive: real FTimerManager timers do not
+    // fire in the headless transient-world fixtures, so drive the callbacks
+    // directly. These run the exact production handlers (compiled out of shipping).
+    void ForceBleedOutExpiryForTest() { OnBleedOutExpired(); }
+    void ForceReviveCompleteForTest() { CompleteRevive(); }
+    bool IsBleedOutTimerActiveForTest() const;
+    bool IsBleedOutTimerPausedForTest() const;
+    // True whenever the timer handle is set (Active OR Paused) — unlike
+    // IsBleedOutTimerActiveForTest(), which UE's FTimerManager defines as false
+    // while Paused. Use this to assert the countdown survives a pause instead of
+    // being cleared.
+    bool IsBleedOutTimerSetForTest() const;
+    AActor* GetLastDamageInstigatorForTest() const { return LastDamageInstigator.Get(); }
 #endif
 
 protected:
@@ -178,9 +219,21 @@ private:
     UPROPERTY(Replicated)
     float CurrentDownedHP = 0.f;
 
+    // Replicated so clients can show a "being revived" indicator on downed allies.
+    UPROPERTY(ReplicatedUsing=OnRep_bReviveInProgress)
+    bool bReviveInProgress = false;
+
     FTimerHandle LimbDrainTimerHandle;
     FTimerHandle KnockdownIFrameTimerHandle;
+    FTimerHandle BleedOutTimerHandle;
+    FTimerHandle ReviveTimerHandle;
     TArray<FWTBRDamageContributionRecord> DamageHistory;
+    // The most recent actor to deal actual damage to this component. Drives the
+    // kill credit when a downed combatant bleeds out with no finishing blow —
+    // design lock 2026-07-13: the LAST DAMAGER earns the point.
+    TWeakObjectPtr<AActor> LastDamageInstigator;
+    // The teammate currently holding a revive on this component (server-side).
+    TWeakObjectPtr<AWTBRCharacter> CurrentReviver;
     bool bDownRewardResolved = false;
     bool bDeathRewardsResolved = false;
 
@@ -217,6 +270,19 @@ private:
     void StartKnockdownIFrame();
     void EndKnockdownIFrame();
 
+    // Bleed-out: starts on EnterDownedState (authority, requires CoreStats). On
+    // expiry the combatant is Eliminated crediting LastDamageInstigator.
+    void StartBleedOutTimer();
+    void OnBleedOutExpired();
+    void ClearBleedOutTimer();
+
+    // Revive completion (authority). Restores the combatant to Alive with
+    // ReviveHPRestored, clears bleed-out + revive state, re-arms the down reward.
+    void CompleteRevive();
+    // Shared teardown for both StopRevive and CompleteRevive.
+    void ClearReviveState(bool bResumeBleedOut);
+    void SetReviveInProgress(bool bNewInProgress);
+
     UFUNCTION()
     void OnRep_CurrentHP();
 
@@ -225,6 +291,9 @@ private:
 
     UFUNCTION()
     void OnRep_IsInvulnerable();
+
+    UFUNCTION()
+    void OnRep_bReviveInProgress();
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };
