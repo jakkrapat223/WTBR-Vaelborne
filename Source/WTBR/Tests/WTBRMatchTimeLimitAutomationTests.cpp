@@ -98,7 +98,7 @@ namespace
         return Rules;
     }
 
-    void EliminateBy(AWTBRGameMode* GameMode, AWTBRCharacter* Victim, AWTBRCharacter* Killer)
+    void TimeLimitTest_EliminateBy(AWTBRGameMode* GameMode, AWTBRCharacter* Victim, AWTBRCharacter* Killer)
     {
         Victim->HealthComponent->ApplyDamage(10000.0f, Killer);
         GameMode->NotifyCombatantEliminated(Victim, Killer);
@@ -153,7 +153,7 @@ bool FWTBRTimeLimitArmAndClearOnNaturalEndTest::RunTest(const FString& /*Paramet
     A->SetTeamId(0);
     B->SetTeamId(1);
 
-    EliminateBy(GameMode, A, B);
+    TimeLimitTest_EliminateBy(GameMode, A, B);
     TestEqual(TEXT("Phase -> PostMatch"), GameState->GetCurrentMatchPhase(), EWTBRMatchPhase::PostMatch);
     TestFalse(TEXT("Time-limit timer cleared once the round ends naturally"),
         GameMode->IsMatchTimeLimitTimerActiveForTest());
@@ -222,7 +222,7 @@ bool FWTBRTimeLimitMultiTeamSurvivorScoringTest::RunTest(const FString& /*Parame
     // score survives the wipe and can still factor into the timeout winner.
     AWTBRCharacter* Fodder = SpawnTimeLimitCharacter(World, FVector(700, 0, 0));
     Fodder->SetTeamId(4);
-    EliminateBy(GameMode, Fodder, F);
+    TimeLimitTest_EliminateBy(GameMode, Fodder, F);
     TestEqual(TEXT("Team 3 has 1 kill point pre-timeout"), GameState->GetTeamTotalScore(3), 1);
     TestEqual(TEXT("Match still InMatch (team 4 was solo-eliminated, others remain)"),
         GameState->GetCurrentMatchPhase(), EWTBRMatchPhase::InMatch);
