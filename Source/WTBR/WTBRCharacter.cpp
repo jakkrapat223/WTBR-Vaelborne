@@ -426,6 +426,7 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         if (IsValid(InteractAction))
         {
             EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &AWTBRCharacter::Interact);
+            EIC->BindAction(InteractAction, ETriggerEvent::Completed, this, &AWTBRCharacter::InteractReleased);
         }
         if (IsValid(CancelAction))
         {
@@ -511,6 +512,14 @@ void AWTBRCharacter::Interact(const FInputActionValue& /*Value*/)
     if (InteractionComponent)
     {
         InteractionComponent->RequestContextInteract();
+    }
+}
+
+void AWTBRCharacter::InteractReleased(const FInputActionValue& /*Value*/)
+{
+    if (InteractionComponent)
+    {
+        InteractionComponent->RequestStopReviveIfInProgress();
     }
 }
 
@@ -1727,6 +1736,51 @@ void AWTBRCharacter::Server_RequestPickupGroundItem_Implementation(AWTBRGroundIt
         *GetNameSafe(GroundItem),
         Quantity);
     GroundItem->Destroy();
+}
+
+void AWTBRCharacter::Server_RequestStartRevive_Implementation(AWTBRCharacter* Target)
+{
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR revive start rejected: reviver %s has no authority"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(Target) || !IsValid(Target->HealthComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR revive start rejected: invalid target for reviver %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    // All remaining validation (Downed state, same-team living reviver, one
+    // reviver at a time) lives in UWTBRHealthComponent::TryStartRevive — this RPC
+    // is a thin authority-gated dispatch, not a second copy of the rules.
+    Target->HealthComponent->TryStartRevive(this);
+}
+
+void AWTBRCharacter::Server_RequestStopRevive_Implementation(AWTBRCharacter* Target)
+{
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR revive stop rejected: reviver %s has no authority"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(Target) || !IsValid(Target->HealthComponent))
+    {
+        return;
+    }
+
+    // Only stop if THIS actor is actually the active reviver — guards against a
+    // stale/rejected start's later release RPC cancelling a different
+    // teammate's legitimate in-progress revive on the same target.
+    if (Target->HealthComponent->GetActiveReviver() == this)
+    {
+        Target->HealthComponent->StopRevive();
+    }
 }
 
 void AWTBRCharacter::Server_RequestUseInventoryItem_Implementation(int32 SlotIndex)

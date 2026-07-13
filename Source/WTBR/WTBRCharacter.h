@@ -384,6 +384,19 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_RequestPickupGroundItem(AWTBRGroundItemActor* GroundItem);
 
+    // Hold-to-revive (design lock 2026-07-13): starts/stops a revive on Target.
+    // Thin server-authoritative dispatch into
+    // UWTBRHealthComponent::TryStartRevive/StopRevive, which own all validation
+    // (Downed state, same-team living reviver, one reviver at a time) and the
+    // entire non-interrupted hold-duration timer — this RPC pair never tracks
+    // hold duration itself. Called by UWTBRInteractionComponent on IA_Interact
+    // Started/Completed via AWTBRCharacter::Interact()/InteractReleased().
+    UFUNCTION(Server, Reliable)
+    void Server_RequestStartRevive(AWTBRCharacter* Target);
+
+    UFUNCTION(Server, Reliable)
+    void Server_RequestStopRevive(AWTBRCharacter* Target);
+
     // BR inventory item use (S5-D). Server-authoritative MVP consumable use:
     // HealHP -> HealthComponent->RestoreHP, RestoreVael -> VaelComponent->GrantVael.
     // Consumes exactly one item only if the effect was actually applied.
@@ -560,6 +573,10 @@ protected:
     void SwitchSubTrigger(const FInputActionValue& Value);
     void DebugConsumeVaelFailTest();
     void Interact(const FInputActionValue& Value);
+    // IA_Interact Completed (button release): stops any in-progress revive this
+    // client started. No-op for every other interact type (tap-only, nothing to
+    // release).
+    void InteractReleased(const FInputActionValue& Value);
 
     // IA_Cancel handler: closes any open local UI panel (e.g. Bag/Loot) if one is
     // open; otherwise falls back to the existing CancelCurrentAction() trigger-

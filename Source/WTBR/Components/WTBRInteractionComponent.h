@@ -6,6 +6,7 @@
 #include "Components/ActorComponent.h"
 #include "WTBRInteractionComponent.generated.h"
 
+class AWTBRCharacter;
 class AWTBRCorpseLootContainerActor;
 class AWTBRDroppedTriggerActor;
 class AWTBRGroundItemActor;
@@ -47,6 +48,7 @@ public:
     // interaction in design-lock priority order and delegates to the matching
     // handler. Called by AWTBRCharacter::Interact() on the owning client.
     // Priority:
+    //   0. downed teammate (hold)     -> RequestReviveInteract() [implemented — revive]
     //   1. corpse / container / chest -> RequestCorpseLootInteract() [implemented]
     //   2. dropped trigger            -> constraint-driven pickup dispatch [implemented S7A]:
     //                                    MainOnly -> active main, SubOnly -> active sub,
@@ -59,11 +61,40 @@ public:
     UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
     bool RequestContextInteract();
 
+    // ── Revive (hold F on a downed teammate) ──────────────────────────────────
+    // Focus-only: line-traces for a Downed teammate the owner can revive right
+    // now — owner must be Alive and share a TeamId with the candidate (team-less
+    // pairs are never teammates, so this is a no-op outside team modes). Checked
+    // first in RequestContextInteract() because a downed-teammate focus can never
+    // legitimately coincide with corpse/dropped-trigger/ground-item focus (a
+    // corpse loot container only spawns on Eliminated, never on Downed).
+    UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
+    AWTBRCharacter* GetFocusedRevivableTeammate() const;
+
+    // Dispatches AWTBRCharacter::Server_RequestStartRevive for the focused
+    // revivable teammate on button press (IA_Interact Started). The server owns
+    // the entire non-interrupted hold-duration timer
+    // (UWTBRHealthComponent::TryStartRevive/CompleteRevive) — this only needs to
+    // say "start" once; it never tracks hold duration client-side. Returns true
+    // if a revivable teammate was focused and the start RPC was dispatched.
+    UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
+    bool RequestReviveInteract();
+
+    // Dispatches Server_RequestStopRevive for whichever teammate this client's
+    // last RequestReviveInteract() call targeted, if any. Called by
+    // AWTBRCharacter::InteractReleased() on IA_Interact Completed (button
+    // release) — always safe to call, no-ops if no revive was started.
+    UFUNCTION(BlueprintCallable, Category="WTBR | Interaction")
+    void RequestStopReviveIfInProgress();
+
 #if WITH_DEV_AUTOMATION_TESTS
     void SetFocusedCorpseLootContainerOverrideForTest(AWTBRCorpseLootContainerActor* Container);
     void ClearFocusedCorpseLootContainerOverrideForTest();
     void SetFocusedGroundItemOverrideForTest(AWTBRGroundItemActor* GroundItem);
     void ClearFocusedGroundItemOverrideForTest();
+    void SetFocusedRevivableTeammateOverrideForTest(AWTBRCharacter* Teammate);
+    void ClearFocusedRevivableTeammateOverrideForTest();
+    AWTBRCharacter* GetCurrentReviveTargetForReleaseForTest() const { return CurrentReviveTargetForRelease.Get(); }
 #endif
 
 private:
@@ -84,8 +115,14 @@ private:
     UPROPERTY(EditDefaultsOnly, Category="WTBR|Interaction")
     float InteractionTraceDistance = 800.0f;
 
+    // Reviver-side bookkeeping: which teammate the owner's last successful
+    // RequestReviveInteract() targeted, so RequestStopReviveIfInProgress() knows
+    // who to send the stop RPC for. Cleared whenever a stop is dispatched.
+    TWeakObjectPtr<AWTBRCharacter> CurrentReviveTargetForRelease;
+
 #if WITH_DEV_AUTOMATION_TESTS
     TWeakObjectPtr<AWTBRCorpseLootContainerActor> FocusedCorpseLootContainerOverrideForTest;
     TWeakObjectPtr<AWTBRGroundItemActor> FocusedGroundItemOverrideForTest;
+    TWeakObjectPtr<AWTBRCharacter> FocusedRevivableTeammateOverrideForTest;
 #endif
 };

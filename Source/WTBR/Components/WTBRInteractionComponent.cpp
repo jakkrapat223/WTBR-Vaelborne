@@ -5,6 +5,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Controller.h"
+#include "Components/WTBRHealthComponent.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Inventory/WTBRGroundItemActor.h"
@@ -303,10 +304,126 @@ AWTBRGroundItemActor* UWTBRInteractionComponent::GetFocusedGroundItem() const
     return GroundItem;
 }
 
+AWTBRCharacter* UWTBRInteractionComponent::GetFocusedRevivableTeammate() const
+{
+#if WITH_DEV_AUTOMATION_TESTS
+    if (FocusedRevivableTeammateOverrideForTest.IsValid())
+    {
+        return FocusedRevivableTeammateOverrideForTest.Get();
+    }
+#endif
+
+    AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(OwnerCharacter) || !IsValid(OwnerCharacter->HealthComponent) || !OwnerCharacter->HealthComponent->IsAlive())
+    {
+        // Only a living character can revive — no point tracing further.
+        return nullptr;
+    }
+
+    UWorld* World = OwnerCharacter->GetWorld();
+    if (!World)
+    {
+        return nullptr;
+    }
+
+    FVector ViewLocation = FVector::ZeroVector;
+    FRotator ViewRotation = FRotator::ZeroRotator;
+    if (AController* Controller = OwnerCharacter->GetController())
+    {
+        Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
+    }
+    else
+    {
+        OwnerCharacter->GetActorEyesViewPoint(ViewLocation, ViewRotation);
+    }
+
+    const FVector TraceStart = ViewLocation;
+    const FVector TraceEnd = TraceStart + (ViewRotation.Vector() * InteractionTraceDistance);
+
+    FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(WTBRInteractionFocusedRevivableTeammate), false, OwnerCharacter);
+    QueryParams.AddIgnoredActor(OwnerCharacter);
+
+    FHitResult Hit;
+    const bool bHit = World->LineTraceSingleByChannel(
+        Hit,
+        TraceStart,
+        TraceEnd,
+        ECC_Visibility,
+        QueryParams);
+
+    if (!bHit)
+    {
+        return nullptr;
+    }
+
+    AWTBRCharacter* Candidate = Cast<AWTBRCharacter>(Hit.GetActor());
+    if (!IsValid(Candidate) || !IsValid(Candidate->HealthComponent) || !Candidate->HealthComponent->IsDowned())
+    {
+        return nullptr;
+    }
+
+    if (!OwnerCharacter->IsSameTeamAs(Candidate))
+    {
+        return nullptr;
+    }
+
+    return Candidate;
+}
+
+bool UWTBRInteractionComponent::RequestReviveInteract()
+{
+    AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(OwnerCharacter))
+    {
+        return false;
+    }
+
+    AWTBRCharacter* FocusedTeammate = GetFocusedRevivableTeammate();
+    if (!IsValid(FocusedTeammate))
+    {
+        return false;
+    }
+
+    WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] RequestReviveInteract: dispatching Server_RequestStartRevive for %s."),
+        *GetNameSafe(FocusedTeammate));
+    OwnerCharacter->Server_RequestStartRevive(FocusedTeammate);
+    // Remember the target even though the server may still reject it (e.g.
+    // someone else is already reviving) — RequestStopReviveIfInProgress only
+    // stops it if THIS actor turns out to be the active reviver server-side, so
+    // a rejected start can never cancel a different teammate's legitimate revive.
+    CurrentReviveTargetForRelease = FocusedTeammate;
+    return true;
+}
+
+void UWTBRInteractionComponent::RequestStopReviveIfInProgress()
+{
+    AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+    AWTBRCharacter* Target = CurrentReviveTargetForRelease.Get();
+    CurrentReviveTargetForRelease = nullptr;
+
+    if (!IsValid(OwnerCharacter) || !IsValid(Target))
+    {
+        return;
+    }
+
+    WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] RequestStopReviveIfInProgress: dispatching Server_RequestStopRevive for %s."),
+        *GetNameSafe(Target));
+    OwnerCharacter->Server_RequestStopRevive(Target);
+}
+
 bool UWTBRInteractionComponent::RequestContextInteract()
 {
     WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] RequestContextInteract called (owner=%s)."),
         *GetNameSafe(GetOwner()));
+
+    // Priority 0 — downed teammate (hold F to revive). Checked first: a downed-
+    // teammate focus can never legitimately coincide with corpse/dropped-trigger/
+    // ground-item focus, so this never steals priority from another valid action.
+    if (RequestReviveInteract())
+    {
+        WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] Handled by revive-teammate focus (priority 0)."));
+        return true;
+    }
 
     // Priority 1 — corpse / container / chest.
     // Reuses the existing client-side loot request bridge (no gameplay mutation).
@@ -385,5 +502,15 @@ void UWTBRInteractionComponent::SetFocusedGroundItemOverrideForTest(AWTBRGroundI
 void UWTBRInteractionComponent::ClearFocusedGroundItemOverrideForTest()
 {
     FocusedGroundItemOverrideForTest.Reset();
+}
+
+void UWTBRInteractionComponent::SetFocusedRevivableTeammateOverrideForTest(AWTBRCharacter* Teammate)
+{
+    FocusedRevivableTeammateOverrideForTest = Teammate;
+}
+
+void UWTBRInteractionComponent::ClearFocusedRevivableTeammateOverrideForTest()
+{
+    FocusedRevivableTeammateOverrideForTest.Reset();
 }
 #endif
