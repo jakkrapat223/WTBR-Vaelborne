@@ -9,6 +9,8 @@
 #include "GameFramework/Character.h"
 #include "EnhancedInputComponent.h"
 #include "WTBRCharacter.h"
+#include "Engine/World.h"
+#include "TimerManager.h"
 
 UWTBRInputGestureComponent::UWTBRInputGestureComponent()
 {
@@ -42,6 +44,7 @@ void UWTBRInputGestureComponent::NotifyMainReleased()
     }
     bMainDown  = false;
     bMainFired = false;
+    CancelMantornHoldWatch();
 }
 
 void UWTBRInputGestureComponent::NotifySubPressed()
@@ -62,6 +65,7 @@ void UWTBRInputGestureComponent::NotifySubReleased()
     }
     bSubDown  = false;
     bSubFired = false;
+    CancelMantornHoldWatch();
 }
 
 void UWTBRInputGestureComponent::BindInputActions(UEnhancedInputComponent* EIC)
@@ -172,23 +176,6 @@ void UWTBRInputGestureComponent::OnJump_Completed(const FInputActionValue& Value
     }
 }
 
-UWTBRInputGestureComponent::EMantornPriorityResult
-UWTBRInputGestureComponent::ResolveDualGesture(
-    const UWTBRTriggerBase* Main,
-    const UWTBRTriggerBase* Sub) const
-{
-    // ตรวจ Mantorn Priority ก่อน Category match เสมอ (GDD §3.4 Lock)
-    // ห้ามใช้ DisplayName string เปรียบเทียบ — ใช้ bIsMantornPriority เท่านั้น
-    const UWTBRTriggerDataAsset* MainDA = IsValid(Main) ? Main->DataAsset.Get() : nullptr;
-    const UWTBRTriggerDataAsset* SubDA  = IsValid(Sub)  ? Sub->DataAsset.Get()  : nullptr;
-
-    if (MainDA && MainDA->bIsMantornPriority)
-        return EMantornPriorityResult::ActivateMain;
-    if (SubDA && SubDA->bIsMantornPriority)
-        return EMantornPriorityResult::ActivateSub;
-    return EMantornPriorityResult::None;
-}
-
 void UWTBRInputGestureComponent::CheckDualGesture()
 {
     if (!bMainDown || !bSubDown || !TriggerSetComp) return;
@@ -197,28 +184,50 @@ void UWTBRInputGestureComponent::CheckDualGesture()
     const UWTBRTriggerBase* Sub  = TriggerSetComp->GetActiveSubTrigger();
     if (!Main || !Sub) return;
 
-    // Mantorn Priority overrides Dual Wield unconditionally (GDD §3.4 Lock)
-    const EMantornPriorityResult Priority = ResolveDualGesture(Main, Sub);
-    if (Priority == EMantornPriorityResult::ActivateMain)
+    // A Mantorn-capable Feryx pair uses a HOLD (both sides, past threshold) to
+    // toggle the composite form — start a watch rather than firing immediately.
+    if (TriggerSetComp->CanToggleMantornForm())
     {
-        bMainFired = true;
-        bSubFired  = true;
-        OnGestureDetected.Broadcast(EWTBRInputGesture::MainTap);
-        return;
-    }
-    if (Priority == EMantornPriorityResult::ActivateSub)
-    {
-        bMainFired = true;
-        bSubFired  = true;
-        OnGestureDetected.Broadcast(EWTBRInputGesture::SubTap);
-        return;
+        StartMantornHoldWatch();
     }
 
-    // GDD §3.4 Lock — Pure Type-Match only, no timing check
+    // GDD §3.4 Lock — Pure Type-Match only, no timing check. (Cosmetic gesture;
+    // the authoritative dual-wield effect is driven by GetDualWieldState server-side.)
     if (Main->Category == Sub->Category)
     {
         bMainFired = true;
         bSubFired  = true;
         OnGestureDetected.Broadcast(EWTBRInputGesture::DualTrigger);
     }
+}
+
+void UWTBRInputGestureComponent::StartMantornHoldWatch()
+{
+    if (!GetWorld()) return;
+    GetWorld()->GetTimerManager().SetTimer(
+        MantornHoldTimer, this,
+        &UWTBRInputGestureComponent::OnMantornHoldElapsed,
+        HoldThreshold, false);
+}
+
+void UWTBRInputGestureComponent::CancelMantornHoldWatch()
+{
+    if (GetWorld())
+    {
+        GetWorld()->GetTimerManager().ClearTimer(MantornHoldTimer);
+    }
+}
+
+void UWTBRInputGestureComponent::OnMantornHoldElapsed()
+{
+    // Both sides must still be held, and the loadout must still be toggle-eligible.
+    if (!bMainDown || !bSubDown || !TriggerSetComp) return;
+    if (!TriggerSetComp->CanToggleMantornForm()) return;
+
+    // Suppress the per-side hold gestures — this hold was the form toggle.
+    bMainFired = true;
+    bSubFired  = true;
+
+    // Server is authoritative for the actual transform (validates + charges Vael).
+    TriggerSetComp->Server_RequestMantornToggle();
 }

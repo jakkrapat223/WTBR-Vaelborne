@@ -662,6 +662,18 @@ private:
     void AddDefaultMappingContext();
     void ApplyInputActionFallbacks();
     void ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir = FVector::ZeroVector);
+
+    // Server-side routing of LMB/RMB while in Mantorn (Feryx+Feryx) form.
+    // Returns true if the input was consumed by the form (caller then skips the
+    // normal per-slot trigger path). Classifies a single-side press as Tap=whip or
+    // Hold=spin on release, using MantornParams.InFormHoldThreshold.
+    bool HandleMantornFormInput(bool bIsMain, bool bIsPressed);
+
+    // Tracks the single in-form attack press (server only). A second side pressing
+    // while one is held is ignored (a two-side hold is the exit gesture instead).
+    bool  bMantornAttackHeld = false;
+    bool  bMantornAttackSideIsMain = false;
+    float MantornAttackPressTime = 0.f;
     FWTBRHUDTriggerVaelAffordability GetActiveTriggerVaelAffordabilityForHUD(bool bIsMain) const;
     FVector GetClientMoveInputDirectionForTrigger() const;
     static FVector SanitizeClientMoveInputDirection(FVector ClientMoveInputDir);

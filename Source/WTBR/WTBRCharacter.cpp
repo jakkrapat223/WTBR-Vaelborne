@@ -1993,11 +1993,45 @@ void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FV
         *GetNameSafe(Trigger),
         IsValid(Trigger) ? *GetNameSafe(Trigger->GetClass()) : TEXT("None"));
 
+    // Mantorn (Feryx+Feryx) form intercepts LMB/RMB before the normal slot path:
+    // Tap = forward whip, Hold = AOE spin. A simultaneous two-side hold is the
+    // enter/exit toggle and is handled separately via Server_RequestMantornToggle.
+    if (TriggerSetComponent->IsMantornFormActive())
+    {
+        HandleMantornFormInput(bIsMain, bIsPressed);
+        return;
+    }
+    // Not in form — clear any leftover in-form attack state (e.g. the buttons that
+    // were still held when the form was exited) so it can't go stale into next entry.
+    bMantornAttackHeld = false;
+
     if (!Trigger) return;
 
     const bool bIsDualWield =
         TriggerSetComponent->GetDualWieldState() != EWTBRDualWieldState::None;
     const FInputActionValue TriggerInputValue(ClientMoveInputDir);
+
+    // A Mantorn-capable Feryx pair (both active Main+Sub) must NEVER resolve on
+    // PRESS — Feryx's normal Activate() swings instantly on press, which would
+    // fire a normal hit on the very press that's supposed to start the
+    // both-hold-to-transform gesture, before the hold has any chance to land.
+    // Defer to RELEASE instead: if the hold became the transform mid-press
+    // (Server_RequestMantornToggle, sent independently by the gesture component),
+    // IsMantornFormActive() will already be true by the time release arrives and
+    // this trigger's swing never fires. If the hold never completed (quick tap,
+    // or only one side was ever pressed), fire the deferred tap on release.
+    const bool bMantornToggleCandidate = TriggerSetComponent->CanToggleMantornForm();
+    if (bMantornToggleCandidate)
+    {
+        if (bIsPressed)
+        {
+            return; // Wait for release before deciding.
+        }
+        Trigger->OnTriggerActivated(this, bIsMain);
+        const bool bActivated = Trigger->Activate(TriggerInputValue, bIsDualWield);
+        WTBR_VALIDATION_LOG(Verbose, TEXT("Trigger Activate result (deferred Mantorn-candidate tap): %d"), bActivated);
+        return;
+    }
 
     if (bIsPressed)
     {
@@ -2010,6 +2044,49 @@ void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FV
         Trigger->OnTriggerDeactivated(this, bIsMain);
         Trigger->OnReleased(TriggerInputValue, bIsDualWield);
     }
+}
+
+bool AWTBRCharacter::HandleMantornFormInput(bool bIsMain, bool bIsPressed)
+{
+    if (!HasAuthority() || !TriggerSetComponent) return false;
+
+    if (bIsPressed)
+    {
+        // First press starts the attack; a second side pressing while one is held
+        // is ignored — a two-side hold is the exit gesture, not a double attack.
+        if (!bMantornAttackHeld)
+        {
+            bMantornAttackHeld       = true;
+            bMantornAttackSideIsMain = bIsMain;
+            MantornAttackPressTime   = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+        }
+        return true;
+    }
+
+    // Release: only the side that started the attack fires it.
+    if (!bMantornAttackHeld || bMantornAttackSideIsMain != bIsMain)
+    {
+        return true;
+    }
+    bMantornAttackHeld = false;
+
+    UWTBRMantornTrigger* Form = TriggerSetComponent->GetActiveMantornForm();
+    if (!IsValid(Form)) return true;
+
+    const UWTBRTriggerDataAsset* MainDA = TriggerSetComponent->GetActiveMainDataAsset();
+    const float HoldThreshold = IsValid(MainDA)
+        ? MainDA->MantornParams.InFormHoldThreshold : 0.2f;
+
+    const float HeldFor = (GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f) - MantornAttackPressTime;
+    if (HeldFor >= HoldThreshold)
+    {
+        Form->SpinSlash();   // Hold = AOE spin
+    }
+    else
+    {
+        Form->WhipSlash();   // Tap = forward whip
+    }
+    return true;
 }
 
 void AWTBRCharacter::Server_Dodge_Implementation()

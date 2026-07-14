@@ -9,6 +9,8 @@
 #include "Trigger/WTBRTriggerDataAsset.h" // full type required for TSoftObjectPtr<T>::Get()
 #include "WTBRTriggerSetComponent.generated.h"
 
+class UWTBRMantornTrigger;
+
 // 8-Slot system: Main[0..3] + Sub[4..7]
 UENUM(BlueprintType)
 enum class ETriggerSlot : uint8
@@ -191,6 +193,39 @@ public:
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Composite | VFX")
     void OnMergeCancelled();
 
+    // ── Mantorn (Feryx + Feryx composite form) ────────────────────────────────
+
+    // Client → Server: toggle Mantorn form. Server validates both active Main+Sub
+    // are Feryx with bCanFormMantorn, charges TransformVaelCost on enter (never
+    // refunds on exit). Sent by the gesture component on a simultaneous LMB+RMB hold.
+    UFUNCTION(Server, Reliable)
+    void Server_RequestMantornToggle();
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Mantorn")
+    bool IsMantornFormActive() const { return bMantornFormActive; }
+
+    // Client-usable gate for the dual-hold toggle gesture: true if already in form
+    // (hold-both exits) OR both active Main+Sub are Mantorn-capable Feryx (hold-both
+    // enters). RuntimeTriggers exist on clients too, so this is valid client-side.
+    UFUNCTION(BlueprintPure, Category = "WTBR | Mantorn")
+    bool CanToggleMantornForm() const
+    {
+        return bMantornFormActive || AreBothActiveFeryxMantornCapable();
+    }
+
+    // Server-only accessor for the active form's behavior executor (whip/spin).
+    // Null on clients and when not in form.
+    UWTBRMantornTrigger* GetActiveMantornForm() const { return ActiveMantornForm; }
+
+    // Authority-only force-exit — called on death/stun/loadout swap. No refund.
+    void ExitMantornForm(const TCHAR* Reason);
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Mantorn | VFX")
+    void OnMantornFormEntered();
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Mantorn | VFX")
+    void OnMantornFormExited();
+
 protected:
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -273,6 +308,27 @@ private:
     void OnRep_DualWieldState();
 
     void UpdateDualWieldState();
+
+    // ── Mantorn form internals ────────────────────────────────────────────────
+
+    // Replicated so clients drive form VFX via OnRep. Server-authoritative.
+    UPROPERTY(ReplicatedUsing = OnRep_MantornForm)
+    bool bMantornFormActive = false;
+
+    // Server-only behavior executor for the active form (whip/spin). Constructed on
+    // enter with the active Main Feryx DataAsset; cleared on exit.
+    UPROPERTY(Transient)
+    TObjectPtr<UWTBRMantornTrigger> ActiveMantornForm;
+
+    UFUNCTION()
+    void OnRep_MantornForm();
+
+    // True only when BOTH active Main and active Sub are Feryx triggers whose
+    // DataAsset has MantornParams.bCanFormMantorn = true.
+    bool AreBothActiveFeryxMantornCapable() const;
+
+    // Authority-only enter: validates, charges TransformVaelCost, spawns executor.
+    bool EnterMantornForm();
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };

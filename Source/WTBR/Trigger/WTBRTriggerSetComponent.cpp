@@ -6,6 +6,9 @@
 #include "Trigger/WTBRAegornTrigger.h"
 #include "Trigger/WTBREscudoTrigger.h"
 #include "Trigger/WTBRSerpveilTrigger.h"
+#include "Trigger/WTBRFeryxTrigger.h"
+#include "Trigger/WTBRMantornTrigger.h"
+#include "Engine/Engine.h"
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
 #include "Actors/WTBRProjectileBase.h"
@@ -549,6 +552,118 @@ void UWTBRTriggerSetComponent::UpdateDualWieldState()
     {
         CurrentDualWieldState = NewState;
         OnDualWieldStateChanged.Broadcast(CurrentDualWieldState, ActiveCat);
+    }
+
+    // Auto-exit Mantorn form the moment the active loadout is no longer a pair of
+    // Mantorn-capable Feryx (e.g. player cycled a slot away from Feryx). Server only.
+    if (bMantornFormActive && HasServerAuthority() && !AreBothActiveFeryxMantornCapable())
+    {
+        ExitMantornForm(TEXT("ActiveTriggerChanged"));
+    }
+}
+
+// ── Mantorn (Feryx + Feryx composite form) ───────────────────────────────────
+
+bool UWTBRTriggerSetComponent::AreBothActiveFeryxMantornCapable() const
+{
+    const UWTBRFeryxTrigger* Main = Cast<UWTBRFeryxTrigger>(GetActiveMainTrigger());
+    const UWTBRFeryxTrigger* Sub  = Cast<UWTBRFeryxTrigger>(GetActiveSubTrigger());
+    if (!Main || !Sub) return false;
+
+    const UWTBRTriggerDataAsset* MainDA = Main->DataAsset;
+    const UWTBRTriggerDataAsset* SubDA  = Sub->DataAsset;
+    return IsValid(MainDA) && IsValid(SubDA)
+        && MainDA->MantornParams.bCanFormMantorn
+        && SubDA->MantornParams.bCanFormMantorn;
+}
+
+void UWTBRTriggerSetComponent::Server_RequestMantornToggle_Implementation()
+{
+    if (!HasServerAuthority()) return;
+
+    if (bMantornFormActive)
+    {
+        ExitMantornForm(TEXT("PlayerToggle"));
+    }
+    else
+    {
+        EnterMantornForm();
+    }
+}
+
+bool UWTBRTriggerSetComponent::EnterMantornForm()
+{
+    if (!HasServerAuthority()) return false;
+    if (bMantornFormActive) return false;
+    if (!AreBothActiveFeryxMantornCapable()) return false;
+
+    UWTBRTriggerDataAsset* MainDA = GetActiveMainDataAsset();
+    if (!IsValid(MainDA)) return false;
+
+    AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner());
+    if (!OwnerChar || !OwnerChar->VaelComponent) return false;
+
+    // Separate one-time transform cost, like Dual Senku. No refund on exit.
+    if (!OwnerChar->VaelComponent->TryConsumeVael(MainDA->MantornParams.TransformVaelCost))
+    {
+        return false;
+    }
+
+    ActiveMantornForm = NewObject<UWTBRMantornTrigger>(this);
+    ActiveMantornForm->InitializeTrigger(OwnerChar, MainDA);
+
+    bMantornFormActive = true;
+    // OnRep does not fire on the server (listen host authority) — call the VFX hook directly.
+    OnMantornFormEntered();
+
+    // Visible-now confirmation until real VFX/animation is bound to OnMantornFormEntered
+    // in Blueprint. Same on-screen debug convention as UWTBRMeleeTrigger's Feryx logging.
+    if (GEngine && WTBRShouldLogValidation())
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Purple,
+            FString::Printf(TEXT("[Mantorn] FORM ENTERED — %s"), *GetNameSafe(OwnerChar)));
+    }
+    UE_LOG(LogTemp, Log, TEXT("WTBR Mantorn form entered: %s"), *GetNameSafe(OwnerChar));
+    return true;
+}
+
+void UWTBRTriggerSetComponent::ExitMantornForm(const TCHAR* Reason)
+{
+    if (!HasServerAuthority()) return;
+    if (!bMantornFormActive) return;
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR Mantorn form exit: %s | Owner=%s"),
+        Reason ? Reason : TEXT("None"), *GetNameSafe(GetOwner()));
+
+    bMantornFormActive = false;
+    ActiveMantornForm  = nullptr;
+    OnMantornFormExited();
+
+    if (GEngine && WTBRShouldLogValidation())
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Silver,
+            FString::Printf(TEXT("[Mantorn] Form exited (%s)"), Reason ? Reason : TEXT("None")));
+    }
+}
+
+void UWTBRTriggerSetComponent::OnRep_MantornForm()
+{
+    // Client cosmetic hook only. Gameplay executes on the server.
+    if (bMantornFormActive)
+    {
+        OnMantornFormEntered();
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Purple, TEXT("[Mantorn] FORM ENTERED (client)"));
+        }
+    }
+    else
+    {
+        OnMantornFormExited();
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Silver, TEXT("[Mantorn] Form exited (client)"));
+        }
     }
 }
 
@@ -1226,4 +1341,5 @@ void UWTBRTriggerSetComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProper
     DOREPLIFETIME(UWTBRTriggerSetComponent, CurrentDualWieldState);
     DOREPLIFETIME(UWTBRTriggerSetComponent, CurrentMergeState);
     DOREPLIFETIME(UWTBRTriggerSetComponent, bMergeWasFired);
+    DOREPLIFETIME(UWTBRTriggerSetComponent, bMantornFormActive);
 }

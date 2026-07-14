@@ -115,23 +115,32 @@ namespace
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Mantorn — 360° spin melee (ignores dual-wield, hits everyone in radius)
+// Mantorn — Feryx + Feryx composite FORM behavior executor (WhipSlash / SpinSlash)
+//
+// Mantorn is no longer a standalone equippable spin Trigger. It is the in-form
+// behavior object the TriggerSetComponent drives while the player is in Mantorn
+// form (see WTBRMantornTrigger.h). These tests exercise the two moves directly,
+// mirroring how AWTBRCharacter::HandleMantornFormInput calls them on the server.
+// The transform enter/exit + dual-hold gesture + Server RPC path is inherently
+// networked (client gesture → replicated state) and needs a real GameState join
+// flow, so it is deferred to the PIE Human Test Gate rather than covered here.
 // ═════════════════════════════════════════════════════════════════════════════
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-    FWTBRMantornDamagesTargetInRadiusTest,
-    "WTBR.Trigger.Mantorn.DamagesTargetInRadiusNotOutOfRange",
+    FWTBRMantornSpinDamagesTargetInRadiusTest,
+    "WTBR.Trigger.Mantorn.SpinDamagesTargetInRadiusNotOutOfRange",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FWTBRMantornDamagesTargetInRadiusTest::RunTest(const FString& /*Parameters*/)
+bool FWTBRMantornSpinDamagesTargetInRadiusTest::RunTest(const FString& /*Parameters*/)
 {
-    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_MantornRadius"));
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_MantornSpinRadius"));
     UWorld* World = Fixture.GetWorld();
 
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
     DataAsset->MeleeHitbox.MantornSpinRadius = 200.0f;
     DataAsset->MeleeHitbox.MantornSpinDamage = 80.0f;
-    DataAsset->MeleeHitbox.SwingCooldown = 999.0f; // Keep cooldown from interfering here.
+    DataAsset->MantornParams.SpinVaelCost   = 12.0f;
+    DataAsset->MantornParams.ActionCooldown = 999.0f; // Keep cooldown from interfering here.
 
     AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
     AWTBRCharacter* InRange = TriggerRegressionTest_SpawnCharacter(World, FVector(150.0f, 0.0f, 0.0f));
@@ -139,7 +148,8 @@ bool FWTBRMantornDamagesTargetInRadiusTest::RunTest(const FString& /*Parameters*
     TestNotNull(TEXT("Owner spawns"), Owner);
     TestNotNull(TEXT("In-range target spawns"), InRange);
     TestNotNull(TEXT("Out-of-range target spawns"), OutOfRange);
-    if (!Owner || !InRange || !OutOfRange) return false;
+    if (!Owner || !InRange || !OutOfRange || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
 
     UWTBRMantornTrigger* Mantorn = NewObject<UWTBRMantornTrigger>(Owner);
     Mantorn->InitializeTrigger(Owner, DataAsset);
@@ -148,58 +158,73 @@ bool FWTBRMantornDamagesTargetInRadiusTest::RunTest(const FString& /*Parameters*
     const float InRangeHPBefore = InRange->HealthComponent->GetCurrentHP();
     const float OutOfRangeHPBefore = OutOfRange->HealthComponent->GetCurrentHP();
 
-    const bool bActivated = Mantorn->Activate(FInputActionValue(), false);
+    const bool bSpun = Mantorn->SpinSlash();
 
-    TestTrue(TEXT("Activate succeeds"), bActivated);
+    TestTrue(TEXT("SpinSlash succeeds"), bSpun);
     TestEqual(TEXT("In-range target takes SpinDamage"),
         InRange->HealthComponent->GetCurrentHP(), InRangeHPBefore - 80.0f);
     TestEqual(TEXT("Out-of-range target untouched"),
         OutOfRange->HealthComponent->GetCurrentHP(), OutOfRangeHPBefore);
     TestEqual(TEXT("Owner does not damage self (FilterHits excludes instigator)"),
         Owner->HealthComponent->GetCurrentHP(), OwnerHPBefore);
+    TestEqual(TEXT("Vael consumed by SpinVaelCost"),
+        Owner->VaelComponent->GetCurrentVael(), 88.0f);
 
     return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-    FWTBRMantornIgnoresDualWieldTest,
-    "WTBR.Trigger.Mantorn.IgnoresDualWieldFlag",
+    FWTBRMantornWhipDamagesForwardTargetTest,
+    "WTBR.Trigger.Mantorn.WhipDamagesForwardTargetNotBehind",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FWTBRMantornIgnoresDualWieldTest::RunTest(const FString& /*Parameters*/)
+bool FWTBRMantornWhipDamagesForwardTargetTest::RunTest(const FString& /*Parameters*/)
 {
-    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_MantornDual"));
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_MantornWhip"));
     UWorld* World = Fixture.GetWorld();
 
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
-    DataAsset->MeleeHitbox.MantornSpinRadius = 200.0f;
-    DataAsset->MeleeHitbox.MantornSpinDamage = 80.0f;
-    DataAsset->MeleeHitbox.SwingCooldown = 0.01f; // Fast enough to fire twice in-test.
+    DataAsset->MeleeHitbox.ForwardOffset    = 120.0f;
+    DataAsset->MeleeHitbox.CapsuleHalfHeight = 50.0f;
+    DataAsset->MantornParams.WhipReach      = 450.0f;
+    DataAsset->MantornParams.WhipRadius     = 60.0f;
+    DataAsset->MantornParams.WhipDamage     = 90.0f;
+    DataAsset->MantornParams.WhipVaelCost   = 8.0f;
+    DataAsset->MantornParams.ActionCooldown = 999.0f;
 
+    // No controller possesses the test pawn → whip falls back to actor forward
+    // (+X for a zero rotator), so a +X target is "in front".
     AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
-    AWTBRCharacter* Target = TriggerRegressionTest_SpawnCharacter(World, FVector(150.0f, 0.0f, 0.0f));
-    if (!Owner || !Target) return false;
+    AWTBRCharacter* Front = TriggerRegressionTest_SpawnCharacter(World, FVector(250.0f, 0.0f, 0.0f));
+    AWTBRCharacter* Behind = TriggerRegressionTest_SpawnCharacter(World, FVector(-250.0f, 0.0f, 0.0f));
+    if (!Owner || !Front || !Behind || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
 
-    // GDD §3.4 Lock (see WTBRMantornTrigger.cpp comment): "Mantorn ignores
-    // bIsDualWield — always spins." Verify dual-wield deals the SAME single-spin
-    // damage, not double.
-    UWTBRMantornTrigger* MantornDual = NewObject<UWTBRMantornTrigger>(Owner);
-    MantornDual->InitializeTrigger(Owner, DataAsset);
-    const float HPBefore = Target->HealthComponent->GetCurrentHP();
-    MantornDual->Activate(FInputActionValue(), /*bIsDualWield=*/true);
+    UWTBRMantornTrigger* Mantorn = NewObject<UWTBRMantornTrigger>(Owner);
+    Mantorn->InitializeTrigger(Owner, DataAsset);
 
-    TestEqual(TEXT("Dual-wield deals exactly one spin's damage, not double"),
-        Target->HealthComponent->GetCurrentHP(), HPBefore - 80.0f);
+    const float FrontHPBefore = Front->HealthComponent->GetCurrentHP();
+    const float BehindHPBefore = Behind->HealthComponent->GetCurrentHP();
+
+    const bool bWhipped = Mantorn->WhipSlash();
+
+    TestTrue(TEXT("WhipSlash succeeds"), bWhipped);
+    TestEqual(TEXT("Forward target takes WhipDamage"),
+        Front->HealthComponent->GetCurrentHP(), FrontHPBefore - 90.0f);
+    TestEqual(TEXT("Target behind is untouched (forward-only sweep)"),
+        Behind->HealthComponent->GetCurrentHP(), BehindHPBefore);
+    TestEqual(TEXT("Vael consumed by WhipVaelCost"),
+        Owner->VaelComponent->GetCurrentVael(), 92.0f);
 
     return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-    FWTBRMantornCooldownBlocksImmediateReactivationTest,
-    "WTBR.Trigger.Mantorn.CooldownBlocksImmediateReactivation",
+    FWTBRMantornCooldownBlocksImmediateReactionTest,
+    "WTBR.Trigger.Mantorn.InFormCooldownBlocksImmediateReactivation",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FWTBRMantornCooldownBlocksImmediateReactivationTest::RunTest(const FString& /*Parameters*/)
+bool FWTBRMantornCooldownBlocksImmediateReactionTest::RunTest(const FString& /*Parameters*/)
 {
     FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_MantornCooldown"));
     UWorld* World = Fixture.GetWorld();
@@ -207,24 +232,29 @@ bool FWTBRMantornCooldownBlocksImmediateReactivationTest::RunTest(const FString&
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
     DataAsset->MeleeHitbox.MantornSpinRadius = 200.0f;
     DataAsset->MeleeHitbox.MantornSpinDamage = 80.0f;
-    DataAsset->MeleeHitbox.SwingCooldown = 999.0f;
+    DataAsset->MantornParams.SpinVaelCost   = 12.0f;
+    DataAsset->MantornParams.ActionCooldown = 999.0f;
 
     AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
     AWTBRCharacter* Target = TriggerRegressionTest_SpawnCharacter(World, FVector(150.0f, 0.0f, 0.0f));
-    if (!Owner || !Target) return false;
+    if (!Owner || !Target || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
 
     UWTBRMantornTrigger* Mantorn = NewObject<UWTBRMantornTrigger>(Owner);
     Mantorn->InitializeTrigger(Owner, DataAsset);
 
-    TestTrue(TEXT("First activation succeeds"), Mantorn->Activate(FInputActionValue(), false));
+    TestTrue(TEXT("First spin succeeds"), Mantorn->SpinSlash());
     TestTrue(TEXT("On cooldown immediately after"), Mantorn->IsOnCooldown());
 
     const float HPAfterFirstSpin = Target->HealthComponent->GetCurrentHP();
-    const bool bSecondActivate = Mantorn->Activate(FInputActionValue(), false);
+    const float VaelAfterFirstSpin = Owner->VaelComponent->GetCurrentVael();
+    const bool bSecondSpin = Mantorn->SpinSlash();
 
-    TestFalse(TEXT("Second immediate activation rejected by cooldown"), bSecondActivate);
+    TestFalse(TEXT("Second immediate spin rejected by cooldown"), bSecondSpin);
     TestEqual(TEXT("No additional damage from the rejected second spin"),
         Target->HealthComponent->GetCurrentHP(), HPAfterFirstSpin);
+    TestEqual(TEXT("No additional Vael consumed by the rejected second spin"),
+        Owner->VaelComponent->GetCurrentVael(), VaelAfterFirstSpin);
 
     return true;
 }
@@ -246,12 +276,14 @@ bool FWTBRMantornFriendlyFireBlockedTest::RunTest(const FString& /*Parameters*/)
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
     DataAsset->MeleeHitbox.MantornSpinRadius = 200.0f;
     DataAsset->MeleeHitbox.MantornSpinDamage = 80.0f;
-    DataAsset->MeleeHitbox.SwingCooldown = 999.0f;
+    DataAsset->MantornParams.SpinVaelCost   = 12.0f;
+    DataAsset->MantornParams.ActionCooldown = 999.0f;
 
     AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
     AWTBRCharacter* Teammate = TriggerRegressionTest_SpawnCharacter(World, FVector(150.0f, 0.0f, 0.0f));
     AWTBRCharacter* Enemy = TriggerRegressionTest_SpawnCharacter(World, FVector(-150.0f, 0.0f, 0.0f));
-    if (!Owner || !Teammate || !Enemy) return false;
+    if (!Owner || !Teammate || !Enemy || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
     Owner->SetTeamId(0);
     Teammate->SetTeamId(0);
     Enemy->SetTeamId(1);
@@ -262,7 +294,7 @@ bool FWTBRMantornFriendlyFireBlockedTest::RunTest(const FString& /*Parameters*/)
     const float TeammateHPBefore = Teammate->HealthComponent->GetCurrentHP();
     const float EnemyHPBefore = Enemy->HealthComponent->GetCurrentHP();
 
-    Mantorn->Activate(FInputActionValue(), false);
+    Mantorn->SpinSlash();
 
     TestEqual(TEXT("Teammate untouched (friendly fire blocked)"),
         Teammate->HealthComponent->GetCurrentHP(), TeammateHPBefore);
@@ -273,8 +305,45 @@ bool FWTBRMantornFriendlyFireBlockedTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRMantornInsufficientVaelBlocksActionTest,
+    "WTBR.Trigger.Mantorn.InsufficientVaelBlocksInFormAction",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRMantornInsufficientVaelBlocksActionTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_MantornNoVael"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->MeleeHitbox.MantornSpinRadius = 200.0f;
+    DataAsset->MeleeHitbox.MantornSpinDamage = 80.0f;
+    DataAsset->MantornParams.SpinVaelCost   = 12.0f;
+    DataAsset->MantornParams.ActionCooldown = 999.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* Target = TriggerRegressionTest_SpawnCharacter(World, FVector(150.0f, 0.0f, 0.0f));
+    if (!Owner || !Target || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(5.0f); // Below SpinVaelCost=12.
+
+    UWTBRMantornTrigger* Mantorn = NewObject<UWTBRMantornTrigger>(Owner);
+    Mantorn->InitializeTrigger(Owner, DataAsset);
+
+    const float TargetHPBefore = Target->HealthComponent->GetCurrentHP();
+    const bool bSpun = Mantorn->SpinSlash();
+
+    TestFalse(TEXT("Spin rejected: insufficient Vael"), bSpun);
+    TestEqual(TEXT("Vael unchanged (TryConsumeVael fails atomically)"),
+        Owner->VaelComponent->GetCurrentVael(), 5.0f);
+    TestEqual(TEXT("Target untouched by the rejected spin"),
+        Target->HealthComponent->GetCurrentHP(), TargetHPBefore);
+    TestFalse(TEXT("Not left on cooldown by a rejected action"), Mantorn->IsOnCooldown());
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FWTBRMantornRejectsWithoutDataAssetTest,
-    "WTBR.Trigger.Mantorn.RejectsActivationWithoutDataAsset",
+    "WTBR.Trigger.Mantorn.RejectsActionWithoutDataAsset",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FWTBRMantornRejectsWithoutDataAssetTest::RunTest(const FString& /*Parameters*/)
@@ -288,7 +357,8 @@ bool FWTBRMantornRejectsWithoutDataAssetTest::RunTest(const FString& /*Parameter
     UWTBRMantornTrigger* Mantorn = NewObject<UWTBRMantornTrigger>(Owner);
     Mantorn->InitializeTrigger(Owner, nullptr);
 
-    TestFalse(TEXT("Activation rejected with no DataAsset"), Mantorn->Activate(FInputActionValue(), false));
+    TestFalse(TEXT("SpinSlash rejected with no DataAsset"), Mantorn->SpinSlash());
+    TestFalse(TEXT("WhipSlash rejected with no DataAsset"), Mantorn->WhipSlash());
 
     return true;
 }

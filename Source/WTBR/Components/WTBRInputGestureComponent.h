@@ -85,21 +85,17 @@ private:
     UPROPERTY()
     TObjectPtr<UWTBRTriggerSetComponent> TriggerSetComp;
 
-    // Internal enum — not exposed to reflection, not a UENUM
-    enum class EMantornPriorityResult : uint8
-    {
-        None,
-        ActivateMain,
-        ActivateSub,
-    };
-
-    // Checks Mantorn Priority before Pure Type-Match (GDD §3.4 Lock)
-    EMantornPriorityResult ResolveDualGesture(
-        const UWTBRTriggerBase* Main,
-        const UWTBRTriggerBase* Sub) const;
-
     // Checks Pure Type-Match dual-trigger condition and fires DualTrigger gesture
     void CheckDualGesture();
+
+    // ── Mantorn (Feryx+Feryx) enter/exit gesture ──────────────────────────────
+    // A simultaneous LMB+RMB hold (past HoldThreshold) toggles Mantorn form when
+    // the active loadout is a Mantorn-capable Feryx pair. Local (owning-client)
+    // detection → server RPC; the server is authoritative for the actual transform.
+    FTimerHandle MantornHoldTimer;
+    void StartMantornHoldWatch();
+    void CancelMantornHoldWatch();
+    void OnMantornHoldElapsed();
 
     // ── Movement ──────────────────────────────────────────────────────────────
     void OnMove_Triggered(const FInputActionValue& Value);

@@ -145,6 +145,69 @@ struct FWTBRDualWieldStats
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// FWTBRMantornParams — Mantorn (Feryx + Feryx composite transform form)
+// Mantorn is NOT a standalone equippable Trigger. It is unlocked at runtime by
+// holding LMB+RMB together while both the active Main AND active Sub slots hold a
+// Feryx that has bCanFormMantorn = true. In-form: Tap = forward whip, Hold = AOE
+// spin (reuses MeleeHitbox.MantornSpinRadius/MantornSpinDamage). Separate Vael
+// cost model, mirroring Dual Senku. All values DA-driven (⚠ Playtest).
+// ─────────────────────────────────────────────────────────────────────────────
+USTRUCT(BlueprintType)
+struct FWTBRMantornParams
+{
+    GENERATED_BODY()
+
+    // Designer gate: BOTH the active Main and active Sub Feryx DataAssets must set
+    // this true for the dual-hold gesture to enter Mantorn form. Never compare by
+    // class name / DisplayName — this flag replaces the retired bIsMantornPriority.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mantorn | Form")
+    bool bCanFormMantorn = false;
+
+    // Vael consumed once on entering the form (charged server-side at transform
+    // commit; NOT refunded on exit). Separate from per-attack costs, like Dual Senku.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Mantorn | Cost", meta = (ClampMin = "0.0"))
+    float TransformVaelCost = 20.0f;
+
+    // Vael per forward whip (Tap). ⚠ Playtest
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Mantorn | Cost", meta = (ClampMin = "0.0"))
+    float WhipVaelCost = 8.0f;
+
+    // Vael per AOE spin (Hold). ⚠ Playtest
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Mantorn | Cost", meta = (ClampMin = "0.0"))
+    float SpinVaelCost = 12.0f;
+
+    // Forward whip reach in UE units (1 unit = 1 cm). ⚠ Playtest
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Mantorn | Whip", meta = (ClampMin = "50.0"))
+    float WhipReach = 450.0f;
+
+    // Forward whip capsule radius (sweep half-width). ⚠ Playtest
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Mantorn | Whip", meta = (ClampMin = "10.0"))
+    float WhipRadius = 60.0f;
+
+    // Forward whip damage per hit. ⚠ Playtest
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Mantorn | Whip", meta = (ClampMin = "0.0"))
+    float WhipDamage = 90.0f;
+
+    // Cooldown between in-form attacks (whip or spin), FTimerHandle-driven. ⚠ Playtest
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Mantorn | Combat", meta = (ClampMin = "0.05"))
+    float ActionCooldown = 0.5f;
+
+    // Server-side hold classification: a single-side press held at least this long
+    // (seconds) on release = AOE spin (Hold); shorter = forward whip (Tap). Kept
+    // separate from the gesture component's enter-form threshold so feel is tunable.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Mantorn | Combat", meta = (ClampMin = "0.05"))
+    float InFormHoldThreshold = 0.2f;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // FWTBRLacernParams — Lacern (ดาบยืด)
 // ─────────────────────────────────────────────────────────────────────────────
 USTRUCT(BlueprintType)
@@ -1042,6 +1105,14 @@ public:
         meta = (EditCondition = "Category == ETriggerCategory::Melee"))
     FWTBRLacernParams LacernParams;
 
+    // ── Mantorn (Feryx + Feryx composite form) ────────────────────────────
+    // Only meaningful on a Feryx DataAsset (Category == Melee). Set
+    // MantornParams.bCanFormMantorn = true on DA_Feryx to allow the composite.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Mantorn",
+        meta = (EditCondition = "Category == ETriggerCategory::Melee"))
+    FWTBRMantornParams MantornParams;
+
     // ── Voltis ────────────────────────────────────────────────────────────
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Trigger | Voltis",
@@ -1157,13 +1228,6 @@ public:
         Category = "Trigger | Vexorn",
         meta = (EditCondition = "Category == ETriggerCategory::Defense"))
     FWTBRVexornParams VexornParams;
-
-    // ─── Priority ─────────────────────────────────────────────────────────────
-
-    // true → Mantorn overrides Dual Wield unconditionally (GDD §3.4 Lock)
-    // Set in DA_Mantorn only. Never compare by DisplayName.
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Trigger | Priority")
-    bool bIsMantornPriority = false;
 
     // ─── Action Ping ─────────────────────────────────────────────────────────
 
