@@ -10,10 +10,14 @@
 #include "Components/WTBRHealthComponent.h"
 #include "Components/WTBRVaelComponent.h"
 #include "Trigger/WTBRArcvenTrigger.h"
+#include "Trigger/WTBRAcervynTrigger.h"
+#include "Trigger/WTBRFulgrixTrigger.h"
 #include "Trigger/WTBRMantornTrigger.h"
 #include "Trigger/WTBRPiercexTrigger.h"
+#include "Trigger/WTBRSoluxTrigger.h"
 #include "Trigger/WTBRTelornTrigger.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
+#include "Trigger/WTBRVenyxTrigger.h"
 #include "WTBRCharacter.h"
 
 // -----------------------------------------------------------------------------
@@ -758,6 +762,330 @@ bool FWTBRProjectileSpawnCubeSplitsZeroCountIsNoOpTest::RunTest(const FString& /
 
     TestEqual(TEXT("Zero-count SpawnCubeSplits spawns no fragments (still just the one projectile)"),
         TriggerRegressionTest_CountProjectiles(World), 1);
+
+    return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Base Gunners (composite-source archetypes) — Solux / Fulgrix / Venyx / Acervyn.
+// Tap = Activate-on-press (unlike the snipers' aim-then-fire): validate DataAsset
+// + cooldown + Vael, then fire. These lock the shared fire/cooldown/Vael contract
+// each gunner relies on. Homing target acquisition (Venyx/Acervyn sphere overlap)
+// needs a real physics scene, which headless fixtures lack — those find zero
+// overlaps, so "acquires target → homes" is deferred to the PIE gate; here we
+// confirm the shot still spawns straight with no target, which is the fallback.
+// ═════════════════════════════════════════════════════════════════════════════
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRSoluxFireConfiguresProjectileTest,
+    "WTBR.Trigger.Solux.FireConfiguresProjectileAndConsumesVael",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRSoluxFireConfiguresProjectileTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_SoluxFire"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VaelCostPerUse = 8.0f;
+    DataAsset->SoluxParams.SoluxDamage = 30.0f;
+    DataAsset->SoluxParams.SoluxSpeed = 3000.0f;
+    DataAsset->SoluxParams.SoluxFireCooldown = 0.5f;
+    DataAsset->SoluxParams.SoluxProjectileClass = AWTBRProjectileBase::StaticClass();
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRSoluxTrigger* Solux = NewObject<UWTBRSoluxTrigger>(Owner);
+    Solux->InitializeTrigger(Owner, DataAsset);
+
+    const bool bActivated = Solux->Activate(FInputActionValue(), false);
+    TestTrue(TEXT("Solux fires on press"), bActivated);
+    TestEqual(TEXT("Vael consumed by VaelCostPerUse"), Owner->VaelComponent->GetCurrentVael(), 92.0f);
+    TestTrue(TEXT("Solux is on cooldown after firing"), Solux->IsOnCooldown());
+
+    AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
+    TestNotNull(TEXT("Exactly one bullet spawned"), Proj);
+    if (Proj)
+    {
+        TestEqual(TEXT("Damage = SoluxDamage"), Proj->BaseDamage, 30.0f);
+        TestEqual(TEXT("Category = Gunner"), (int32)Proj->OwnerCategory, (int32)ETriggerCategory::Gunner);
+        TestFalse(TEXT("Solux bullet does not explode"), Proj->bExplodeOnImpact);
+    }
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRSoluxInsufficientVaelBlocksFireTest,
+    "WTBR.Trigger.Solux.InsufficientVaelBlocksFire",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRSoluxInsufficientVaelBlocksFireTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_SoluxNoVael"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VaelCostPerUse = 20.0f;
+    DataAsset->SoluxParams.SoluxProjectileClass = AWTBRProjectileBase::StaticClass();
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(5.0f);
+
+    UWTBRSoluxTrigger* Solux = NewObject<UWTBRSoluxTrigger>(Owner);
+    Solux->InitializeTrigger(Owner, DataAsset);
+
+    const bool bActivated = Solux->Activate(FInputActionValue(), false);
+    TestFalse(TEXT("Fire rejected when Vael insufficient (fail-closed on press)"), bActivated);
+    TestEqual(TEXT("Vael unchanged"), Owner->VaelComponent->GetCurrentVael(), 5.0f);
+    TestEqual(TEXT("No projectile spawned"), TriggerRegressionTest_CountProjectiles(World), 0);
+    TestFalse(TEXT("Not left on cooldown"), Solux->IsOnCooldown());
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRSoluxCooldownBlocksReactivationTest,
+    "WTBR.Trigger.Solux.CooldownBlocksImmediateReactivation",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRSoluxCooldownBlocksReactivationTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_SoluxCooldown"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VaelCostPerUse = 5.0f;
+    DataAsset->SoluxParams.SoluxFireCooldown = 5.0f;
+    DataAsset->SoluxParams.SoluxProjectileClass = AWTBRProjectileBase::StaticClass();
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRSoluxTrigger* Solux = NewObject<UWTBRSoluxTrigger>(Owner);
+    Solux->InitializeTrigger(Owner, DataAsset);
+
+    TestTrue(TEXT("First fire succeeds"), Solux->Activate(FInputActionValue(), false));
+    const bool bSecond = Solux->Activate(FInputActionValue(), false);
+    TestFalse(TEXT("Second fire blocked by cooldown"), bSecond);
+    TestEqual(TEXT("Still only one bullet spawned"), TriggerRegressionTest_CountProjectiles(World), 1);
+    TestEqual(TEXT("Vael consumed exactly once"), Owner->VaelComponent->GetCurrentVael(), 95.0f);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRFulgrixFireConfiguresExplosiveTest,
+    "WTBR.Trigger.Fulgrix.FireConfiguresExplosiveProjectile",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRFulgrixFireConfiguresExplosiveTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_FulgrixFire"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VaelCostPerUse = 12.0f;
+    DataAsset->FulgrixParams.FulgrixDamage = 80.0f;
+    DataAsset->FulgrixParams.FulgrixSpeed = 2500.0f;
+    DataAsset->FulgrixParams.FulgrixExplosionRadius = 300.0f;
+    DataAsset->FulgrixParams.FulgrixFireCooldown = 0.8f;
+    DataAsset->FulgrixParams.FulgrixProjectileClass = AWTBRProjectileBase::StaticClass();
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRFulgrixTrigger* Fulgrix = NewObject<UWTBRFulgrixTrigger>(Owner);
+    Fulgrix->InitializeTrigger(Owner, DataAsset);
+
+    const bool bActivated = Fulgrix->Activate(FInputActionValue(), false);
+    TestTrue(TEXT("Fulgrix fires on press"), bActivated);
+    TestEqual(TEXT("Vael consumed"), Owner->VaelComponent->GetCurrentVael(), 88.0f);
+
+    AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
+    TestNotNull(TEXT("Exactly one shell spawned"), Proj);
+    if (Proj)
+    {
+        TestEqual(TEXT("Damage = FulgrixDamage"), Proj->BaseDamage, 80.0f);
+        TestTrue(TEXT("Fulgrix shell explodes on impact (unlike Solux)"), Proj->bExplodeOnImpact);
+        TestEqual(TEXT("ExplosionRadius = FulgrixExplosionRadius"), Proj->ExplosionRadius, 300.0f);
+        TestEqual(TEXT("Category = Gunner"), (int32)Proj->OwnerCategory, (int32)ETriggerCategory::Gunner);
+    }
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRFulgrixInsufficientVaelBlocksFireTest,
+    "WTBR.Trigger.Fulgrix.InsufficientVaelBlocksFire",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRFulgrixInsufficientVaelBlocksFireTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_FulgrixNoVael"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VaelCostPerUse = 20.0f;
+    DataAsset->FulgrixParams.FulgrixProjectileClass = AWTBRProjectileBase::StaticClass();
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(5.0f);
+
+    UWTBRFulgrixTrigger* Fulgrix = NewObject<UWTBRFulgrixTrigger>(Owner);
+    Fulgrix->InitializeTrigger(Owner, DataAsset);
+
+    TestFalse(TEXT("Fire rejected when Vael insufficient"), Fulgrix->Activate(FInputActionValue(), false));
+    TestEqual(TEXT("No projectile spawned"), TriggerRegressionTest_CountProjectiles(World), 0);
+    TestEqual(TEXT("Vael unchanged"), Owner->VaelComponent->GetCurrentVael(), 5.0f);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVenyxFireSpawnsProjectileTest,
+    "WTBR.Trigger.Venyx.FireSpawnsProjectileConsumesVaelNoTargetStraight",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVenyxFireSpawnsProjectileTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_VenyxFire"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VaelCostPerUse = 6.0f;
+    DataAsset->VenyxParams.VenyxDamage = 25.0f;
+    DataAsset->VenyxParams.VenyxSpeed = 3500.0f;
+    DataAsset->VenyxParams.VenyxFireCooldown = 0.6f;
+    DataAsset->VenyxParams.VenyxProjectileClass = AWTBRProjectileBase::StaticClass();
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRVenyxTrigger* Venyx = NewObject<UWTBRVenyxTrigger>(Owner);
+    Venyx->InitializeTrigger(Owner, DataAsset);
+
+    // No physics scene → sphere overlap finds no target → the bolt still fires
+    // straight (homing acquisition is PIE-only, see section header).
+    const bool bActivated = Venyx->Activate(FInputActionValue(), false);
+    TestTrue(TEXT("Venyx fires on press"), bActivated);
+    TestEqual(TEXT("Vael consumed"), Owner->VaelComponent->GetCurrentVael(), 94.0f);
+    TestTrue(TEXT("On cooldown after firing"), Venyx->IsOnCooldown());
+
+    AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
+    TestNotNull(TEXT("Exactly one bolt spawned even with no homing target"), Proj);
+    if (Proj)
+    {
+        TestEqual(TEXT("Damage = VenyxDamage"), Proj->BaseDamage, 25.0f);
+        TestEqual(TEXT("Category = Gunner"), (int32)Proj->OwnerCategory, (int32)ETriggerCategory::Gunner);
+    }
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVenyxInsufficientVaelBlocksFireTest,
+    "WTBR.Trigger.Venyx.InsufficientVaelBlocksFire",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVenyxInsufficientVaelBlocksFireTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_VenyxNoVael"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VaelCostPerUse = 20.0f;
+    DataAsset->VenyxParams.VenyxProjectileClass = AWTBRProjectileBase::StaticClass();
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(5.0f);
+
+    UWTBRVenyxTrigger* Venyx = NewObject<UWTBRVenyxTrigger>(Owner);
+    Venyx->InitializeTrigger(Owner, DataAsset);
+
+    TestFalse(TEXT("Fire rejected when Vael insufficient"), Venyx->Activate(FInputActionValue(), false));
+    TestEqual(TEXT("No projectile spawned"), TriggerRegressionTest_CountProjectiles(World), 0);
+    TestEqual(TEXT("Vael unchanged"), Owner->VaelComponent->GetCurrentVael(), 5.0f);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRAcervynBurstFirstShotFiresTest,
+    "WTBR.Trigger.Acervyn.BurstFirstShotFiresImmediatelyConsumesVael",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRAcervynBurstFirstShotFiresTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_AcervynBurst"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VaelCostPerUse = 14.0f;
+    DataAsset->AcervynParams.AcervynDamage = 20.0f;
+    DataAsset->AcervynParams.AcervynSpeed = 4000.0f;
+    DataAsset->AcervynParams.AcervynBurstCount = 5;
+    DataAsset->AcervynParams.AcervynBurstInterval = 0.1f;
+    DataAsset->AcervynParams.AcervynFireCooldown = 1.5f;
+    DataAsset->AcervynParams.AcervynProjectileClass = AWTBRProjectileBase::StaticClass();
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRAcervynTrigger* Acervyn = NewObject<UWTBRAcervynTrigger>(Owner);
+    Acervyn->InitializeTrigger(Owner, DataAsset);
+
+    // Burst fires the first shot immediately; the rest are on a timer that a
+    // headless fixture won't advance, so we assert exactly the immediate shot.
+    const bool bActivated = Acervyn->Activate(FInputActionValue(), false);
+    TestTrue(TEXT("Acervyn burst activates"), bActivated);
+    TestEqual(TEXT("Vael consumed once for the whole burst"), Owner->VaelComponent->GetCurrentVael(), 86.0f);
+    TestTrue(TEXT("On cooldown after activating"), Acervyn->IsOnCooldown());
+
+    AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
+    TestNotNull(TEXT("First burst shot spawns immediately (exactly one so far)"), Proj);
+    if (Proj)
+    {
+        TestEqual(TEXT("Damage = AcervynDamage"), Proj->BaseDamage, 20.0f);
+        TestEqual(TEXT("Category = Gunner"), (int32)Proj->OwnerCategory, (int32)ETriggerCategory::Gunner);
+    }
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRAcervynInsufficientVaelBlocksBurstTest,
+    "WTBR.Trigger.Acervyn.InsufficientVaelBlocksBurst",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRAcervynInsufficientVaelBlocksBurstTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_AcervynNoVael"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VaelCostPerUse = 20.0f;
+    DataAsset->AcervynParams.AcervynProjectileClass = AWTBRProjectileBase::StaticClass();
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(5.0f);
+
+    UWTBRAcervynTrigger* Acervyn = NewObject<UWTBRAcervynTrigger>(Owner);
+    Acervyn->InitializeTrigger(Owner, DataAsset);
+
+    TestFalse(TEXT("Burst rejected when Vael insufficient"), Acervyn->Activate(FInputActionValue(), false));
+    TestEqual(TEXT("No projectile spawned"), TriggerRegressionTest_CountProjectiles(World), 0);
+    TestEqual(TEXT("Vael unchanged"), Owner->VaelComponent->GetCurrentVael(), 5.0f);
 
     return true;
 }
