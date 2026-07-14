@@ -18,6 +18,11 @@
 #include "Trigger/WTBRTelornTrigger.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
 #include "Trigger/WTBRVenyxTrigger.h"
+#include "Trigger/WTBRVexornTrigger.h"
+#include "Trigger/WTBRNexilTrigger.h"
+#include "Actors/WTBRNexilWireActor.h"
+#include "Trigger/WTBRVoltisLaunchTrigger.h"
+#include "Subsystem/WTBRActionPingSubsystem.h"
 #include "WTBRCharacter.h"
 
 // -----------------------------------------------------------------------------
@@ -1382,6 +1387,397 @@ bool FWTBRPiercexCooldownBlocksImmediateReactivationTest::RunTest(const FString&
     TestEqual(TEXT("Vael not consumed twice"), Owner->VaelComponent->GetCurrentVael(), 90.0f);
     TestEqual(TEXT("Still only one bolt from the first shot"),
         TriggerRegressionTest_CountProjectiles(World), 1);
+
+    return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Vexorn — Signal Block (passive Sub-Trigger)
+//
+// Vexorn has NO button action: it pulses a sphere overlap every 0.5s while
+// equipped and registers a radar signal-block (via UWTBRActionPingSubsystem)
+// for every enemy inside VexornSuppressionRadius, unregistering those who leave.
+// The overlap itself needs a physics scene headless fixtures lack (finds zero
+// overlaps), so the pulse->suppress->unsuppress loop is a PIE-gate item. What IS
+// headless-testable and locked here: (1) the ActionPingSubsystem signal-block
+// registry contract Vexorn drives, and (2) that Vexorn's button press is a true
+// no-op — a passive Sub-Trigger must never consume Vael or fire on LMB/RMB.
+// ═════════════════════════════════════════════════════════════════════════════
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRActionPingSignalBlockRegistryTest,
+    "WTBR.Subsystem.ActionPing.SignalBlockRegisterUnregisterQuery",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRActionPingSignalBlockRegistryTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Subsystem_SignalBlock"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRActionPingSubsystem* PingSys = World ? World->GetSubsystem<UWTBRActionPingSubsystem>() : nullptr;
+    TestNotNull(TEXT("ActionPing world subsystem exists in the fixture"), PingSys);
+    if (!PingSys) return false;
+
+    AWTBRCharacter* A = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    AWTBRCharacter* B = TriggerRegressionTest_SpawnCharacter(World, FVector(200.0f, 0.0f, 0.0f));
+    if (!A || !B) return false;
+
+    TestFalse(TEXT("Nobody blocked initially (A)"), PingSys->IsSignalBlocked(A));
+    TestFalse(TEXT("Nobody blocked initially (B)"), PingSys->IsSignalBlocked(B));
+
+    PingSys->RegisterSignalBlock(A);
+    PingSys->RegisterSignalBlock(B);
+    TestTrue(TEXT("A blocked after register"), PingSys->IsSignalBlocked(A));
+    TestTrue(TEXT("B blocked after register"), PingSys->IsSignalBlocked(B));
+
+    // Unregistering one must not affect the other (per-actor registry).
+    PingSys->UnregisterSignalBlock(A);
+    TestFalse(TEXT("A unblocked after unregister"), PingSys->IsSignalBlocked(A));
+    TestTrue(TEXT("B still blocked (independent)"), PingSys->IsSignalBlocked(B));
+
+    // Idempotent: unregistering A again is harmless.
+    PingSys->UnregisterSignalBlock(A);
+    TestFalse(TEXT("A still unblocked after redundant unregister"), PingSys->IsSignalBlocked(A));
+
+    PingSys->UnregisterSignalBlock(B);
+    TestFalse(TEXT("B unblocked after unregister"), PingSys->IsSignalBlocked(B));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVexornPassiveActivateIsNoOpTest,
+    "WTBR.Trigger.Vexorn.PassiveActivateConsumesNoVaelAndFiresNothing",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVexornPassiveActivateIsNoOpTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_VexornPassive"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VexornParams.VexornSuppressionRadius = 1500.0f;
+    DataAsset->VexornParams.VexornVaelCost = 0.0f; // passive: no cost by design
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRVexornTrigger* Vexorn = NewObject<UWTBRVexornTrigger>(Owner);
+    Vexorn->InitializeTrigger(Owner, DataAsset);
+
+    const bool bActivated = Vexorn->Activate(FInputActionValue(), false);
+
+    TestFalse(TEXT("Passive Activate returns false (no button action)"), bActivated);
+    TestEqual(TEXT("Vael unchanged — passive press must never drain Vael"),
+        Owner->VaelComponent->GetCurrentVael(), 100.0f);
+    TestEqual(TEXT("No projectile spawned by a passive trigger"),
+        TriggerRegressionTest_CountProjectiles(World), 0);
+
+    // Release is likewise a no-op and must not crash or drain.
+    Vexorn->OnReleased(FInputActionValue(), false);
+    TestEqual(TEXT("Vael still unchanged after release"),
+        Owner->VaelComponent->GetCurrentVael(), 100.0f);
+
+    return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Nexil — Wire tripwire (place-to-deploy)
+//
+// Tap places one wire actor at the player's aim yaw (360°). NexilVaelCost is
+// charged per wire (added 2026-07-15 — base Activate consumes nothing; canon
+// GDD §5.2 = 15/wire, DA-tunable). Max wires FIFO (9th removes 1st), auto-
+// despawn after WireDuration, cleared on Deactivate. The wire's TRIP detection
+// (enemy overlap → stagger + Action-Ping reveal) needs a physics scene → PIE-
+// gated; here we lock placement, the Vael economy, the FIFO cap, and cleanup.
+// The ghost-preview + hold-to-place confirm flow is a separate BP/UMG phase.
+// ═════════════════════════════════════════════════════════════════════════════
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRNexilPlaceConsumesVaelAndSpawnsWireTest,
+    "WTBR.Trigger.Nexil.PlaceConsumesVaelAndSpawnsOneWire",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRNexilPlaceConsumesVaelAndSpawnsWireTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_NexilPlace"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->NexilParams.NexilVaelCost = 15.0f;
+    DataAsset->NexilParams.MaxWires = 8;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRNexilTrigger* Nexil = NewObject<UWTBRNexilTrigger>(Owner);
+    Nexil->InitializeTrigger(Owner, DataAsset);
+    Nexil->SetWireActorClassForTest(AWTBRNexilWireActor::StaticClass());
+
+    const bool bPlaced = Nexil->Activate(FInputActionValue(), false);
+
+    TestTrue(TEXT("Nexil places on press"), bPlaced);
+    TestEqual(TEXT("Vael consumed by NexilVaelCost"), Owner->VaelComponent->GetCurrentVael(), 85.0f);
+    TestEqual(TEXT("Exactly one wire active"), Nexil->GetActiveWireCount(), 1);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRNexilInsufficientVaelBlocksPlaceTest,
+    "WTBR.Trigger.Nexil.InsufficientVaelBlocksPlacement",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRNexilInsufficientVaelBlocksPlaceTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_NexilNoVael"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->NexilParams.NexilVaelCost = 15.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(10.0f); // < 15
+
+    UWTBRNexilTrigger* Nexil = NewObject<UWTBRNexilTrigger>(Owner);
+    Nexil->InitializeTrigger(Owner, DataAsset);
+    Nexil->SetWireActorClassForTest(AWTBRNexilWireActor::StaticClass());
+
+    const bool bPlaced = Nexil->Activate(FInputActionValue(), false);
+
+    TestFalse(TEXT("Placement rejected when Vael insufficient"), bPlaced);
+    TestEqual(TEXT("Vael unchanged (fail-closed)"), Owner->VaelComponent->GetCurrentVael(), 10.0f);
+    TestEqual(TEXT("No wire spawned"), Nexil->GetActiveWireCount(), 0);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRNexilMaxWiresFifoTest,
+    "WTBR.Trigger.Nexil.MaxWiresFifoRemovesOldest",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRNexilMaxWiresFifoTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_NexilFifo"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->NexilParams.NexilVaelCost = 0.0f; // isolate FIFO from Vael economy
+    DataAsset->NexilParams.MaxWires = 8;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRNexilTrigger* Nexil = NewObject<UWTBRNexilTrigger>(Owner);
+    Nexil->InitializeTrigger(Owner, DataAsset);
+    Nexil->SetWireActorClassForTest(AWTBRNexilWireActor::StaticClass());
+
+    // Place the max (8).
+    for (int32 i = 0; i < 8; ++i) Nexil->Activate(FInputActionValue(), false);
+    TestEqual(TEXT("Eight wires active at cap"), Nexil->GetActiveWireCount(), 8);
+
+    // The 9th must remove the oldest, keeping the count at the cap.
+    Nexil->Activate(FInputActionValue(), false);
+    TestEqual(TEXT("9th placement keeps count at MaxWires (oldest removed)"),
+        Nexil->GetActiveWireCount(), 8);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRNexilDeactivateClearsAllWiresTest,
+    "WTBR.Trigger.Nexil.DeactivateDestroysAllWires",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRNexilDeactivateClearsAllWiresTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_NexilDeactivate"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->NexilParams.NexilVaelCost = 0.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRNexilTrigger* Nexil = NewObject<UWTBRNexilTrigger>(Owner);
+    Nexil->InitializeTrigger(Owner, DataAsset);
+    Nexil->SetWireActorClassForTest(AWTBRNexilWireActor::StaticClass());
+
+    for (int32 i = 0; i < 3; ++i) Nexil->Activate(FInputActionValue(), false);
+    TestEqual(TEXT("Three wires placed"), Nexil->GetActiveWireCount(), 3);
+
+    Nexil->Deactivate();
+    TestEqual(TEXT("Deactivate destroys every wire"), Nexil->GetActiveWireCount(), 0);
+
+    return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Voltis — air-launch/dash movement Trigger
+//
+// Activate = LaunchCharacter (works headlessly, sets Velocity directly, no
+// physics scene needed). Zero-Vael by design ("Voltis 0-cost temporary" — an
+// existing, intentional Vael-cost-lock entry, not a gap) — the test below
+// documents that current contract rather than assuming it's a bug. The 2026-07-
+// 14 Codex fix removed the only call site of StartStagger()/OnStaggerExpired()
+// (it lived inside the deleted ceiling-obstruction check) — bIsStaggered is now
+// never set true through normal gameplay, so that path is effectively dead code
+// today. It's still public + still gates Activate, so the guard test below locks
+// the mechanism (useful if a future feature re-wires something into it) without
+// claiming it's currently reachable.
+// ═════════════════════════════════════════════════════════════════════════════
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVoltisInitializeSetsMaxLaunchesTest,
+    "WTBR.Trigger.Voltis.InitializeSetsRemainingLaunchesToMax",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVoltisInitializeSetsMaxLaunchesTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_VoltisInit"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VoltisParams.MaxAirLaunches = 3;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner) return false;
+
+    UWTBRVoltisLaunchTrigger* Voltis = NewObject<UWTBRVoltisLaunchTrigger>(Owner);
+    Voltis->InitializeTrigger(Owner, DataAsset);
+
+    TestEqual(TEXT("RemainingLaunches seeded from MaxAirLaunches"), Voltis->GetRemainingLaunches(), 3);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVoltisActivateConsumesLaunchNoVaelTest,
+    "WTBR.Trigger.Voltis.ActivateConsumesOneLaunchAndNoVael",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVoltisActivateConsumesLaunchNoVaelTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_VoltisActivate"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VaelCostPerUse = 10.0f; // deliberately non-zero, to prove Voltis ignores it
+    DataAsset->VoltisParams.MaxAirLaunches = 3;
+    DataAsset->VoltisParams.VerticalLaunchForce = 1200.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(50.0f);
+
+    UWTBRVoltisLaunchTrigger* Voltis = NewObject<UWTBRVoltisLaunchTrigger>(Owner);
+    Voltis->InitializeTrigger(Owner, DataAsset);
+
+    const bool bActivated = Voltis->Activate(FInputActionValue(), false);
+
+    TestTrue(TEXT("Voltis launches on press"), bActivated);
+    TestEqual(TEXT("RemainingLaunches decremented by one"), Voltis->GetRemainingLaunches(), 2);
+    TestEqual(TEXT("Vael untouched — Voltis is 0-cost by current design lock"),
+        Owner->VaelComponent->GetCurrentVael(), 50.0f);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVoltisBlocksWhenLaunchesExhaustedTest,
+    "WTBR.Trigger.Voltis.BlocksActivateWhenNoRemainingLaunches",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVoltisBlocksWhenLaunchesExhaustedTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_VoltisExhausted"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VoltisParams.MaxAirLaunches = 2;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner) return false;
+
+    UWTBRVoltisLaunchTrigger* Voltis = NewObject<UWTBRVoltisLaunchTrigger>(Owner);
+    Voltis->InitializeTrigger(Owner, DataAsset);
+
+    TestTrue(TEXT("1st launch succeeds"), Voltis->Activate(FInputActionValue(), false));
+    TestTrue(TEXT("2nd launch succeeds"), Voltis->Activate(FInputActionValue(), false));
+    TestEqual(TEXT("Both launches consumed"), Voltis->GetRemainingLaunches(), 0);
+
+    const bool bThirdActivate = Voltis->Activate(FInputActionValue(), false);
+    TestFalse(TEXT("3rd launch rejected — no launches remaining"), bThirdActivate);
+    TestEqual(TEXT("RemainingLaunches stays at 0, not negative"), Voltis->GetRemainingLaunches(), 0);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVoltisLandingResetsLaunchesTest,
+    "WTBR.Trigger.Voltis.LandingResetsRemainingLaunchesToMax",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVoltisLandingResetsLaunchesTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_VoltisLanding"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VoltisParams.MaxAirLaunches = 3;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner) return false;
+
+    UWTBRVoltisLaunchTrigger* Voltis = NewObject<UWTBRVoltisLaunchTrigger>(Owner);
+    Voltis->InitializeTrigger(Owner, DataAsset);
+
+    Voltis->Activate(FInputActionValue(), false);
+    Voltis->Activate(FInputActionValue(), false);
+    TestEqual(TEXT("Two launches spent"), Voltis->GetRemainingLaunches(), 1);
+
+    Voltis->OnCharacterLanded(FHitResult());
+    TestEqual(TEXT("Landing refills RemainingLaunches to MaxAirLaunches"),
+        Voltis->GetRemainingLaunches(), 3);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVoltisStaggeredGuardBlocksActivateTest,
+    "WTBR.Trigger.Voltis.StaggeredGuardBlocksActivate",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVoltisStaggeredGuardBlocksActivateTest::RunTest(const FString& /*Parameters*/)
+{
+    // Locks the bIsStaggered guard itself — nothing in current gameplay code
+    // sets this true (StartStagger()'s only call site was removed with the
+    // ceiling-obstruction check), but the flag is still public/replicated and
+    // Activate still checks it, so this proves the guard still works correctly
+    // if something sets it in the future.
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_VoltisStagger"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VoltisParams.MaxAirLaunches = 3;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner) return false;
+
+    UWTBRVoltisLaunchTrigger* Voltis = NewObject<UWTBRVoltisLaunchTrigger>(Owner);
+    Voltis->InitializeTrigger(Owner, DataAsset);
+    Voltis->bIsStaggered = true;
+
+    const bool bActivated = Voltis->Activate(FInputActionValue(), false);
+    TestFalse(TEXT("Activate rejected while staggered"), bActivated);
+    TestEqual(TEXT("No launch consumed while staggered"), Voltis->GetRemainingLaunches(), 3);
 
     return true;
 }
