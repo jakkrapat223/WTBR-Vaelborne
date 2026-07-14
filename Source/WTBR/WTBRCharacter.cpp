@@ -2033,6 +2033,19 @@ void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FV
         return;
     }
 
+    // Trigger Option attached to this slot (canon Senkū: Arcven attached to a
+    // Lacern slot). Same instant-on-press problem as Mantorn — Lacern's normal
+    // swing fires on press, so it must defer to release to give a hold-charge
+    // a chance to land instead. Per-side (Main/Sub independent), unlike Mantorn.
+    UWTBRTriggerBase* OptionTrigger = bIsMain
+        ? TriggerSetComponent->GetActiveMainOptionTrigger()
+        : TriggerSetComponent->GetActiveSubOptionTrigger();
+    if (IsValid(OptionTrigger))
+    {
+        HandleLacernHoldOptionInput(bIsMain, bIsPressed, Trigger, OptionTrigger, bIsDualWield);
+        return;
+    }
+
     if (bIsPressed)
     {
         Trigger->OnTriggerActivated(this, bIsMain);
@@ -2086,6 +2099,66 @@ bool AWTBRCharacter::HandleMantornFormInput(bool bIsMain, bool bIsPressed)
     {
         Form->WhipSlash();   // Tap = forward whip
     }
+    return true;
+}
+
+bool AWTBRCharacter::HandleLacernHoldOptionInput(
+    bool bIsMain, bool bIsPressed,
+    UWTBRTriggerBase* Trigger, UWTBRTriggerBase* OptionTrigger,
+    bool bIsDualWield)
+{
+    if (!HasAuthority() || !TriggerSetComponent || !IsValid(Trigger) || !IsValid(OptionTrigger))
+    {
+        return false;
+    }
+
+    bool&  bHeld     = bIsMain ? bLacernChargeHeldMain     : bLacernChargeHeldSub;
+    float& PressTime = bIsMain ? LacernChargePressTimeMain : LacernChargePressTimeSub;
+
+    if (bIsPressed)
+    {
+        bHeld     = true;
+        PressTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+        return true; // Defer entirely — resolved on release below.
+    }
+
+    if (!bHeld)
+    {
+        return true; // Stale release (e.g. slot changed mid-hold) — nothing to resolve.
+    }
+    bHeld = false;
+
+    const UWTBRTriggerDataAsset* OptionDA = OptionTrigger->DataAsset;
+    const float MinChargeTime       = IsValid(OptionDA) ? OptionDA->ArcvenParams.MinChargeTime : 0.2f;
+    const float FullChargeThreshold = IsValid(OptionDA) ? OptionDA->ArcvenParams.FullChargeThreshold : 1.0f;
+    const float HeldFor = (GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f) - PressTime;
+
+    if (HeldFor < MinChargeTime)
+    {
+        // Charge never committed — falls back to Lacern's normal tap swing
+        // (Tap must always have meaning, per the input design lock).
+        Trigger->OnTriggerActivated(this, bIsMain);
+        Trigger->Activate(FInputActionValue(), bIsDualWield);
+        return true;
+    }
+
+    UWTBRArcvenTrigger* Arcven = Cast<UWTBRArcvenTrigger>(OptionTrigger);
+    if (!IsValid(Arcven) || !IsValid(OptionDA) || !IsValid(VaelComponent))
+    {
+        return true;
+    }
+
+    // Insufficient Vael at release = fail-closed, no fire, no fallback swing —
+    // matches the existing Telorn/Piercex aim-then-fire convention.
+    if (!VaelComponent->TryConsumeVael(OptionDA->VaelCostPerUse))
+    {
+        return true;
+    }
+
+    const bool bFullCharge = HeldFor >= FullChargeThreshold;
+    const float Damage = bFullCharge ? OptionDA->ArcvenParams.ArcDamage : OptionDA->ArcvenParams.WeakArcDamage;
+    const float Range  = bFullCharge ? OptionDA->ArcvenParams.ArcRange  : OptionDA->ArcvenParams.WeakArcRange;
+    Arcven->FireChargedWave(Damage, Range, bIsDualWield);
     return true;
 }
 

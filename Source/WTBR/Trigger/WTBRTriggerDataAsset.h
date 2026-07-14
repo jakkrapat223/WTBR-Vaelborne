@@ -459,6 +459,39 @@ struct FWTBRArcvenParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Arcven | Action Ping")
     bool bPingOnFire = true;
+
+    // ── Lacern-hold charge tiers (Senkū Trigger Option) ──────────────────────
+    // Canon-correct Kogetsu+Senku pairing (§5.4): Arcven attaches to Lacern's
+    // slot via FWTBRTriggerSlot::OptionDataAsset. Tap on that slot = normal
+    // Lacern swing; Hold = charge this Arc Wave. Two discrete tiers (not a
+    // continuous lerp, agreed 2026-07-14) — hold longer = stronger, the safer
+    // (non-canon-inverse) direction, since real Senkū's short-hold-is-stronger
+    // quirk has no downside/risk trade-off in PVP. ArcDamage/ArcRange above
+    // ARE the full-charge tier already (GDD-locked 120/800) — unchanged.
+
+    // Release before this = cancel, no Vael cost, falls back to a normal
+    // Lacern tap swing instead. ⚠ Playtest pending.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Lacern Hold", meta = (ClampMin = "0.0"))
+    float MinChargeTime = 0.2f;
+
+    // Hold duration needed to reach the full-power tier (ArcDamage/ArcRange).
+    // ⚠ Playtest pending.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Lacern Hold", meta = (ClampMin = "0.0"))
+    float FullChargeThreshold = 1.0f;
+
+    // Damage for a release between MinChargeTime and FullChargeThreshold.
+    // ⚠ Playtest pending.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Lacern Hold", meta = (ClampMin = "0.0"))
+    float WeakArcDamage = 100.0f;
+
+    // Range for a release between MinChargeTime and FullChargeThreshold.
+    // ⚠ Playtest pending.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Arcven | Lacern Hold", meta = (ClampMin = "100.0"))
+    float WeakArcRange = 650.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

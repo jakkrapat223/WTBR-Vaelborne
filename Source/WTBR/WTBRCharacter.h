@@ -674,6 +674,22 @@ private:
     bool  bMantornAttackHeld = false;
     bool  bMantornAttackSideIsMain = false;
     float MantornAttackPressTime = 0.f;
+
+    // Server-side routing of LMB/RMB while the active slot has a Trigger Option
+    // attached (canon Senkū: Arcven attached to a Lacern slot). Defers Trigger
+    // (Lacern)'s normal instant-on-press Activate to release, so a hold has a
+    // chance to charge the Option (Arcven) instead. Per-side (Main/Sub each
+    // track their own hold independently, unlike the single Mantorn form).
+    bool HandleLacernHoldOptionInput(
+        bool bIsMain, bool bIsPressed,
+        UWTBRTriggerBase* Trigger, UWTBRTriggerBase* OptionTrigger,
+        bool bIsDualWield);
+
+    bool  bLacernChargeHeldMain = false;
+    float LacernChargePressTimeMain = 0.f;
+    bool  bLacernChargeHeldSub = false;
+    float LacernChargePressTimeSub = 0.f;
+
     FWTBRHUDTriggerVaelAffordability GetActiveTriggerVaelAffordabilityForHUD(bool bIsMain) const;
     FVector GetClientMoveInputDirectionForTrigger() const;
     static FVector SanitizeClientMoveInputDirection(FVector ClientMoveInputDir);

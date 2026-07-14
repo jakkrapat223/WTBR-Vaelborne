@@ -42,6 +42,13 @@ struct FWTBRTriggerSlot
     UPROPERTY(EditAnywhere)
     TSoftObjectPtr<UWTBRTriggerDataAsset> DataAsset;
 
+    // Trigger Option attached to this slot (canon: Senkū attaches to Kogetsu's
+    // own slot, doesn't occupy a separate slot or count toward the 2-trigger
+    // limit). Generic — any future Trigger+Option pairing can reuse this field;
+    // only Lacern's Hold logic reads it today (Arcven/Senku).
+    UPROPERTY(EditAnywhere)
+    TSoftObjectPtr<UWTBRTriggerDataAsset> OptionDataAsset;
+
     UPROPERTY()
     ETriggerCategory CachedCategory = ETriggerCategory::None;
 
@@ -133,6 +140,16 @@ public:
     UFUNCTION(BlueprintPure, Category="TriggerSet")
     UWTBRTriggerDataAsset* GetActiveSubDataAsset() const;
 
+    // ── Trigger Option (canon: Senkū-style attachment to a Trigger's own slot) ──
+    // Lazily instantiates the active Main/Sub slot's OptionDataAsset runtime
+    // trigger the first time it's needed (Options are EditDefaultsOnly / design-
+    // time authored, so unlike the main slot this skips the async-streaming
+    // pipeline — same "already in memory" assumption InstantiateRuntimeTrigger
+    // relies on for its synchronous fallback). Returns nullptr if no Option is
+    // attached to that slot.
+    UWTBRTriggerBase* GetActiveMainOptionTrigger();
+    UWTBRTriggerBase* GetActiveSubOptionTrigger();
+
     UFUNCTION(BlueprintPure, Category="TriggerSet")
     EWTBRDualWieldState GetDualWieldState() const { return CurrentDualWieldState; }
 
@@ -147,6 +164,8 @@ public:
 #if WITH_DEV_AUTOMATION_TESTS
     // Test-only: write a soft DataAsset reference directly into a slot without runtime instantiation.
     void SetSlotDataAssetForTest(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> InDataAsset);
+    // Test-only: write a soft OptionDataAsset reference directly into a slot.
+    void SetSlotOptionDataAssetForTest(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> InOptionDataAsset);
 #endif
 
     bool ReplaceTriggerSlotFromDataAsset(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> NewDataAsset);
@@ -250,6 +269,17 @@ private:
 
     UPROPERTY(Transient)
     TArray<TObjectPtr<UWTBRTriggerBase>> RuntimeTriggers;
+
+    // Lazy cache for OptionDataAsset runtime triggers (Trigger Option system,
+    // e.g. Arcven attached to a Lacern slot). Key = slot index. Populated on
+    // first access by GetActive{Main,Sub}OptionTrigger() — Options are
+    // EditDefaultsOnly/design-time authored, so no async-streaming pipeline
+    // is needed (mirrors InstantiateRuntimeTrigger's synchronous-fallback
+    // assumption for the main slot).
+    UPROPERTY(Transient)
+    TMap<int32, TObjectPtr<UWTBRTriggerBase>> RuntimeOptionTriggers;
+
+    UWTBRTriggerBase* GetOrCreateOptionRuntimeTrigger(int32 SlotIndex);
 
     // Tracks in-flight async load handles per slot index.
     // Key = slot index (0-7). Value = streamable handle.

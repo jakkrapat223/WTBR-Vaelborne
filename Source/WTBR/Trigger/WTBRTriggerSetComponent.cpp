@@ -324,6 +324,45 @@ UWTBRTriggerDataAsset* UWTBRTriggerSetComponent::GetActiveSubDataAsset() const
         : nullptr;
 }
 
+// ── Trigger Option (canon: Senkū-style attachment) ────────────────────────────
+
+UWTBRTriggerBase* UWTBRTriggerSetComponent::GetOrCreateOptionRuntimeTrigger(int32 SlotIndex)
+{
+    if (!IsValidSlotIndex(SlotIndex)) return nullptr;
+
+    if (TObjectPtr<UWTBRTriggerBase>* Cached = RuntimeOptionTriggers.Find(SlotIndex))
+    {
+        if (IsValid(*Cached)) return *Cached;
+        RuntimeOptionTriggers.Remove(SlotIndex);
+    }
+
+    UWTBRTriggerDataAsset* OptionDA = TriggerSlots[SlotIndex].OptionDataAsset.Get();
+    if (!OptionDA)
+    {
+        // Not yet loaded — try a synchronous load. Options are EditDefaultsOnly/
+        // design-time authored, so this should already be resident in practice.
+        OptionDA = TriggerSlots[SlotIndex].OptionDataAsset.LoadSynchronous();
+    }
+    if (!OptionDA || !OptionDA->TriggerClass) return nullptr;
+
+    UWTBRTriggerBase* NewOptionTrigger = NewObject<UWTBRTriggerBase>(this, OptionDA->TriggerClass);
+    if (!NewOptionTrigger) return nullptr;
+
+    NewOptionTrigger->InitializeTrigger(Cast<AWTBRCharacter>(GetOwner()), OptionDA);
+    RuntimeOptionTriggers.Add(SlotIndex, NewOptionTrigger);
+    return NewOptionTrigger;
+}
+
+UWTBRTriggerBase* UWTBRTriggerSetComponent::GetActiveMainOptionTrigger()
+{
+    return GetOrCreateOptionRuntimeTrigger(ActiveMainIndex);
+}
+
+UWTBRTriggerBase* UWTBRTriggerSetComponent::GetActiveSubOptionTrigger()
+{
+    return GetOrCreateOptionRuntimeTrigger(ActiveSubIndex);
+}
+
 void UWTBRTriggerSetComponent::GetInstalledTriggerSlotSnapshots(TArray<FWTBRInstalledTriggerSlotSnapshot>& OutSnapshots) const
 {
     OutSnapshots.Reset();
@@ -1328,6 +1367,15 @@ void UWTBRTriggerSetComponent::SetSlotDataAssetForTest(int32 SlotIndex, TSoftObj
     {
         TriggerSlots[SlotIndex].DataAsset = InDataAsset;
         TriggerSlots[SlotIndex].CachedCategory = ETriggerCategory::None;
+    }
+}
+
+void UWTBRTriggerSetComponent::SetSlotOptionDataAssetForTest(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> InOptionDataAsset)
+{
+    if (TriggerSlots.IsValidIndex(SlotIndex))
+    {
+        TriggerSlots[SlotIndex].OptionDataAsset = InOptionDataAsset;
+        RuntimeOptionTriggers.Remove(SlotIndex);
     }
 }
 #endif

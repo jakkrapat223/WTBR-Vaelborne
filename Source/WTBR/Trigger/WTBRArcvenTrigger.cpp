@@ -31,13 +31,13 @@ bool UWTBRArcvenTrigger::Activate_Implementation(
         const float SpreadRad  = FMath::DegreesToRadians(DataAsset->ArcvenParams.DualWaveSpreadAngle);
         const FVector Right    = FRotationMatrix(EyeRot).GetUnitAxis(EAxis::Y);
 
-        FireArcWave((Forward - Right * FMath::Tan(SpreadRad)).GetSafeNormal(), WaveDamage);
-        FireArcWave((Forward + Right * FMath::Tan(SpreadRad)).GetSafeNormal(), WaveDamage);
+        FireArcWave((Forward - Right * FMath::Tan(SpreadRad)).GetSafeNormal(), WaveDamage, DataAsset->ArcvenParams.ArcRange);
+        FireArcWave((Forward + Right * FMath::Tan(SpreadRad)).GetSafeNormal(), WaveDamage, DataAsset->ArcvenParams.ArcRange);
         OnArcvenFire(true, Forward);
     }
     else
     {
-        FireArcWave(Forward, DataAsset->ArcvenParams.ArcDamage);
+        FireArcWave(Forward, DataAsset->ArcvenParams.ArcDamage, DataAsset->ArcvenParams.ArcRange);
         OnArcvenFire(false, Forward);
     }
 
@@ -46,7 +46,36 @@ bool UWTBRArcvenTrigger::Activate_Implementation(
     return true;
 }
 
-void UWTBRArcvenTrigger::FireArcWave(const FVector& Direction, float Damage)
+void UWTBRArcvenTrigger::FireChargedWave(float Damage, float Range, bool bIsDualWield)
+{
+    if (!OwnerCharacter.IsValid()) return;
+    if (!OwnerCharacter->HasAuthority()) return;
+    if (!IsValid(DataAsset)) return;
+
+    FVector EyeLoc;
+    FRotator EyeRot;
+    OwnerCharacter->GetActorEyesViewPoint(EyeLoc, EyeRot);
+    const FVector Forward = EyeRot.Vector();
+
+    if (bIsDualWield)
+    {
+        const float SpreadRad = FMath::DegreesToRadians(DataAsset->ArcvenParams.DualWaveSpreadAngle);
+        const FVector Right   = FRotationMatrix(EyeRot).GetUnitAxis(EAxis::Y);
+
+        FireArcWave((Forward - Right * FMath::Tan(SpreadRad)).GetSafeNormal(), Damage * 0.5f, Range);
+        FireArcWave((Forward + Right * FMath::Tan(SpreadRad)).GetSafeNormal(), Damage * 0.5f, Range);
+        OnArcvenFire(true, Forward);
+    }
+    else
+    {
+        FireArcWave(Forward, Damage, Range);
+        OnArcvenFire(false, Forward);
+    }
+
+    OnMeleeSwing.Broadcast(bIsDualWield);
+}
+
+void UWTBRArcvenTrigger::FireArcWave(const FVector& Direction, float Damage, float Range)
 {
     if (!OwnerCharacter.IsValid() || !GetWorld()) return;
     if (!IsValid(DataAsset)) return;
@@ -71,7 +100,12 @@ void UWTBRArcvenTrigger::FireArcWave(const FVector& Direction, float Damage)
 
     if (!IsValid(Proj)) return;
 
-    Proj->MaxRange = DataAsset->ArcvenParams.ArcRange;
+    Proj->MaxRange = Range;
+    // Arc waves are Melee-category sweep energy, never Gunner cube-splitters —
+    // clear the projectile base's default CubeSplitCount (4) so nothing spawns
+    // fragments even if a future code path reaches SpawnCubeSplits(). The
+    // OnBulletClash Melee guard already prevents the clash that would trigger it.
+    Proj->CubeSplitCount = 0;
     Proj->InitializeProjectile(
         Damage,
         DataAsset->ArcvenParams.ArcWaveSpeed,
@@ -82,6 +116,6 @@ void UWTBRArcvenTrigger::FireArcWave(const FVector& Direction, float Damage)
     Proj->Launch(Direction, OwnerCharacter.Get());
 
     UE_LOG(LogTemp, Log,
-        TEXT("WTBRArcvenTrigger: Arc wave fired — damage %.0f speed %.0f"),
-        Damage, DataAsset->ArcvenParams.ArcWaveSpeed);
+        TEXT("WTBRArcvenTrigger: Arc wave fired — damage %.0f range %.0f speed %.0f"),
+        Damage, Range, DataAsset->ArcvenParams.ArcWaveSpeed);
 }

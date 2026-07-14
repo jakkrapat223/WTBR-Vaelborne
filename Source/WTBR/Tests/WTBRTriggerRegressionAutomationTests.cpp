@@ -558,6 +558,211 @@ bool FWTBRArcvenCooldownBlocksImmediateReactivationTest::RunTest(const FString& 
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Arcven.FireChargedWave — Lacern-hold charge tiers (Senkū Trigger Option).
+// FireChargedWave bypasses Arcven's own cooldown/Vael/Activate flow entirely —
+// the caller (AWTBRCharacter::HandleLacernHoldOptionInput) already resolves
+// tap-vs-hold timing and charges Vael against the Option's own DataAsset.
+// That input-routing/timing layer is networked (per-slot Option attachment,
+// press/release timing) and is deferred to the PIE Human Test Gate, same as
+// Mantorn's transform enter/exit — these tests cover the fire executor only.
+// ═════════════════════════════════════════════════════════════════════════════
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRArcvenChargedWaveWeakTierTest,
+    "WTBR.Trigger.Arcven.FireChargedWave.WeakTierUsesCallerDamageAndRange",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRArcvenChargedWaveWeakTierTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_ArcvenChargedWeak"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->ArcvenParams.ArcProjectileClass = AWTBRProjectileBase::StaticClass();
+    DataAsset->ArcvenParams.ArcWaveSpeed = 1200.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner) return false;
+
+    UWTBRArcvenTrigger* Arcven = NewObject<UWTBRArcvenTrigger>(Owner);
+    Arcven->InitializeTrigger(Owner, DataAsset);
+
+    // Weak tier values per the caller's charge-time classification (0.2s-1.0s hold).
+    Arcven->FireChargedWave(/*Damage=*/100.0f, /*Range=*/650.0f, /*bIsDualWield=*/false);
+
+    AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
+    TestNotNull(TEXT("Exactly one wave spawned"), Proj);
+    if (Proj)
+    {
+        TestEqual(TEXT("Damage = caller's weak-tier value, not ArcDamage"), Proj->BaseDamage, 100.0f);
+        TestEqual(TEXT("MaxRange = caller's weak-tier value, not ArcRange"), Proj->MaxRange, 650.0f);
+    }
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRArcvenChargedWaveFullTierTest,
+    "WTBR.Trigger.Arcven.FireChargedWave.FullTierUsesCallerDamageAndRange",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRArcvenChargedWaveFullTierTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_ArcvenChargedFull"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->ArcvenParams.ArcProjectileClass = AWTBRProjectileBase::StaticClass();
+    DataAsset->ArcvenParams.ArcWaveSpeed = 1200.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner) return false;
+
+    UWTBRArcvenTrigger* Arcven = NewObject<UWTBRArcvenTrigger>(Owner);
+    Arcven->InitializeTrigger(Owner, DataAsset);
+
+    // Full-charge tier — matches the GDD-locked ArcDamage/ArcRange (120/800),
+    // but FireChargedWave takes them as explicit params from the caller.
+    Arcven->FireChargedWave(/*Damage=*/120.0f, /*Range=*/800.0f, /*bIsDualWield=*/false);
+
+    AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
+    TestNotNull(TEXT("Exactly one wave spawned"), Proj);
+    if (Proj)
+    {
+        TestEqual(TEXT("Damage = full-charge tier"), Proj->BaseDamage, 120.0f);
+        TestEqual(TEXT("MaxRange = full-charge tier"), Proj->MaxRange, 800.0f);
+    }
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRArcvenChargedWaveDualSplitsHalfDamageTest,
+    "WTBR.Trigger.Arcven.FireChargedWave.DualWieldSplitsIntoTwoHalfDamageWaves",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRArcvenChargedWaveDualSplitsHalfDamageTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_ArcvenChargedDual"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->ArcvenParams.ArcProjectileClass = AWTBRProjectileBase::StaticClass();
+    DataAsset->ArcvenParams.ArcWaveSpeed = 1200.0f;
+    DataAsset->ArcvenParams.DualWaveSpreadAngle = 15.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner) return false;
+
+    UWTBRArcvenTrigger* Arcven = NewObject<UWTBRArcvenTrigger>(Owner);
+    Arcven->InitializeTrigger(Owner, DataAsset);
+
+    // Double Senkū (GDD §5.4): 200 total = 100/line at the full-charge tier.
+    Arcven->FireChargedWave(/*Damage=*/200.0f, /*Range=*/800.0f, /*bIsDualWield=*/true);
+
+    TestEqual(TEXT("Two waves spawned (one per hand)"), TriggerRegressionTest_CountProjectiles(World), 2);
+    for (TActorIterator<AWTBRProjectileBase> It(World); It; ++It)
+    {
+        if (IsValid(*It))
+        {
+            TestEqual(TEXT("Each wave carries half of the caller's Damage"), It->BaseDamage, 100.0f);
+            TestEqual(TEXT("Each wave keeps the caller's full Range (not halved)"), It->MaxRange, 800.0f);
+        }
+    }
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRArcvenChargedWaveRejectsWithoutDataAssetTest,
+    "WTBR.Trigger.Arcven.FireChargedWave.RejectsWithoutDataAsset",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRArcvenChargedWaveRejectsWithoutDataAssetTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_ArcvenChargedNoData"));
+    UWorld* World = Fixture.GetWorld();
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner) return false;
+
+    UWTBRArcvenTrigger* Arcven = NewObject<UWTBRArcvenTrigger>(Owner);
+    Arcven->InitializeTrigger(Owner, nullptr);
+
+    Arcven->FireChargedWave(100.0f, 650.0f, false);
+
+    TestEqual(TEXT("No projectile spawned with no DataAsset"), TriggerRegressionTest_CountProjectiles(World), 0);
+
+    return true;
+}
+
+// Arc waves are Melee-category sweep energy and must NEVER fragment into cubes —
+// FireArcWave clears the projectile base's default CubeSplitCount (4) to 0. This
+// (plus the OnBulletClash Melee guard, whose physical overlap path is PIE-only)
+// stops two arc waves that meet mid-air from cube-splitting and damaging both
+// casters. Locks fix for the 2026-07-14 "arc wave hits caster" PIE bug.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRArcvenChargedWaveNeverCubeSplitsTest,
+    "WTBR.Trigger.Arcven.FireChargedWave.ProjectileIsMeleeAndNeverCubeSplits",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRArcvenChargedWaveNeverCubeSplitsTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_ArcvenNoCubeSplit"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->ArcvenParams.ArcProjectileClass = AWTBRProjectileBase::StaticClass();
+    DataAsset->ArcvenParams.ArcWaveSpeed = 1200.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner) return false;
+
+    UWTBRArcvenTrigger* Arcven = NewObject<UWTBRArcvenTrigger>(Owner);
+    Arcven->InitializeTrigger(Owner, DataAsset);
+
+    Arcven->FireChargedWave(/*Damage=*/120.0f, /*Range=*/800.0f, /*bIsDualWield=*/false);
+
+    AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
+    TestNotNull(TEXT("Exactly one wave spawned"), Proj);
+    if (Proj)
+    {
+        TestEqual(TEXT("Arc wave carries Melee category (excluded from Gunner clash path)"),
+            static_cast<int32>(Proj->OwnerCategory), static_cast<int32>(ETriggerCategory::Melee));
+        TestEqual(TEXT("Arc wave CubeSplitCount cleared to 0 (never fragments)"),
+            Proj->CubeSplitCount, 0);
+    }
+
+    return true;
+}
+
+// SpawnCubeSplits() on a projectile with CubeSplitCount == 0 must be a no-op —
+// the defensive floor that makes the arc-wave CubeSplitCount=0 clear meaningful.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRProjectileSpawnCubeSplitsZeroCountIsNoOpTest,
+    "WTBR.Actors.Projectile.SpawnCubeSplitsWithZeroCountSpawnsNothing",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRProjectileSpawnCubeSplitsZeroCountIsNoOpTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Projectile_CubeSplitZero"));
+    UWorld* World = Fixture.GetWorld();
+
+    AWTBRProjectileBase* Proj = World->SpawnActor<AWTBRProjectileBase>(
+        AWTBRProjectileBase::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator);
+    TestNotNull(TEXT("Projectile spawns"), Proj);
+    if (!Proj) return false;
+
+    Proj->CubeSplitCount = 0;
+    Proj->SpawnCubeSplits();
+
+    TestEqual(TEXT("Zero-count SpawnCubeSplits spawns no fragments (still just the one projectile)"),
+        TriggerRegressionTest_CountProjectiles(World), 1);
+
+    return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Telorn — Egret, straight-line non-penetrating sniper
 // ═════════════════════════════════════════════════════════════════════════════
 

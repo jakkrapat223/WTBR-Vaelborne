@@ -519,6 +519,13 @@ void AWTBRProjectileBase::OnBulletClash(AWTBRProjectileBase* OtherBullet)
 {
     if (!HasAuthority()) return;
     if (!IsValid(OtherBullet)) return;
+    // Melee-category projectiles (e.g. Arcven arc waves) are sweep-like energy,
+    // not Gunner bullets — they never participate in the bullet-clash pipeline
+    // (no cube split, no mutual destruction) and simply pass straight through
+    // whatever they overlap. Without this, two arc waves meeting mid-air fell
+    // through to the Gunner-vs-Gunner branch below and split into cube fragments
+    // that fanned 90° and damaged both casters.
+    if (OwnerCategory == ETriggerCategory::Melee || OtherBullet->OwnerCategory == ETriggerCategory::Melee) return;
     // Burst bullets from the same instigator never clash with each other
     if (IsValid(OwnerInstigator) && OtherBullet->OwnerInstigator == OwnerInstigator) return;
     // GDD Rule: Sniper vs Sniper — no clash, both continue unaffected
