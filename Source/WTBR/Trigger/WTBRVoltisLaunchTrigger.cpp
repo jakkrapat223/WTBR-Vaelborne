@@ -8,7 +8,6 @@
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
-#include "DrawDebugHelpers.h"
 
 void UWTBRVoltisLaunchTrigger::InitializeTrigger(
     AWTBRCharacter* InOwnerCharacter,
@@ -192,22 +191,6 @@ bool UWTBRVoltisLaunchTrigger::Activate_Implementation(
         RemainingLaunches,
         DataAsset->VaelCostPerUse);
 
-    if (HasCeilingNearby(LaunchDir))
-    {
-        bLastLandingWasCeilingBounce = true;
-        ACharacter* Char = Cast<ACharacter>(OwnerCharacter.Get());
-        if (IsValid(Char) && IsValid(Char->GetCharacterMovement()))
-        {
-            FVector Vel = Char->GetCharacterMovement()->Velocity;
-            Vel.Z = 0.0f;
-            Char->GetCharacterMovement()->Velocity = Vel;
-        }
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=LaunchPathBlocked | Owner=%s | LaunchDir=%s"),
-            *GetNameSafe(OwnerCharacter.Get()),
-            *LaunchDir.ToString());
-        return false;
-    }
-
     PerformLaunch(bIsDualWield, LaunchDir);
     RemainingLaunches--;
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] MovementApplied | Owner=%s | LaunchDir=%s | RemainingAfter=%d | DualWield=%s"),
@@ -241,41 +224,6 @@ void UWTBRVoltisLaunchTrigger::Deactivate_Implementation()
         RemainingLaunches,
         bIsStaggered ? TEXT("true") : TEXT("false"));
     Super::Deactivate_Implementation();
-}
-
-bool UWTBRVoltisLaunchTrigger::HasCeilingNearby(const FVector& LaunchDir) const
-{
-    if (!OwnerCharacter.IsValid() || !GetWorld())
-    {
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] Blocked | Reason=PathBlockCheckInvalid | Owner=%s | WorldValid=%s"),
-            *GetNameSafe(OwnerCharacter.Get()),
-            GetWorld() ? TEXT("true") : TEXT("false"));
-        return false;
-    }
-
-    const FVector Start = OwnerCharacter->GetActorLocation();
-    const FVector End   = Start + (LaunchDir.GetSafeNormal() * MIN_CEILING_CLEARANCE);
-
-    FHitResult Hit;
-    FCollisionQueryParams Params;
-    Params.AddIgnoredActor(OwnerCharacter.Get());
-
-    const bool bHit = GetWorld()->LineTraceSingleByChannel(
-        Hit, Start, End, ECC_WorldStatic, Params);
-
-#if ENABLE_DRAW_DEBUG
-    DrawDebugLine(GetWorld(), Start, bHit ? Hit.ImpactPoint : End,
-        bHit ? FColor::Red : FColor::Green, false, 0.5f, 0, 2.0f);
-#endif
-
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] PathBlockCheck | Owner=%s | Start=%s | End=%s | Hit=%s | HitActor=%s"),
-        *GetNameSafe(OwnerCharacter.Get()),
-        *Start.ToString(),
-        *End.ToString(),
-        bHit ? TEXT("true") : TEXT("false"),
-        *GetNameSafe(Hit.GetActor()));
-
-    return bHit;
 }
 
 void UWTBRVoltisLaunchTrigger::PerformLaunch(bool bIsDualWield, const FVector& LaunchDir)
@@ -323,23 +271,11 @@ void UWTBRVoltisLaunchTrigger::OnCharacterLanded(const FHitResult& Hit)
     if (IsValid(DataAsset))
         RemainingLaunches = DataAsset->VoltisParams.MaxAirLaunches;
 
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] MovementEnd | Owner=%s | HitActor=%s | ResetRemaining=%d | CeilingBounce=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Movement Test] MovementEnd | Owner=%s | HitActor=%s | ResetRemaining=%d"),
         *GetNameSafe(OwnerCharacter.Get()),
         *GetNameSafe(Hit.GetActor()),
-        RemainingLaunches,
-        bLastLandingWasCeilingBounce ? TEXT("true") : TEXT("false"));
-
-    if (bLastLandingWasCeilingBounce)
-    {
-        bLastLandingWasCeilingBounce = false;
-        StartStagger();
-        OnVoltisLand.Broadcast(true);
-        OnVoltisHardLanding();
-    }
-    else
-    {
-        OnVoltisLand.Broadcast(false);
-    }
+        RemainingLaunches);
+    OnVoltisLand.Broadcast();
 }
 
 void UWTBRVoltisLaunchTrigger::StartStagger()

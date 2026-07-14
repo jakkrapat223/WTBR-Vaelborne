@@ -6,7 +6,10 @@
 #include "WTBRVoltisLaunchTrigger.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnVoltisLaunch, bool, bIsDualWield);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnVoltisLand, bool, bWasHardLanding);
+// bWasHardLanding param removed with the ceiling-obstruction check it reported
+// (blocked ANY Voltis dash toward a nearby wall or enemy Pawn — WorldStatic
+// trace channel blocks Pawns by default — not just an actual low ceiling).
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnVoltisLand);
 
 UCLASS(BlueprintType, Blueprintable)
 class WTBR_API UWTBRVoltisLaunchTrigger : public UWTBRMovementTrigger
@@ -61,7 +64,6 @@ protected:
     void OnRep_bIsStaggered();
 
 private:
-    bool HasCeilingNearby(const FVector& LaunchDir) const;
     void PerformLaunch(bool bIsDualWield, const FVector& LaunchDir);
     void StartStagger();
 
@@ -69,10 +71,8 @@ private:
     void OnStaggerExpired();
 
     int32 RemainingLaunches = 0;
-    bool bLastLandingWasCeilingBounce = false;
     FTimerHandle StaggerTimer;
 
     // ⚠ PLAYTEST PENDING — จะย้ายไป DataAsset ใน Phase 5
-    static constexpr float MIN_CEILING_CLEARANCE = 1200.0f;
     static constexpr float STAGGER_DURATION = 0.4f;
 };
