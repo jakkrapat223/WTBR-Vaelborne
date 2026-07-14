@@ -724,9 +724,16 @@ struct FWTBRVenyxParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Projectile", meta = (ClampMin = "100.0"))
     float VenyxRange = 6000.0f;
 
-    // ⚠ PLAYTEST PENDING
+    // Turn radius ≈ VenyxSpeed² / VenyxHomingAcceleration. Original 5000 was
+    // ~24.5m radius (wider than Hound's own 800-3000u mid-range band — whiffed
+    // on minor aim error). Tuned per GDD 5.7 "Soft-lock Pursuit" + Artemis's Eye
+    // "Limited Turn Rate" philosophy (sharp right-angle turns still dodgeable,
+    // but no whiff on slightly-off aim). Iterated in PIE: 5000→14000 (~8.75m)
+    // visibly homed but owner still felt it weak → bumped to 22000 (~5.6m radius)
+    // at owner request 2026-07-15 (this exact value not yet re-PIE'd).
+    // ⚠ PLAYTEST PENDING (further tuning ok)
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Homing", meta = (ClampMin = "100.0"))
-    float VenyxHomingAcceleration = 5000.0f;
+    float VenyxHomingAcceleration = 22000.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Projectile")
     TSubclassOf<AWTBRProjectileBase> VenyxProjectileClass;
@@ -847,9 +854,12 @@ struct FWTBRAcervynParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Burst", meta = (ClampMin = "1", ClampMax = "10"))
     int32 AcervynBurstCount = 5;
 
-    // ⚠ PLAYTEST PENDING
+    // Turn radius ≈ AcervynSpeed² / AcervynHomingAcceleration. Same "soft-lock,
+    // limited turn" rationale as VenyxHomingAcceleration above; iterated in PIE
+    // 6000→18000 (~8.9m) still felt weak → bumped to 29000 (~5.5m radius) at
+    // owner request 2026-07-15 (not yet re-PIE'd). ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Homing", meta = (ClampMin = "100.0"))
-    float AcervynHomingAcceleration = 6000.0f;
+    float AcervynHomingAcceleration = 29000.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Acervyn | Projectile")
     TSubclassOf<AWTBRProjectileBase> AcervynProjectileClass;
