@@ -28,4 +28,8 @@ Saved/Config/Windows/
 Saved/Crashes/
 Saved/Logs/
 
+# Ignore local Claude Code / skills tooling state (not game content)
+.agents/
+skills-lock.json
+
 # Note: Content/, Source/, and Config/ are NOT ignored. They will go to Git.
