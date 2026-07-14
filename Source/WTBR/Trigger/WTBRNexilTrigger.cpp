@@ -47,6 +47,21 @@ bool UWTBRNexilTrigger::Activate_Implementation(
         WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=SuperActivateFalse"));
         return false;
     }
+
+    // Charge Vael per wire (base Activate consumes nothing). Fail-closed: not
+    // enough Vael = no wire placed, no cost, no cooldown — matches the aim-then-
+    // fire convention. Cost is DA-driven (NexilVaelCost, GDD 15/wire).
+    const float VaelCost = IsValid(DataAsset) ? DataAsset->NexilParams.NexilVaelCost : 0.0f;
+    if (VaelCost > 0.0f)
+    {
+        if (!IsValid(OwnerCharacter->VaelComponent)
+            || !OwnerCharacter->VaelComponent->TryConsumeVael(VaelCost))
+        {
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Fail | Reason=InsufficientVael | Cost=%.2f"), VaelCost);
+            return false;
+        }
+    }
+
     PlaceWire();
     return true;
 }
@@ -94,8 +109,17 @@ void UWTBRNexilTrigger::PlaceWire()
         return;
     }
 
+    // 360° placement: orient the wire to the player's AIM yaw (control rotation
+    // via the eyes view point), not the pawn's mesh facing, and flatten pitch/
+    // roll so the wire lies flat on the ground regardless of where the camera
+    // is pitched. Owner requirement 2026-07-15 ("วางได้ 360 องศา"). The ghost
+    // preview + hold-to-place confirm flow is a separate BP/UMG phase (Escudo-
+    // style); this is the functional server-side placement it will commit through.
+    FVector  EyeLoc;
+    FRotator EyeRot;
+    OwnerCharacter->GetActorEyesViewPoint(EyeLoc, EyeRot);
     const FVector  SpawnLoc = OwnerCharacter->GetActorLocation();
-    const FRotator SpawnRot = OwnerCharacter->GetActorRotation();
+    const FRotator SpawnRot = FRotator(0.0f, EyeRot.Yaw, 0.0f);
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] WireSpawnAttempt | Class=%s | Location=%s | Rotation=%s"),
         *GetNameSafe(WireClass.Get()),
         *SpawnLoc.ToString(),

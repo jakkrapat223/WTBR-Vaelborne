@@ -48,6 +48,12 @@ public:
 
     virtual void Deactivate_Implementation() override;
 
+#if WITH_DEV_AUTOMATION_TESTS
+    // Test-only: inject the wire actor class (normally set on BP_WTBRNexilTrigger)
+    // so headless tests can exercise placement/FIFO/cleanup without the Blueprint.
+    void SetWireActorClassForTest(TSoftClassPtr<AWTBRNexilWireActor> InClass) { WireActorClass = InClass; }
+#endif
+
 private:
     // TD Fix 1: TWeakObjectPtr prevents crash when Wire destroyed early
     TArray<TWeakObjectPtr<AWTBRNexilWireActor>> ActiveWires;

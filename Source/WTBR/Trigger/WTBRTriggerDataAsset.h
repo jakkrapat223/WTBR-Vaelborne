@@ -524,18 +524,31 @@ struct FWTBRNexilParams
         meta = (ClampMin = "1"))
     int32 MaxWires = 8;
 
-    // ระยะเวลาที่เส้นอยู่บนพื้น (GDD: 45 วิ)
+    // ระยะเวลาที่เส้นอยู่บนพื้นก่อน auto-despawn. Owner set 20-30s target
+    // 2026-07-15 (default 30 here; DA-overridable). GDD reference was 45s.
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Nexil | Wire",
         meta = (ClampMin = "1.0"))
-    float WireDuration = 45.0f;
+    float WireDuration = 30.0f;
 
     // HP ของเส้น (GDD: 1 — ฟันหรือยิงขาดได้)
+    // ⚠ NOT YET WIRED — WireActor has no health/TakeDamage; destructible-wire is a
+    // deferred Nexil pass (see wtbr-project-state Nexil notes). Field kept so the
+    // DA value is ready when that pass lands.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Nexil | Wire",
         meta = (ClampMin = "1"))
     int32 WireHP = 1;
+
+    // Vael charged per wire placed. Canon GDD §5.2 (Spider tripwire) = 15/wire.
+    // Base UWTBRTriggerBase::Activate consumes nothing, so this is charged
+    // explicitly in UWTBRNexilTrigger::Activate (fail-closed: no Vael → no wire).
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Nexil | Cost",
+        meta = (ClampMin = "0.0"))
+    float NexilVaelCost = 15.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
