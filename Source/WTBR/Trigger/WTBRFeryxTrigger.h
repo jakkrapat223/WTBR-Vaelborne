@@ -25,12 +25,17 @@ public:
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Feryx | VFX")
     void OnFeryxHit(const FHitResult& Hit, float DamageDealt);
 
+    // Hold action: throws one large blade-star (canon: Team Yuma vs Team
+    // Ninomiya), gated by StarThrowVaelCost and its own cooldown. Public so
+    // automation can drive it directly, matching the Mantorn Whip/Spin and
+    // Arcven FireChargedWave test pattern (bypassing real-time hold timing).
+    void ThrowBladeStars();
+
 protected:
     virtual void PerformSingleSweep(TArray<FHitResult>& OutHits) override;
     virtual void PerformDualSweep(TArray<FHitResult>& OutHits) override;
 
 private:
-    void ThrowBladeStars();
     void ClearStarCooldown();
     float HoldStartTime = 0.0f;
     bool bHoldPending = false;

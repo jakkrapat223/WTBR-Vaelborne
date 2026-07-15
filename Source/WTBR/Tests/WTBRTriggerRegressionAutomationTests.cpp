@@ -11,6 +11,7 @@
 #include "Components/WTBRVaelComponent.h"
 #include "Trigger/WTBRArcvenTrigger.h"
 #include "Trigger/WTBRAcervynTrigger.h"
+#include "Trigger/WTBRFeryxTrigger.h"
 #include "Trigger/WTBRFulgrixTrigger.h"
 #include "Trigger/WTBRMantornTrigger.h"
 #include "Trigger/WTBRPiercexTrigger.h"
@@ -775,7 +776,7 @@ bool FWTBRProjectileSpawnCubeSplitsZeroCountIsNoOpTest::RunTest(const FString& /
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Base Gunners (composite-source archetypes) — Solux / Fulgrix / Venyx / Acervyn.
+// Base Gunners — Solux / Fulgrix / Venyx / Acervyn (fire/cooldown/Vael contract only; Serpveil is the 4th composite-source archetype and is tested separately; Acervyn is the standalone NonCombinable advanced Gunner excluded from the composite resolver, not a composite-source archetype).
 // Tap = Activate-on-press (unlike the snipers' aim-then-fire): validate DataAsset
 // + cooldown + Vael, then fire. These lock the shared fire/cooldown/Vael contract
 // each gunner relies on. Homing target acquisition (Venyx/Acervyn sphere overlap)
@@ -1952,6 +1953,74 @@ bool FWTBRBasicBotExecuteBotTriggerInputFiresLikePlayerTapTest::RunTest(const FS
         Bot->VaelComponent->GetCurrentVael(), 92.0f);
     TestEqual(TEXT("Cooldown blocks the second tap — no extra bullet"),
         TriggerRegressionTest_CountProjectiles(World), 1);
+
+    return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Feryx.ThrowBladeStars — LMB/RMB hold: one large blade-star, not a fan spread
+// (canon: Team Yuma vs Team Ninomiya). Regression lock added 2026-07-15 after
+// review found the hold was spawning projectiles for free (no Vael consumed).
+// ═════════════════════════════════════════════════════════════════════════════
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRFeryxThrowBladeStarsConsumesVaelAndSpawnsOneTest,
+    "WTBR.Trigger.Feryx.ThrowBladeStars.ConsumesVaelAndSpawnsOneStar",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRFeryxThrowBladeStarsConsumesVaelAndSpawnsOneTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_FeryxHold"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->FeryxParams.StarThrowVaelCost = 10.0f;
+    DataAsset->FeryxParams.StarDamage = 30.0f;
+    DataAsset->MeleeHitbox.SwingCooldown = 999.0f; // Keep cooldown from interfering here.
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRFeryxTrigger* Feryx = NewObject<UWTBRFeryxTrigger>(Owner);
+    Feryx->InitializeTrigger(Owner, DataAsset);
+
+    Feryx->ThrowBladeStars();
+
+    TestEqual(TEXT("Vael consumed by StarThrowVaelCost"),
+        Owner->VaelComponent->GetCurrentVael(), 90.0f);
+    TestEqual(TEXT("Exactly one blade-star spawned — not a multi-projectile fan"),
+        TriggerRegressionTest_CountProjectiles(World), 1);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRFeryxThrowBladeStarsRejectsWithoutVaelTest,
+    "WTBR.Trigger.Feryx.ThrowBladeStars.InsufficientVaelBlocksThrow",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRFeryxThrowBladeStarsRejectsWithoutVaelTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_FeryxHoldNoVael"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->FeryxParams.StarThrowVaelCost = 10.0f;
+    DataAsset->MeleeHitbox.SwingCooldown = 999.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(5.0f); // Below StarThrowVaelCost=10.
+
+    UWTBRFeryxTrigger* Feryx = NewObject<UWTBRFeryxTrigger>(Owner);
+    Feryx->InitializeTrigger(Owner, DataAsset);
+
+    Feryx->ThrowBladeStars();
+
+    TestEqual(TEXT("Vael unchanged — insufficient Vael blocks the throw"),
+        Owner->VaelComponent->GetCurrentVael(), 5.0f);
+    TestEqual(TEXT("No blade-star spawned"), TriggerRegressionTest_CountProjectiles(World), 0);
 
     return true;
 }

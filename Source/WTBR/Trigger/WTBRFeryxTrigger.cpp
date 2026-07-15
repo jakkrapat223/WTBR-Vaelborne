@@ -3,6 +3,7 @@
 #include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "Actors/WTBRProjectileBase.h"
+#include "Components/WTBRVaelComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
@@ -43,36 +44,33 @@ void UWTBRFeryxTrigger::OnTriggerDeactivated_Implementation(AActor* /*OwnerActor
 
 void UWTBRFeryxTrigger::ThrowBladeStars()
 {
-    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority() || !GetWorld() || !IsValid(DataAsset)) return;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority() || !GetWorld() || !IsValid(DataAsset)
+        || bStarOnCooldown) return;
+
+    UWTBRVaelComponent* VaelComp = OwnerCharacter->VaelComponent;
+    if (!IsValid(VaelComp) || !VaelComp->TryConsumeVael(DataAsset->FeryxParams.StarThrowVaelCost)) return;
 
     const FWTBRFeryxParams& Params = DataAsset->FeryxParams;
-    const int32 Count = Params.StarCount;
-    if (Count <= 0 || bStarOnCooldown) return;
-
     FVector EyeLocation;
     FRotator AimRotation;
     OwnerCharacter->GetActorEyesViewPoint(EyeLocation, AimRotation);
-    const float Step = Count > 1 ? Params.StarSpreadDegrees / (Count - 1) : 0.0f;
     const TSubclassOf<AWTBRProjectileBase> ProjectileClass = Params.StarProjectileClass
         ? Params.StarProjectileClass : AWTBRProjectileBase::StaticClass();
 
-    for (int32 Index = 0; Index < Count; ++Index)
+    // One large blade-star per throw — not a multi-projectile fan spread.
+    const FVector SpawnLocation = EyeLocation + AimRotation.Vector() * 80.0f;
+    AWTBRProjectileBase* Star = GetWorld()->SpawnActorDeferred<AWTBRProjectileBase>(
+        ProjectileClass, FTransform(AimRotation, SpawnLocation), OwnerCharacter.Get(), OwnerCharacter.Get(),
+        ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+    if (IsValid(Star))
     {
-        FRotator StarRotation = AimRotation;
-        StarRotation.Yaw += -Params.StarSpreadDegrees * 0.5f + Step * Index;
-        const FVector SpawnLocation = EyeLocation + StarRotation.Vector() * 80.0f;
-        AWTBRProjectileBase* Star = GetWorld()->SpawnActorDeferred<AWTBRProjectileBase>(
-            ProjectileClass, FTransform(StarRotation, SpawnLocation), OwnerCharacter.Get(), OwnerCharacter.Get(),
-            ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-        if (!IsValid(Star)) continue;
-
         Star->MaxRange = Params.StarRange;
         Star->InitializeProjectile(Params.StarDamage, Params.StarSpeed,
             ETriggerCategory::Melee, false, false, 0.0f);
         Star->ConfigureOnHitEffects(Params.BleedDamagePerTick, Params.BleedDuration,
             Params.BrittleDamageMultiplier, Params.BrittleDuration);
-        Star->FinishSpawning(FTransform(StarRotation, SpawnLocation));
-        Star->Launch(StarRotation.Vector(), OwnerCharacter.Get());
+        Star->FinishSpawning(FTransform(AimRotation, SpawnLocation));
+        Star->Launch(AimRotation.Vector(), OwnerCharacter.Get());
     }
 
     bStarOnCooldown = true;
