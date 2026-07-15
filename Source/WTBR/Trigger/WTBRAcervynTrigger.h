@@ -5,7 +5,8 @@
 #include "Trigger/WTBRGunnerTrigger.h"
 #include "WTBRAcervynTrigger.generated.h"
 
-// Acervyn — Hornet (Burst Homing Gunner)
+// Acervyn — standalone Burst Homing Gunner, NonCombinable (NOT the "Hornet" composite;
+// that canon name belongs to Venspire = Venyx+Venyx)
 UCLASS(BlueprintType, Blueprintable)
 class WTBR_API UWTBRAcervynTrigger : public UWTBRGunnerTrigger
 {

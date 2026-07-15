@@ -50,6 +50,23 @@ enum class ETriggerSlotConstraint : uint8
 };
 
 // Composite Bullet types — each value maps to one Gunner × Gunner DualGesture combo
+// The 4 Gunner archetypes that can be paired into a Composite Bullet (see
+// EWTBRCompositeBulletType / the composite pair resolver, Step 4 of the build
+// order). NonCombinable = a Gunner-category Trigger deliberately excluded from
+// merging (e.g. Acervyn — standalone advanced Gunner, see WTBRAcervynTrigger.h).
+// None = not yet classified; treat the same as NonCombinable until an owner
+// sets a real value on that Trigger's DataAsset.
+UENUM(BlueprintType)
+enum class EWTBRBulletArchetype : uint8
+{
+    None          UMETA(DisplayName = "None (unclassified)"),
+    Solux         UMETA(DisplayName = "Solux"),
+    Fulgrix       UMETA(DisplayName = "Fulgrix"),
+    Venyx         UMETA(DisplayName = "Venyx"),
+    Serpveil      UMETA(DisplayName = "Serpveil"),
+    NonCombinable UMETA(DisplayName = "Non-Combinable"),
+};
+
 UENUM(BlueprintType)
 enum class EWTBRCompositeBulletType : uint8
 {
@@ -58,12 +75,12 @@ enum class EWTBRCompositeBulletType : uint8
     Dualux   UMETA(DisplayName = "Dualux   (Solux + Solux)"),
     Solveil  UMETA(DisplayName = "Solveil  (Solux + Serpveil)"),
     Solhunt  UMETA(DisplayName = "Solhunt  (Solux + Venyx)"),
-    Acervyn  UMETA(DisplayName = "Acervyn  (Venyx + Venyx)"),
+    Venspire UMETA(DisplayName = "Venspire (Venyx + Venyx)"),
     Fulgvyn  UMETA(DisplayName = "Fulgvyn  (Fulgrix + Venyx)"),
     Coilvyn  UMETA(DisplayName = "Coilvyn  (Serpveil + Venyx)"),
     Catarix  UMETA(DisplayName = "Catarix  (Fulgrix + Fulgrix)"),
     Labyrn   UMETA(DisplayName = "Labyrn   (Serpveil + Serpveil)"),
-    Ignivex  UMETA(DisplayName = "Ignivex  (Solux + Fulgrix*)"),
+    Ignivex  UMETA(DisplayName = "Ignivex  (Fulgrix + Serpveil)"),
 };
 
 // Preset curved-flight shape for Serpveil (Viper — GDD Phase 4)
@@ -220,11 +237,11 @@ struct FWTBRFeryxParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold")
     TSubclassOf<AWTBRProjectileBase> StarProjectileClass;
 
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "1"))
-    int32 StarCount = 3;
-
+    // Single large blade-star per throw (canon: Team Yuma vs Team Ninomiya) —
+    // NOT a multi-projectile fan spread.
+    // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "0.0"))
-    float StarSpreadDegrees = 18.0f;
+    float StarThrowVaelCost = 10.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "0.0"))
     float StarDamage = 30.0f;
@@ -796,6 +813,13 @@ struct FWTBRVenyxParams
         Category = "Venyx | Combat",
         meta = (ClampMin = "0.1"))
     float VenyxFireCooldown = 0.6f;
+
+    // Keeps Hound's soft-lock intentional rather than acquiring peripheral targets.
+    // âš  PLAYTEST PENDING (35 degrees is a starting point, not final tuning)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Venyx | Homing",
+        meta = (ClampMin = "0.0", ClampMax = "180.0"))
+    float VenyxAimConeHalfAngleDegrees = 35.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -887,7 +911,8 @@ struct FWTBRSerpveilParams
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FWTBRAcervynParams — Acervyn (Hornet — Burst Homing)
+// FWTBRAcervynParams — Acervyn (standalone Burst Homing Gunner, NonCombinable —
+// NOT the "Hornet" composite; that canon name belongs to Venspire = Venyx+Venyx)
 // ─────────────────────────────────────────────────────────────────────────────
 USTRUCT(BlueprintType)
 struct FWTBRAcervynParams
@@ -1165,6 +1190,14 @@ public:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Identity")
     ETriggerSlotConstraint SlotConstraint = ETriggerSlotConstraint::Any;
+
+    // Which of the 4 Composite-source archetypes this Trigger is, if any (Step
+    // 3 of the Composite Bullet build order). Only meaningful for Gunner-
+    // category Triggers; irrelevant for Melee/Defense/Sniper/etc., leave at
+    // None for those. Owner sets this per-DataAsset in the editor — Claude/
+    // Codex cannot author .uasset values.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Trigger | Identity")
+    EWTBRBulletArchetype BulletArchetype = EWTBRBulletArchetype::None;
 
     // ─── Resources ───────────────────────────────────────────────────────────
     UPROPERTY(EditAnywhere, BlueprintReadOnly,Category = "Trigger | Identity")

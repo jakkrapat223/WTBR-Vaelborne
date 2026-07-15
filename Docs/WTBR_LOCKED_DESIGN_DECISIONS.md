@@ -49,20 +49,20 @@ Status tags:
 - `LOCKED_MECHANIC`: Solux = Asteroid style straight cube split.
 - `LOCKED_MECHANIC`: Venyx = Hound style homing cube split.
 - `LOCKED_MECHANIC`: Fulgrix = Meteor style AoE cube split.
-- `LOCKED_MECHANIC`: Serpveil = Viper style single path projectile, not cube split.
+- `LOCKED_MECHANIC`: Serpveil = Viper style cube-split volley (S1, implemented): tap conjures then fires a straight cube volley after a windup; cube count/formation/per-cube damage are DataAsset-driven.
 - `LOCKED_MECHANIC`: Snipers Telorn, Piercex, and Fulgris do not cube split.
 - `LOCKED_MECHANIC`: Damage budget is divided across cubes.
 - `UNKNOWN`: Rounding rule.
 
 ## Serpveil
 
-- `LOCKED_MECHANIC`: Charge path with proportional Vael cost.
-- `LOCKED_MECHANIC`: Shapes are Curve, S-Curve, Hook, Spiral, and Boomerang.
-- `PROPOSED_DETAIL`: Custom player-drawn paths are future S2/S3 work, not prototype scope.
+- `LOCKED_MECHANIC`: S1 (Tap, implemented and verified baseline) = straight cube volley, flat Vael cost per shot (NOT proportional to charge/path).
+- `LOCKED_MECHANIC`: S2 (Hold, Armed Preset path system — PENDING, not yet built) = path presets are polylines (`FWTBRPathPreset`, multi-lane `FWTBRPathLane` waypoints), not the 5 named smooth shapes (Curve/S-Curve/Hook/Spiral/Boomerang) previously listed here.
+- `PROPOSED_DETAIL`: Custom player-drawn paths are future work beyond S2, not prototype scope.
 
 ## Composite Bullets Canonical Mapping
 
-- `LOCKED_MECHANIC`: Solgrix = Solux + Fulgrix -> Straight explosive shot.
+- `LOCKED_MECHANIC`: Solgrix = Solux + Fulgrix -> shaped-charge cone forward (direct-hit kinetic + forward cone explosion; NOT a round AOE — base Fulgrix already does straight+round-explode).
 - `LOCKED_MECHANIC`: Dualux = Solux + Solux -> Twin straight shot.
 - `LOCKED_MECHANIC`: Solveil = Solux + Serpveil -> Curving/charged straight shot.
 - `LOCKED_MECHANIC`: Solhunt = Solux + Venyx -> Fast homing shot.
@@ -71,8 +71,9 @@ Status tags:
 - `LOCKED_MECHANIC`: Coilvyn = Serpveil + Venyx -> Curving homing snake shot.
 - `LOCKED_MECHANIC`: Catarix = Fulgrix + Fulgrix -> Heavy cluster explosion.
 - `LOCKED_MECHANIC`: Labyrn = Serpveil + Serpveil -> Labyrinth trajectory/zoning.
-- `LOCKED_MECHANIC`: Ignivex = Solux + Fulgrix variant -> Piercing/ignition explosive line.
+- `LOCKED_MECHANIC`: Ignivex = Fulgrix + Serpveil -> Tomahawk (canon), explosive curved path. CHANGED 2026-07-14: previously listed here as a Solux+Fulgrix variant, which duplicated Solgrix's pair — superseded.
 - `LOCKED_MECHANIC`: Acervyn naming lock: normal Burst Homing Trigger; Venyx + Venyx is Venspire, not Acervyn.
+- `LOCKED_MECHANIC`: Acervyn is a standalone advanced Gunner (`BulletArchetype = NonCombinable`), excluded from the composite pair resolver — it is NOT one of the 4 composite-source archetypes (those are Solux, Fulgrix, Venyx, Serpveil). Holding Acervyn and pressing Merge shows "Composite unavailable" and reserves no Vael.
 
 ## BR Match
 
