@@ -13,6 +13,7 @@
 #include "WTBRGameState.h"
 #include "Actors/WTBRProjectileBase.h"
 #include "Components/WTBRVaelComponent.h"
+#include "Components/WTBRMovementExtComponent.h"
 #include "Engine/StreamableManager.h"
 #include "Engine/AssetManager.h"
 #include "Net/UnrealNetwork.h"
@@ -1199,30 +1200,54 @@ void UWTBRTriggerSetComponent::OnRep_DualWieldState()
 
 // ── Composite Bullet Merge ────────────────────────────────────────────────────
 
-void UWTBRTriggerSetComponent::Server_StartCompositeMerge_Implementation(
-    EWTBRCompositeBulletType Type)
+void UWTBRTriggerSetComponent::Server_StartCompositeMerge_Implementation()
 {
     if (!HasServerAuthority()) return;
-    if (Type == EWTBRCompositeBulletType::None) return;
     if (CurrentMergeState != EWTBRCompositeBulletType::None) return; // already merging
+    if (GetWorld()->GetTimerManager().IsTimerActive(CompositeCooldownTimer)) return; // still on cooldown from the last successful fire
 
-    if (!IsValidSlotIndex(ActiveMainIndex)) return;
-    UWTBRTriggerDataAsset* DA = TriggerSlots[ActiveMainIndex].DataAsset.Get();
-    if (!DA) return;
+    if (!IsValidSlotIndex(ActiveMainIndex) || !IsValidSlotIndex(ActiveSubIndex)) return;
+    UWTBRTriggerDataAsset* MainDA = TriggerSlots[ActiveMainIndex].DataAsset.Get();
+    UWTBRTriggerDataAsset* SubDA  = TriggerSlots[ActiveSubIndex].DataAsset.Get();
+    if (!MainDA || !SubDA) return;
 
-    const float* VaelCostPtr  = DA->CompositeVaelCosts.Find(Type);
-    const float* MergeTimePtr = DA->CompositeMergeTimes.Find(Type);
-    if (!VaelCostPtr || !MergeTimePtr) return;
+    UWTBRCompositeRegistryDataAsset* Registry = CompositeRegistryAsset.LoadSynchronous();
+    if (!Registry) return;
+
+    const EWTBRCompositeBulletType Type =
+        Registry->ResolveCompositeType(MainDA->BulletArchetype, SubDA->BulletArchetype);
+    if (Type == EWTBRCompositeBulletType::None) return;
+
+    // Validate the WHOLE definition BEFORE touching Vael — an unauthored/misconfigured
+    // definition must never cost the player anything.
+    FWTBRCompositeDefinition Definition;
+    if (!Registry->FindDefinition(Type, Definition)) return;
+    if (!Definition.ProjectileClass) return;
+    if (Definition.MergeTime <= 0.0f) return;
 
     AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner());
     if (!OwnerChar || !OwnerChar->VaelComponent) return;
-    if (!OwnerChar->VaelComponent->TryConsumeVael(*VaelCostPtr)) return;
+
+    FGuid ReservationHandle;
+    if (!OwnerChar->VaelComponent->TryReserveVael(Definition.VaelCost, ReservationHandle)) return;
+
+    ActiveMergeSnapshot.CompositeType        = Type;
+    ActiveMergeSnapshot.MainSlotIndex        = ActiveMainIndex;
+    ActiveMergeSnapshot.SubSlotIndex         = ActiveSubIndex;
+    ActiveMergeSnapshot.MainArchetype        = MainDA->BulletArchetype;
+    ActiveMergeSnapshot.SubArchetype         = SubDA->BulletArchetype;
+    ActiveMergeSnapshot.ReservationHandle    = ReservationHandle;
+    ActiveMergeSnapshot.MergeStartServerTime = GetWorld()->GetTimeSeconds();
 
     CurrentMergeState = Type;
+    if (OwnerChar->MovementExtComponent)
+    {
+        OwnerChar->MovementExtComponent->SetDebuffPenalty(1.0f); // Root: translation only, camera/aim free
+    }
     GetWorld()->GetTimerManager().SetTimer(
         MergeTimer,
         this, &UWTBRTriggerSetComponent::OnMergeCompleteCallback,
-        *MergeTimePtr,
+        Definition.MergeTime,
         false);
 }
 
@@ -1232,6 +1257,18 @@ void UWTBRTriggerSetComponent::CancelMerge()
     if (CurrentMergeState == EWTBRCompositeBulletType::None) return;
 
     GetWorld()->GetTimerManager().ClearTimer(MergeTimer);
+
+    AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner());
+    if (OwnerChar && OwnerChar->MovementExtComponent)
+    {
+        OwnerChar->MovementExtComponent->SetDebuffPenalty(0.0f); // Unroot on every exit path
+    }
+    if (OwnerChar && OwnerChar->VaelComponent)
+    {
+        OwnerChar->VaelComponent->ReleaseReservation(ActiveMergeSnapshot.ReservationHandle);
+    }
+    ActiveMergeSnapshot = FWTBRCompositeMergeSnapshot();
+
     bMergeWasFired    = false;
     CurrentMergeState = EWTBRCompositeBulletType::None;
 }
@@ -1240,18 +1277,57 @@ void UWTBRTriggerSetComponent::OnMergeCompleteCallback()
 {
     if (!HasServerAuthority()) return;
 
-    const EWTBRCompositeBulletType TypeToFire = CurrentMergeState;
+    const FWTBRCompositeMergeSnapshot Snapshot = ActiveMergeSnapshot;
     bMergeWasFired    = true;
     CurrentMergeState = EWTBRCompositeBulletType::None;
-    FireComposite(TypeToFire);
+    ActiveMergeSnapshot = FWTBRCompositeMergeSnapshot();
+
+    AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner());
+    if (OwnerChar && OwnerChar->MovementExtComponent)
+    {
+        OwnerChar->MovementExtComponent->SetDebuffPenalty(0.0f); // Unroot unconditionally — even if the fire below refunds or fails
+    }
+
+    if (!OwnerChar || !OwnerChar->VaelComponent) return;
+
+    const auto SlotStillMatches = [this](int32 SlotIndex, EWTBRBulletArchetype ExpectedArchetype)
+    {
+        if (!IsValidSlotIndex(SlotIndex)) return false;
+        const UWTBRTriggerDataAsset* DataAsset = TriggerSlots[SlotIndex].DataAsset.Get();
+        return DataAsset && DataAsset->BulletArchetype == ExpectedArchetype;
+    };
+
+    if (!SlotStillMatches(Snapshot.MainSlotIndex, Snapshot.MainArchetype) ||
+        !SlotStillMatches(Snapshot.SubSlotIndex, Snapshot.SubArchetype))
+    {
+        OwnerChar->VaelComponent->ReleaseReservation(Snapshot.ReservationHandle);
+        return;
+    }
+
+    OwnerChar->VaelComponent->CommitReservation(Snapshot.ReservationHandle);
+
+    if (UWTBRCompositeRegistryDataAsset* Registry = CompositeRegistryAsset.LoadSynchronous())
+    {
+        FWTBRCompositeDefinition FiredDefinition;
+        if (Registry->FindDefinition(Snapshot.CompositeType, FiredDefinition) &&
+            FiredDefinition.CompositeCooldown > 0.0f)
+        {
+            GetWorld()->GetTimerManager().SetTimer(
+                CompositeCooldownTimer,
+                FiredDefinition.CompositeCooldown,
+                false);
+        }
+    }
+
+    FireComposite(Snapshot.CompositeType, Snapshot.MainSlotIndex);
 }
 
-void UWTBRTriggerSetComponent::FireComposite(EWTBRCompositeBulletType Type)
+void UWTBRTriggerSetComponent::FireComposite(EWTBRCompositeBulletType Type, int32 MainSlotIndex)
 {
     if (!HasServerAuthority()) return;
 
-    if (!IsValidSlotIndex(ActiveMainIndex)) return;
-    UWTBRTriggerDataAsset* DA = TriggerSlots[ActiveMainIndex].DataAsset.Get();
+    if (!IsValidSlotIndex(MainSlotIndex)) return;
+    UWTBRTriggerDataAsset* DA = TriggerSlots[MainSlotIndex].DataAsset.Get();
     if (!DA) return;
 
     AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner());

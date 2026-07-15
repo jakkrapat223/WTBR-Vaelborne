@@ -6,7 +6,9 @@
 #include "Components/ActorComponent.h"
 #include "Engine/StreamableManager.h"
 #include "Trigger/WTBRTriggerBase.h"      // ETriggerCategory, UWTBRTriggerBase
+#include "Trigger/WTBRCompositeRegistryDataAsset.h"
 #include "Trigger/WTBRTriggerDataAsset.h" // full type required for TSoftObjectPtr<T>::Get()
+#include "Misc/Guid.h"
 #include "WTBRTriggerSetComponent.generated.h"
 
 class UWTBRMantornTrigger;
@@ -29,6 +31,21 @@ enum class EWTBRDualWieldState : uint8
     DualMovement UMETA(DisplayName="Dual Movement"),
     DualDefense  UMETA(DisplayName="Dual Defense"),
     DualSniper   UMETA(DisplayName="Dual Sniper"),
+};
+
+// Server-only snapshot of the state that started a composite merge — captured once at merge
+// start so FireComposite never re-reads live, possibly-changed slot state. Deliberately
+// captures slot index + archetype (NOT a raw DataAsset pointer) so a mid-merge slot swap can
+// be detected and refunded instead of silently firing mismatched data.
+struct FWTBRCompositeMergeSnapshot
+{
+    EWTBRCompositeBulletType CompositeType = EWTBRCompositeBulletType::None;
+    int32 MainSlotIndex = INDEX_NONE;
+    int32 SubSlotIndex = INDEX_NONE;
+    EWTBRBulletArchetype MainArchetype = EWTBRBulletArchetype::None;
+    EWTBRBulletArchetype SubArchetype = EWTBRBulletArchetype::None;
+    FGuid ReservationHandle;
+    float MergeStartServerTime = 0.0f;
 };
 
 // Per-slot data. TSoftObjectPtr for DataAsset = lazy load only.
@@ -190,14 +207,20 @@ public:
 
     // ── Composite Bullet Merge ────────────────────────────────────────────────
 
+    // Central composite recipe registry (Step 4) — resolves the two active archetypes into a
+    // composite Type server-side. Author one shared asset and assign per-character/BP default.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Composite")
+    TSoftObjectPtr<UWTBRCompositeRegistryDataAsset> CompositeRegistryAsset;
+
     // Replicated merge state — clients read this for VFX/UI; server drives it
     UPROPERTY(ReplicatedUsing = OnRep_MergeState, BlueprintReadOnly,
         Category = "WTBR | Composite")
     EWTBRCompositeBulletType CurrentMergeState = EWTBRCompositeBulletType::None;
 
-    // Client → Server: request merge. Server deducts Vael immediately and starts timer.
+    // Client → Server: request merge. Server resolves the active archetypes, validates the whole
+    // definition, reserves Vael (not yet deducted), and starts the timer.
     UFUNCTION(Server, Reliable)
-    void Server_StartCompositeMerge(EWTBRCompositeBulletType Type);
+    void Server_StartCompositeMerge();
 
     // Authority-only cancel — called on damage or stagger; Vael is NOT refunded.
     UFUNCTION(BlueprintCallable, Category = "WTBR | Composite")
@@ -205,6 +228,25 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "WTBR | Composite")
     EWTBRCompositeBulletType GetCurrentMergeState() const { return CurrentMergeState; }
+
+    // Test-only seam: invokes the merge-complete path directly without waiting for MergeTimer.
+    UFUNCTION(BlueprintCallable, Category = "WTBR | Debug")
+    void TriggerMergeCompleteForTest() { OnMergeCompleteCallback(); }
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Debug")
+    bool HasPendingMergeReservationForTest() const { return ActiveMergeSnapshot.ReservationHandle.IsValid(); }
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Debug")
+    int32 GetActiveMergeMainSlotIndexForTest() const { return ActiveMergeSnapshot.MainSlotIndex; }
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Debug")
+    int32 GetActiveMergeSubSlotIndexForTest() const { return ActiveMergeSnapshot.SubSlotIndex; }
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Debug")
+    bool IsCompositeCooldownActiveForTest() const
+    {
+        return GetWorld() && GetWorld()->GetTimerManager().IsTimerActive(CompositeCooldownTimer);
+    }
 
     // ── VFX Hooks (implement in Blueprint) ───────────────────────────────────
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Composite | VFX")
@@ -316,6 +358,12 @@ private:
     // ── Composite merge internals (server-only) ───────────────────────────────
     FTimerHandle MergeTimer;
 
+    FWTBRCompositeMergeSnapshot ActiveMergeSnapshot;
+
+    // Cooldown after a successful composite fire (separate from any future cancel lockout) —
+    // sourced from the registry Definition's CompositeCooldown; gates a NEW merge attempt.
+    FTimerHandle CompositeCooldownTimer;
+
     // Replicated alongside CurrentMergeState so OnRep_MergeState can distinguish
     // a successful fire (true) from a forced cancel (false) without an extra RPC.
     UPROPERTY(Replicated)
@@ -327,7 +375,7 @@ private:
     UFUNCTION()
     void OnMergeCompleteCallback();
 
-    void FireComposite(EWTBRCompositeBulletType Type);
+    void FireComposite(EWTBRCompositeBulletType Type, int32 MainSlotIndex);
 
     UFUNCTION()
     void OnRep_TriggerSlots();
