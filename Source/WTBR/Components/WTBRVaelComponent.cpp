@@ -109,7 +109,7 @@ bool UWTBRVaelComponent::TryConsumeVael(float Amount)
     const float CostMultiplier = GetVaelCostMultiplier();
     const float EffectiveCost = FMath::Max(0.0f, RawCost * CostMultiplier);
 
-    if (bOverheated || CurrentVael < EffectiveCost) return false;
+    if (bOverheated || GetAvailableVael() < EffectiveCost) return false;
 
     const float OldVael = CurrentVael;
     const float LoadedMaxVael = GetMaxVael();
@@ -166,6 +166,93 @@ bool UWTBRVaelComponent::GrantVael(float Amount)
     }
 
     return CurrentVael > PreviousVael;
+}
+
+float UWTBRVaelComponent::GetTotalReservedVael() const
+{
+    float Total = 0.0f;
+    for (const auto& Pair : ActiveVaelReservations)
+    {
+        Total += Pair.Value;
+    }
+    return Total;
+}
+
+float UWTBRVaelComponent::GetAvailableVael() const
+{
+    return FMath::Max(0.0f, CurrentVael - GetTotalReservedVael());
+}
+
+bool UWTBRVaelComponent::TryReserveVael(float Amount, FGuid& OutReservationHandle)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return false;
+    if (Amount <= 0.0f) return false;
+
+    const float EffectiveCost = FMath::Max(0.0f, Amount * GetVaelCostMultiplier());
+    if (bOverheated || EffectiveCost > GetAvailableVael()) return false;
+
+    OutReservationHandle = FGuid::NewGuid();
+    ActiveVaelReservations.Add(OutReservationHandle, EffectiveCost);
+
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vael Reserve] Owner=%s | NetMode=%d | Role=%d | RawCost=%.1f | EffectiveCost=%.1f | CurrentVael=%.1f | AvailableVael=%.1f | Reservation=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        (int32)GetOwnerRole(),
+        Amount,
+        EffectiveCost,
+        CurrentVael,
+        GetAvailableVael(),
+        *OutReservationHandle.ToString());
+    return true;
+}
+
+bool UWTBRVaelComponent::CommitReservation(const FGuid& ReservationHandle)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return false;
+
+    float EffectiveCost = 0.0f;
+    if (!ActiveVaelReservations.RemoveAndCopyValue(ReservationHandle, EffectiveCost)) return false;
+
+    const float OldVael = CurrentVael;
+    const float LoadedMaxVael = GetMaxVael();
+    CurrentVael = FMath::Clamp(CurrentVael - EffectiveCost, 0.0f, LoadedMaxVael);
+    OnVaelChanged.Broadcast(CurrentVael, LoadedMaxVael);
+
+    if (CurrentVael <= 0.f)
+    {
+        CurrentVael = 0.f;
+        bOverheated = true;
+        OnOverheatChanged.Broadcast(true);
+    }
+    HandleVaelChanged(OldVael, CurrentVael);
+
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vael Commit] Owner=%s | NetMode=%d | Role=%d | EffectiveCost=%.1f | OldVael=%.1f | NewVael=%.1f | AvailableVael=%.1f | Reservation=%s | Overheated=%s"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        (int32)GetOwnerRole(),
+        EffectiveCost,
+        OldVael,
+        CurrentVael,
+        GetAvailableVael(),
+        *ReservationHandle.ToString(),
+        bOverheated ? TEXT("true") : TEXT("false"));
+    return true;
+}
+
+bool UWTBRVaelComponent::ReleaseReservation(const FGuid& ReservationHandle)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return false;
+
+    const bool bRemoved = ActiveVaelReservations.Remove(ReservationHandle) > 0;
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Vael Release] Owner=%s | NetMode=%d | Role=%d | Reservation=%s | Removed=%s | CurrentVael=%.1f | AvailableVael=%.1f"),
+        *GetNameSafe(GetOwner()),
+        (int32)GetNetMode(),
+        (int32)GetOwnerRole(),
+        *ReservationHandle.ToString(),
+        bRemoved ? TEXT("true") : TEXT("false"),
+        CurrentVael,
+        GetAvailableVael());
+    return bRemoved;
 }
 
 void UWTBRVaelComponent::StartPassiveRegenTimer()

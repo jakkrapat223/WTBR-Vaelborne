@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Data/WTBRCoreStatsDataAsset.h"
+#include "Misc/Guid.h"
 #include "WTBRVaelComponent.generated.h"
 
 // EVaelReleaseEvent — fired when Vael energy physically leaves the character capsule.
@@ -53,6 +54,18 @@ public:
     bool GrantVael(float Amount);
 
     UFUNCTION(BlueprintCallable, Category="Vael")
+    bool TryReserveVael(float Amount, FGuid& OutReservationHandle);
+
+    UFUNCTION(BlueprintCallable, Category="Vael")
+    bool CommitReservation(const FGuid& ReservationHandle);
+
+    UFUNCTION(BlueprintCallable, Category="Vael")
+    bool ReleaseReservation(const FGuid& ReservationHandle);
+
+    UFUNCTION(BlueprintPure, Category="Vael")
+    float GetAvailableVael() const;
+
+    UFUNCTION(BlueprintCallable, Category="Vael")
     void ResetDesperationState();
 
     UFUNCTION(BlueprintCallable, Category="WTBR | Debug")
@@ -94,6 +107,9 @@ protected:
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
+    TMap<FGuid, float> ActiveVaelReservations;
+    float GetTotalReservedVael() const;
+
     UPROPERTY(ReplicatedUsing=OnRep_CurrentVael)
     float CurrentVael;
 
