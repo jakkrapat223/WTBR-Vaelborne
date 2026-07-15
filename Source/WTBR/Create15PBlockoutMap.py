@@ -38,6 +38,34 @@ nav_bounds.set_actor_scale3d(unreal.Vector(500.0, 500.0, 30.0))
 player_start = actor_subsystem.spawn_actor_from_class(unreal.PlayerStart, unreal.Vector(0.0, -1500.0, 200.0))
 player_start.set_actor_label("PlayerStart_15P")
 
+sun = actor_subsystem.spawn_actor_from_class(unreal.DirectionalLight, unreal.Vector(0.0, 0.0, 0.0))
+sun.set_actor_label("Sun_15P")
+sun_component = sun.get_component_by_class(unreal.DirectionalLightComponent)
+sun_component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
+sun.set_actor_rotation(unreal.Rotator(-50.0, -35.0, 0.0), False)
+
+sky_light = actor_subsystem.spawn_actor_from_class(unreal.SkyLight, unreal.Vector(0.0, 0.0, 0.0))
+sky_light.set_actor_label("SkyLight_15P")
+sky_light_component = sky_light.get_component_by_class(unreal.SkyLightComponent)
+sky_light_component.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
+sky_light_component.set_editor_property("real_time_capture", True)
+
+sky_atmosphere = actor_subsystem.spawn_actor_from_class(unreal.SkyAtmosphere, unreal.Vector(0.0, 0.0, 0.0))
+sky_atmosphere.set_actor_label("SkyAtmosphere_15P")
+
+height_fog = actor_subsystem.spawn_actor_from_class(unreal.ExponentialHeightFog, unreal.Vector(0.0, 0.0, 0.0))
+height_fog.set_actor_label("Fog_15P")
+
+post_process = actor_subsystem.spawn_actor_from_class(unreal.PostProcessVolume, unreal.Vector(0.0, 0.0, 0.0))
+post_process.set_actor_label("PostProcess_15P")
+post_process.set_editor_property("unbound", True)
+post_process_settings = post_process.get_editor_property("settings")
+post_process_settings.set_editor_property("override_auto_exposure_min_brightness", True)
+post_process_settings.set_editor_property("override_auto_exposure_max_brightness", True)
+post_process_settings.set_editor_property("auto_exposure_min_brightness", 1.0)
+post_process_settings.set_editor_property("auto_exposure_max_brightness", 1.0)
+post_process.set_editor_property("settings", post_process_settings)
+
 if not unreal.EditorLevelLibrary.save_current_level():
     raise RuntimeError("Map was created but could not be saved: {}".format(MAP_PATH))
 
