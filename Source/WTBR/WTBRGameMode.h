@@ -193,6 +193,8 @@ private:
 	// to trace against.
 	static TArray<FVector> GenerateRandomSpawnPoints(const FVector& Center, float AreaRadius, float MinDistance, int32 Count, FRandomStream& RandomStream);
 
+	static bool TryGenerateSafeAnchorLayout(const TArray<FVector>& Anchors, float MinDistance, int32 Count, FRandomStream& RandomStream, TArray<FVector>& OutPoints);
+
 	// Teleports every AWTBRCharacter in the world to a freshly generated random
 	// spawn point (see GenerateRandomSpawnPoints), snapped down onto the ground via
 	// a line trace so points on sloped/uneven terrain (or a mismatched spawn-area
@@ -205,7 +207,11 @@ private:
 	// well above InPoint and returns the impact location + a small clearance, or
 	// InPoint unchanged (with a warning log) if the trace finds no ground within
 	// range — e.g. the configured spawn area extends outside the level's floor.
-	static FVector SnapSpawnPointToGround(UWorld* World, const FVector& InPoint, const AActor* IgnoreActor);
+	// All combatants are ignored, rather than only the character being placed:
+	// at match start they can still be stacked at a PlayerStart, and no pawn
+	// capsule may be mistaken for the map floor by this WorldStatic trace.
+	static FVector SnapSpawnPointToGround(UWorld* World, const FVector& InPoint, const TArray<AWTBRCharacter*>& IgnoredCombatants);
+	static bool GetNavigableSpawnLocation(UWorld* World, const FVector& GroundedPoint, FVector& OutSpawnLocation);
 
 	// Called only by BeginLoadoutSetupCountdown's callers (BeginPlay via
 	// EnterLobbyAndWaitForPlayers, WTBRRestartRound directly): enters LoadoutSetup,
@@ -268,6 +274,11 @@ public:
 		FRandomStream Stream(Seed);
 		return GenerateRandomSpawnPoints(Center, AreaRadius, MinDistance, Count, Stream);
 	}
+	static bool TryGenerateSafeAnchorLayoutForTest(const TArray<FVector>& Anchors, float MinDistance, int32 Count, int32 Seed, TArray<FVector>& OutPoints)
+	{
+		FRandomStream Stream(Seed);
+		return TryGenerateSafeAnchorLayout(Anchors, MinDistance, Count, Stream, OutPoints);
+	}
 	void ApplyRandomSpawnPositionsForTest() { ApplyRandomSpawnPositions(); }
 	// Builds a transient config DA and assigns it to RandomSpawnConfig — tests
 	// exercise the real DA-driven production path, not a bypass of it.
@@ -277,6 +288,13 @@ public:
 		Config->SpawnAreaCenter = Center;
 		Config->SpawnAreaRadius = AreaRadius;
 		Config->MinSpawnDistance = MinDistance;
+		RandomSpawnConfig = Config;
+	}
+	void SetSafeSpawnAnchorsForTest(const TArray<FVector>& Anchors, float MinDistance)
+	{
+		UWTBRRandomSpawnConfigDataAsset* Config = NewObject<UWTBRRandomSpawnConfigDataAsset>(this);
+		Config->MinSpawnDistance = MinDistance;
+		Config->SafeSpawnAnchors = Anchors;
 		RandomSpawnConfig = Config;
 	}
 	// Simulates a level with no spawn config assigned — for the "skip cleanly,

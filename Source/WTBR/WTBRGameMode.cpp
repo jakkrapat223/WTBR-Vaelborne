@@ -10,6 +10,7 @@
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Inventory/WTBRGroundItemActor.h"
+#include "NavigationSystem.h"
 #include "Inventory/WTBRItemDataAsset.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "UObject/ConstructorHelpers.h"
@@ -50,10 +51,26 @@ static TAutoConsoleVariable<int32> CVarWTBRB7ValidationSpawnLowerPriorityActors(
 		 "(disabled). Not compiled in Shipping builds."));
 #endif
 
+namespace
+{
+	constexpr float RandomSpawnCapsuleClearance = 92.0f;
+}
+
 AWTBRGameMode::AWTBRGameMode()
 {
 	GameStateClass = AWTBRGameState::StaticClass();
 	DefaultMatchRules = MakeDefaultRulesForMode(DefaultMatchMode);
+
+	// TeamThree15P and BattleRoyale scatter every combatant when they enter
+	// InMatch.  Keep the shipped per-map config as the native default as well
+	// as any Blueprint override, so the stock GameMode cannot silently fall
+	// back to PlayerStarts merely because a level did not set this property.
+	static ConstructorHelpers::FObjectFinder<UWTBRRandomSpawnConfigDataAsset> RandomSpawnConfigAsset(
+		TEXT("/Game/Data/DA_RandomSpawnConfig.DA_RandomSpawnConfig"));
+	if (RandomSpawnConfigAsset.Succeeded())
+	{
+		RandomSpawnConfig = RandomSpawnConfigAsset.Object;
+	}
 
 	// set default pawn class to our Blueprinted character
 	static ConstructorHelpers::FClassFinder<APawn> PlayerPawnBPClass(TEXT("/Game/ThirdPerson/Blueprints/BP_ThirdPersonCharacter"));
@@ -590,29 +607,133 @@ TArray<FVector> AWTBRGameMode::GenerateRandomSpawnPoints(const FVector& Center, 
 	return Points;
 }
 
-FVector AWTBRGameMode::SnapSpawnPointToGround(UWorld* World, const FVector& InPoint, const AActor* IgnoreActor)
+bool AWTBRGameMode::TryGenerateSafeAnchorLayout(
+	const TArray<FVector>& Anchors,
+	float MinDistance,
+	int32 Count,
+	FRandomStream& RandomStream,
+	TArray<FVector>& OutPoints)
+{
+	OutPoints.Reset();
+	if (Anchors.Num() < Count)
+	{
+		return false;
+	}
+
+	TArray<int32> Indices;
+	Indices.Reserve(Anchors.Num());
+	for (int32 Index = 0; Index < Anchors.Num(); ++Index)
+	{
+		Indices.Add(Index);
+	}
+	for (int32 Index = Indices.Num() - 1; Index > 0; --Index)
+	{
+		Indices.Swap(Index, RandomStream.RandRange(0, Index));
+	}
+
+	// Backtracking keeps the random anchor order while guaranteeing that we find
+	// a Count-sized valid subset whenever one exists. Safe-anchor arrays are
+	// intentionally small (19 for the 15P map), so this remains trivial work.
+	TFunction<bool(int32)> SelectAnchors = [&](int32 StartIndex)
+	{
+		if (OutPoints.Num() == Count)
+		{
+			return true;
+		}
+		if (Indices.Num() - StartIndex < Count - OutPoints.Num())
+		{
+			return false;
+		}
+
+		for (int32 CandidateIndex = StartIndex; CandidateIndex < Indices.Num(); ++CandidateIndex)
+		{
+			const FVector& Candidate = Anchors[Indices[CandidateIndex]];
+			bool bClearsSpacing = true;
+			for (const FVector& Existing : OutPoints)
+			{
+				if (FVector::Dist2D(Candidate, Existing) < MinDistance)
+				{
+					bClearsSpacing = false;
+					break;
+				}
+			}
+			if (!bClearsSpacing)
+			{
+				continue;
+			}
+
+			OutPoints.Add(Candidate);
+			if (SelectAnchors(CandidateIndex + 1))
+			{
+				return true;
+			}
+			OutPoints.Pop();
+		}
+		return false;
+	};
+
+	const bool bFoundLayout = SelectAnchors(0);
+	if (!bFoundLayout)
+	{
+		OutPoints.Reset();
+	}
+	return bFoundLayout;
+}
+
+FVector AWTBRGameMode::SnapSpawnPointToGround(
+	UWorld* World,
+	const FVector& InPoint,
+	const TArray<AWTBRCharacter*>& IgnoredCombatants)
 {
 	if (!World) return InPoint;
 
 	constexpr float TraceUpOffset = 1000.0f;
 	constexpr float TraceDownDistance = 20000.0f;
-	constexpr float GroundClearance = 92.0f; // roughly a standing capsule half-height
 
 	FHitResult Hit;
 	FCollisionQueryParams Params;
-	if (IgnoreActor) Params.AddIgnoredActor(IgnoreActor);
+	for (const AWTBRCharacter* Combatant : IgnoredCombatants)
+	{
+		if (IsValid(Combatant))
+		{
+			Params.AddIgnoredActor(Combatant);
+		}
+	}
 
 	const FVector TraceStart = InPoint + FVector(0.0f, 0.0f, TraceUpOffset);
 	const FVector TraceEnd   = TraceStart - FVector(0.0f, 0.0f, TraceDownDistance);
 
 	if (World->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_WorldStatic, Params))
 	{
-		return Hit.ImpactPoint + FVector(0.0f, 0.0f, GroundClearance);
+		return Hit.ImpactPoint + FVector(0.0f, 0.0f, RandomSpawnCapsuleClearance);
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("WTBR Match Flow: random spawn point %s found no ground within %.0f units — spawning unadjusted (character may fall). Check RandomSpawnConfig's Center/Radius against the level's actual floor bounds."),
 		*InPoint.ToString(), TraceDownDistance);
 	return InPoint;
+}
+
+bool AWTBRGameMode::GetNavigableSpawnLocation(UWorld* World, const FVector& GroundedPoint, FVector& OutSpawnLocation)
+{
+	if (!World)
+	{
+		return false;
+	}
+
+	const UNavigationSystemV1* NavigationSystem = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
+	FNavLocation NavigationLocation;
+	if (!IsValid(NavigationSystem)
+		|| !NavigationSystem->ProjectPointToNavigation(GroundedPoint, NavigationLocation, FVector(250.0f, 250.0f, 200.0f))
+		|| FVector::Dist2D(GroundedPoint, NavigationLocation.Location) > 250.0f)
+	{
+		return false;
+	}
+
+	// NavigationLocation is the walkable floor point. Raise it by the same
+	// capsule clearance used by the ground trace so the teleport target is both
+	// exactly on the validated NavMesh XY and safe for the character capsule.
+	OutSpawnLocation = NavigationLocation.Location + FVector(0.0f, 0.0f, RandomSpawnCapsuleClearance);
+	return true;
 }
 
 void AWTBRGameMode::ApplyRandomSpawnPositions()
@@ -643,20 +764,83 @@ void AWTBRGameMode::ApplyRandomSpawnPositions()
 		return;
 	}
 
-	FRandomStream RandomStream;
-	RandomStream.GenerateNewSeed();
-
 	const FVector Center      = RandomSpawnConfig->SpawnAreaCenter;
 	const float   AreaRadius  = RandomSpawnConfig->SpawnAreaRadius;
 	const float   MinDistance = RandomSpawnConfig->MinSpawnDistance;
+	const bool bUsingSafeAnchors = RandomSpawnConfig->SafeSpawnAnchors.Num() > 0;
+	if (bUsingSafeAnchors && RandomSpawnConfig->SafeSpawnAnchors.Num() < Characters.Num())
+	{
+		UE_LOG(LogTemp, Error, TEXT("WTBR Match Flow: random spawn aborted. SafeSpawnAnchors has %d entries but %d combatants need ground-safe positions."),
+			RandomSpawnConfig->SafeSpawnAnchors.Num(), Characters.Num());
+		return;
+	}
 
-	const TArray<FVector> SpawnPoints = GenerateRandomSpawnPoints(
-		Center, AreaRadius, MinDistance, Characters.Num(), RandomStream);
+	// GenerateRandomSpawnPoints always returns Count entries, including when a
+	// tiny play area makes the requested spacing impossible.  A live 15-player
+	// match must never accept that fallback because it would put some players
+	// closer than the same minimum distance applied to everybody else. Retry
+	// several independent layouts, then leave the existing placements intact
+	// and report a configuration error if this map cannot satisfy its own rule.
+	constexpr int32 MaxFullLayoutAttempts = 32;
+	TArray<FVector> SpawnPoints;
+	bool bFoundValidLayout = false;
+	for (int32 LayoutAttempt = 0; LayoutAttempt < MaxFullLayoutAttempts && !bFoundValidLayout; ++LayoutAttempt)
+	{
+		FRandomStream RandomStream;
+		RandomStream.GenerateNewSeed();
+		TArray<FVector> CandidatePoints;
+		if (bUsingSafeAnchors)
+		{
+			TryGenerateSafeAnchorLayout(RandomSpawnConfig->SafeSpawnAnchors, MinDistance, Characters.Num(), RandomStream, CandidatePoints);
+		}
+		else
+		{
+			CandidatePoints = GenerateRandomSpawnPoints(Center, AreaRadius, MinDistance, Characters.Num(), RandomStream);
+		}
+
+		bFoundValidLayout = CandidatePoints.Num() == Characters.Num();
+		for (int32 PointIndex = 0; bFoundValidLayout && PointIndex < CandidatePoints.Num(); ++PointIndex)
+		{
+			for (int32 OtherIndex = 0; OtherIndex < PointIndex; ++OtherIndex)
+			{
+				if (FVector::Dist2D(CandidatePoints[PointIndex], CandidatePoints[OtherIndex]) < MinDistance)
+				{
+					bFoundValidLayout = false;
+					break;
+				}
+			}
+		}
+
+		if (bFoundValidLayout)
+		{
+			SpawnPoints = MoveTemp(CandidatePoints);
+		}
+	}
+
+	if (!bFoundValidLayout)
+	{
+		UE_LOG(LogTemp, Error, TEXT("WTBR Match Flow: random spawn aborted for %d combatants. DA_RandomSpawnConfig (Center=%s AreaRadius=%.0f MinDistance=%.0f) could not produce one layout with the required minimum separation after %d attempts. Enlarge SpawnAreaRadius or lower MinSpawnDistance; existing placements were kept."),
+			Characters.Num(), *Center.ToString(), AreaRadius, MinDistance, MaxFullLayoutAttempts);
+		return;
+	}
+
+	TArray<FVector> GroundedPoints;
+	GroundedPoints.Reserve(Characters.Num());
+	for (int32 i = 0; i < Characters.Num(); ++i)
+	{
+		const FVector GroundedPoint = SnapSpawnPointToGround(World, SpawnPoints[i], Characters);
+		FVector ValidatedSpawnPoint = GroundedPoint;
+		if (bUsingSafeAnchors && !GetNavigableSpawnLocation(World, GroundedPoint, ValidatedSpawnPoint))
+		{
+			UE_LOG(LogTemp, Error, TEXT("WTBR Match Flow: random spawn aborted. Safe anchor %s is not on NavMesh ground; rebuild navigation or correct DA_RandomSpawnConfig."), *SpawnPoints[i].ToString());
+			return;
+		}
+		GroundedPoints.Add(ValidatedSpawnPoint);
+	}
 
 	for (int32 i = 0; i < Characters.Num(); ++i)
 	{
-		const FVector GroundedPoint = SnapSpawnPointToGround(World, SpawnPoints[i], Characters[i]);
-		Characters[i]->SetActorLocation(GroundedPoint, /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
+		Characters[i]->SetActorLocation(GroundedPoints[i], /*bSweep=*/false, /*OutSweepHitResult=*/nullptr, ETeleportType::TeleportPhysics);
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("WTBR Match Flow: random spawn positions applied to %d combatants (Center=%s AreaRadius=%.0f MinDistance=%.0f)."),

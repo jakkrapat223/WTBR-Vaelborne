@@ -74,6 +74,19 @@ namespace
         }
         return MinDist;
     }
+
+    TArray<FVector> MakeSafeAnchorTestSet()
+    {
+        TArray<FVector> Anchors;
+        for (int32 X = 0; X < 5; ++X)
+        {
+            for (int32 Y = 0; Y < 4; ++Y)
+            {
+                Anchors.Add(FVector(X * 12000.0f, Y * 12000.0f, 0.0f));
+            }
+        }
+        return Anchors;
+    }
 }
 
 // ── Algorithm: correct count, inside the area, minimum spacing honored ─────────
@@ -180,6 +193,72 @@ bool FWTBRSpawnPointsEdgeCountsTest::RunTest(const FString& /*Parameters*/)
     return true;
 }
 
+// ── Safe anchors: a valid subset is selected with spacing preserved ──────────
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRSafeAnchorSelectionTest,
+    "WTBR.Combat.Team.Spawn.SafeAnchors.SelectsSpacedSubset",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRSafeAnchorSelectionTest::RunTest(const FString& /*Parameters*/)
+{
+    const TArray<FVector> Anchors = MakeSafeAnchorTestSet();
+    TArray<FVector> PointsA;
+    TArray<FVector> PointsB;
+
+    TestTrue(TEXT("Finds a valid 15-point safe-anchor layout"),
+        AWTBRGameMode::TryGenerateSafeAnchorLayoutForTest(Anchors, 6000.0f, 15, 12345, PointsA));
+    TestEqual(TEXT("Safe-anchor layout has exactly 15 points"), PointsA.Num(), 15);
+    TestTrue(TEXT("Safe-anchor layout preserves MinSpawnDistance"), MinPairwiseDistance(PointsA) >= 6000.0f);
+
+    TestTrue(TEXT("Same seed finds the same safe-anchor layout"),
+        AWTBRGameMode::TryGenerateSafeAnchorLayoutForTest(Anchors, 6000.0f, 15, 12345, PointsB));
+    bool bAllMatch = PointsA.Num() == PointsB.Num();
+    for (int32 Index = 0; bAllMatch && Index < PointsA.Num(); ++Index)
+    {
+        bAllMatch = PointsA[Index].Equals(PointsB[Index], 0.01f);
+    }
+    TestTrue(TEXT("Safe-anchor selection is deterministic for a fixed seed"), bAllMatch);
+
+    return true;
+}
+
+// ── Safe anchors: no NavMesh means the all-or-nothing relocation aborts ──────
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRSafeAnchorNavFailureIsAtomicTest,
+    "WTBR.Combat.Team.Spawn.SafeAnchors.NavFailureLeavesEveryoneInPlace",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRSafeAnchorNavFailureIsAtomicTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRSpawnWorldFixture Fixture(TEXT("WTBR_SafeAnchor_NavFailure"));
+    UWorld* World = Fixture.GetWorld();
+    AWTBRGameMode* GameMode = World->SpawnActor<AWTBRGameMode>(AWTBRGameMode::StaticClass());
+    if (!GameMode) return false;
+
+    GameMode->SetSafeSpawnAnchorsForTest(MakeSafeAnchorTestSet(), 6000.0f);
+    // This headless fixture intentionally has no NavMesh.  The production
+    // error below is the condition being tested, rather than a test failure.
+    AddExpectedError(TEXT("random spawn aborted. Safe anchor"), EAutomationExpectedErrorFlags::Contains, 1);
+    TArray<AWTBRCharacter*> Characters;
+    for (int32 Index = 0; Index < 3; ++Index)
+    {
+        AWTBRCharacter* Character = SpawnPlainCharacter(World, FVector(Index * 300.0f, 0.0f, 100.0f));
+        if (!Character) return false;
+        Characters.Add(Character);
+    }
+
+    GameMode->ApplyRandomSpawnPositionsForTest();
+    for (int32 Index = 0; Index < Characters.Num(); ++Index)
+    {
+        TestTrue(TEXT("No character moved when safe anchors lack NavMesh"),
+            Characters[Index]->GetActorLocation().Equals(FVector(Index * 300.0f, 0.0f, 100.0f), 0.01f));
+    }
+
+    return true;
+}
+
 // ── Wiring: ApplyRandomSpawnPositions teleports every character, all inside
 //    the configured area ───────────────────────────────────────────────────────
 
@@ -201,7 +280,7 @@ bool FWTBRApplyRandomSpawnPositionsTest::RunTest(const FString& /*Parameters*/)
     GameMode->SetRandomSpawnParamsForTest(Center, /*AreaRadius=*/20000.0f, /*MinDistance=*/2000.0f);
 
     TArray<AWTBRCharacter*> Characters;
-    for (int32 i = 0; i < 6; ++i)
+	for (int32 i = 0; i < 15; ++i)
     {
         // All spawned at the exact same starting location — a real regression
         // could silently no-op and leave everyone stacked here.
@@ -232,9 +311,11 @@ bool FWTBRApplyRandomSpawnPositionsTest::RunTest(const FString& /*Parameters*/)
             break;
         }
     }
-    TestTrue(TEXT("Characters were actually relocated, not left at spawn"), bAnyMoved);
+	TestTrue(TEXT("Characters were actually relocated, not left at spawn"), bAnyMoved);
+	TestTrue(TEXT("Final teleport locations preserve the required pairwise minimum distance"),
+		MinPairwiseDistance(FinalLocations) >= 2000.0f);
 
-    return true;
+	return true;
 }
 
 // ── No RandomSpawnConfig assigned: skip cleanly, don't guess defaults ──────────

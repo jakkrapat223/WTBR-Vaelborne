@@ -28,4 +28,10 @@ public:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Spawn", meta = (ClampMin = "0.0"))
     float MinSpawnDistance = 80.0f;
+
+    // Optional map-authored ground-safe points. When populated, the GameMode
+    // chooses among these instead of sampling the whole disc, so a combatant
+    // cannot be placed on a roof, inside a building, or off the NavMesh.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Spawn | Safe Areas")
+    TArray<FVector> SafeSpawnAnchors;
 };
