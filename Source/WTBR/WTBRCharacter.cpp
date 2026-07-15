@@ -51,6 +51,7 @@
 #include "Trigger/WTBRTelornTrigger.h"
 #include "Trigger/WTBRVenyxTrigger.h"
 #include "Trigger/WTBRVexornTrigger.h"
+#include "UI/WTBRRadarWidget.h"
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
 #include "UI/WTBRInputBindingDisplayLibrary.h"
 
@@ -1970,6 +1971,12 @@ void AWTBRCharacter::Server_Fire_Implementation(bool bIsMain, bool bIsPressed, F
     ExecuteServerTriggerInput(bIsMain, bIsPressed, SafeClientMoveInputDir);
 }
 
+void AWTBRCharacter::ExecuteBotTriggerInput(bool bIsMain, bool bIsPressed)
+{
+    if (!HasAuthority()) return;
+    ExecuteServerTriggerInput(bIsMain, bIsPressed, FVector::ZeroVector);
+}
+
 void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir)
 {
     if (!HasAuthority()) return;
@@ -2025,11 +2032,23 @@ void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FV
     {
         if (bIsPressed)
         {
-            return; // Wait for release before deciding.
+            // Record the individual press too: if the player releases without
+            // completing the two-button gesture, Feryx still needs to resolve
+            // that button as either its normal tap or its blade-star hold.
+            Trigger->OnTriggerActivated(this, bIsMain);
+            Trigger->Activate(TriggerInputValue, bIsDualWield);
+            return;
         }
-        Trigger->OnTriggerActivated(this, bIsMain);
-        const bool bActivated = Trigger->Activate(TriggerInputValue, bIsDualWield);
-        WTBR_VALIDATION_LOG(Verbose, TEXT("Trigger Activate result (deferred Mantorn-candidate tap): %d"), bActivated);
+        if (UWTBRFeryxTrigger* FeryxTrigger = Cast<UWTBRFeryxTrigger>(Trigger))
+        {
+            FeryxTrigger->OnTriggerDeactivated(this, bIsMain);
+        }
+        else
+        {
+            Trigger->OnTriggerActivated(this, bIsMain);
+            const bool bActivated = Trigger->Activate(TriggerInputValue, bIsDualWield);
+            WTBR_VALIDATION_LOG(Verbose, TEXT("Trigger Activate result (deferred Mantorn-candidate tap): %d"), bActivated);
+        }
         return;
     }
 
@@ -2852,6 +2871,18 @@ void AWTBRCharacter::CreateLocalPlayerUI()
                 *GetNameSafe(BagLootWidgetClass), *GetNameSafe(this));
         }
     }
+
+    if (!IsValid(RadarWidgetInstance))
+    {
+        RadarWidgetInstance = CreateWidget<UWTBRRadarWidget>(PC, UWTBRRadarWidget::StaticClass());
+        if (IsValid(RadarWidgetInstance))
+        {
+            RadarWidgetInstance->AddToViewport(1);
+            RadarWidgetInstance->SetAnchorsInViewport(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+            RadarWidgetInstance->SetAlignmentInViewport(FVector2D::ZeroVector);
+            RadarWidgetInstance->SetPositionInViewport(FVector2D::ZeroVector);
+        }
+    }
 }
 
 void AWTBRCharacter::DestroyLocalPlayerUI()
@@ -2867,6 +2898,12 @@ void AWTBRCharacter::DestroyLocalPlayerUI()
         BagLootWidgetInstance->RemoveFromParent();
     }
     BagLootWidgetInstance = nullptr;
+
+    if (IsValid(RadarWidgetInstance))
+    {
+        RadarWidgetInstance->RemoveFromParent();
+    }
+    RadarWidgetInstance = nullptr;
 }
 
 void AWTBRCharacter::ShowBagLootLayer()
@@ -2986,11 +3023,25 @@ void AWTBRCharacter::OnRep_ActionPing()
     // Client-side visual feedback for radar action ping
 }
 
+void AWTBRCharacter::SetRadarCloaked(bool bNewCloaked)
+{
+    if (!HasAuthority() || bRadarCloaked == bNewCloaked) return;
+    bRadarCloaked = bNewCloaked;
+    OnRep_RadarCloaked();
+}
+
+void AWTBRCharacter::OnRep_RadarCloaked()
+{
+    // The native radar reads this replicated state directly. Blueprint may add
+    // Bagworm VFX here without changing gameplay visibility.
+}
+
 void AWTBRCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(AWTBRCharacter, TeamId);
     DOREPLIFETIME(AWTBRCharacter, bActionPingActive);
+    DOREPLIFETIME(AWTBRCharacter, bRadarCloaked);
     DOREPLIFETIME(AWTBRCharacter, bIsStaggered);
     DOREPLIFETIME(AWTBRCharacter, bSerpveilChargeTelegraphActive);
     DOREPLIFETIME(AWTBRCharacter, bLacernExtendTelegraphActive);

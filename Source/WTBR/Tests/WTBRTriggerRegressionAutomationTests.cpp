@@ -23,7 +23,10 @@
 #include "Actors/WTBRNexilWireActor.h"
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
 #include "Subsystem/WTBRActionPingSubsystem.h"
+#include "Trigger/WTBRTriggerSetComponent.h"
 #include "WTBRCharacter.h"
+#include "AI/WTBRBasicBotCharacter.h"
+#include "AI/WTBRBasicBotController.h"
 
 // -----------------------------------------------------------------------------
 // Trigger Regression Automation Tests (WTBR.Trigger.*)
@@ -1456,8 +1459,7 @@ bool FWTBRVexornPassiveActivateIsNoOpTest::RunTest(const FString& /*Parameters*/
     UWorld* World = Fixture.GetWorld();
 
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
-    DataAsset->VexornParams.VexornSuppressionRadius = 1500.0f;
-    DataAsset->VexornParams.VexornVaelCost = 0.0f; // passive: no cost by design
+    DataAsset->VexornParams.VexornVaelDrainPerSecond = 10.0f;
 
     AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
     if (!Owner || !Owner->VaelComponent) return false;
@@ -1493,6 +1495,36 @@ bool FWTBRVexornPassiveActivateIsNoOpTest::RunTest(const FString& /*Parameters*/
 // gated; here we lock placement, the Vael economy, the FIFO cap, and cleanup.
 // The ghost-preview + hold-to-place confirm flow is a separate BP/UMG phase.
 // ═════════════════════════════════════════════════════════════════════════════
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVexornBagwormCloakAndDrainTest,
+    "WTBR.Trigger.Vexorn.BagwormCloaksOwnerAndDrainsVael",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVexornBagwormCloakAndDrainTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_VexornBagworm"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->VexornParams.VexornVaelDrainPerSecond = 10.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRVexornTrigger* Vexorn = NewObject<UWTBRVexornTrigger>(Owner);
+    Vexorn->InitializeTrigger(Owner, DataAsset);
+    Vexorn->OnEquipped();
+
+    TestTrue(TEXT("Equipping Vexorn cloaks its owner from radar"), Owner->IsRadarCloaked());
+    TestEqual(TEXT("First half-second upkeep tick consumes Vael"),
+        Owner->VaelComponent->GetCurrentVael(), 95.0f);
+
+    Vexorn->OnUnequipped();
+    TestFalse(TEXT("Unequipping Vexorn reveals its owner to radar"), Owner->IsRadarCloaked());
+    return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FWTBRNexilPlaceConsumesVaelAndSpawnsWireTest,
@@ -1778,6 +1810,148 @@ bool FWTBRVoltisStaggeredGuardBlocksActivateTest::RunTest(const FString& /*Param
     const bool bActivated = Voltis->Activate(FInputActionValue(), false);
     TestFalse(TEXT("Activate rejected while staggered"), bActivated);
     TestEqual(TEXT("No launch consumed while staggered"), Voltis->GetRemainingLaunches(), 3);
+
+    return true;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AWTBRBasicBotController — server-only combat bot (WTBR.AI.BasicBot.*)
+//
+// First automation coverage for the basic combat bot (added 2026-07-15). Two
+// things are locked headlessly:
+// (1) AcquireClosestRadarContact — pure distance/team/cloak/alive filtering,
+//     no physics involved, so it's fully testable here.
+// (2) AWTBRCharacter::ExecuteBotTriggerInput — the server-only entry point
+//     UpdateCombat calls to fire, proven to be the SAME dispatch path a
+//     player's LMB tap uses (Vael cost, cooldown) by driving it directly and
+//     asserting the same results as FWTBRSoluxFireConfiguresProjectileTest's
+//     direct-tap expectations.
+// UpdateCombat's own movement + LineOfSightTo gate needs a physics scene these
+// headless fixtures don't run (same reason Nexil/Spider's overlap detection is
+// PIE-gated elsewhere in this file) — that full move/aim/fire orchestration is
+// a PIE Human Test Gate item, not covered here.
+// ═════════════════════════════════════════════════════════════════════════════
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRBasicBotAcquireClosestRadarContactTest,
+    "WTBR.AI.BasicBot.AcquiresClosestAliveEnemyIgnoringTeamCloakAndRange",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRBasicBotAcquireClosestRadarContactTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_AI_BasicBotTargeting"));
+    UWorld* World = Fixture.GetWorld();
+
+    AWTBRCharacter* Bot = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Bot) return false;
+    Bot->SetTeamId(0);
+
+    // Nearer-than-NearEnemy candidates that must each be skipped for a different
+    // reason, plus a valid-but-farther enemy and an out-of-radar-range enemy, so
+    // one test locks every filter AND the "closest wins" tiebreak in one pass.
+    AWTBRCharacter* Teammate       = TriggerRegressionTest_SpawnCharacter(World, FVector(100.0f, 0.0f, 0.0f));
+    AWTBRCharacter* CloakedEnemy   = TriggerRegressionTest_SpawnCharacter(World, FVector(120.0f, 0.0f, 0.0f));
+    AWTBRCharacter* DeadEnemy      = TriggerRegressionTest_SpawnCharacter(World, FVector(140.0f, 0.0f, 0.0f));
+    AWTBRCharacter* NearEnemy      = TriggerRegressionTest_SpawnCharacter(World, FVector(300.0f, 0.0f, 0.0f));
+    AWTBRCharacter* FartherEnemy   = TriggerRegressionTest_SpawnCharacter(World, FVector(500.0f, 0.0f, 0.0f));
+    AWTBRCharacter* OutOfRangeEnemy = TriggerRegressionTest_SpawnCharacter(World, FVector(6500.0f, 0.0f, 0.0f));
+    if (!Teammate || !CloakedEnemy || !DeadEnemy || !NearEnemy || !FartherEnemy || !OutOfRangeEnemy) return false;
+
+    Teammate->SetTeamId(0);
+    CloakedEnemy->SetTeamId(1);
+    DeadEnemy->SetTeamId(1);
+    NearEnemy->SetTeamId(1);
+    FartherEnemy->SetTeamId(1);
+    OutOfRangeEnemy->SetTeamId(1);
+
+    CloakedEnemy->SetRadarCloaked(true);
+    TestTrue(TEXT("Sanity: CloakedEnemy is actually cloaked"), CloakedEnemy->IsRadarCloaked());
+
+    if (!DeadEnemy->HealthComponent) return false;
+    DeadEnemy->HealthComponent->ApplyDamage(100000.0f);
+    TestFalse(TEXT("Sanity: DeadEnemy is no longer Alive after lethal damage"), DeadEnemy->HealthComponent->IsAlive());
+
+    AWTBRBasicBotController* Controller = World->SpawnActor<AWTBRBasicBotController>();
+    if (!Controller) return false;
+
+    Controller->AcquireClosestRadarContactForTest(Bot);
+
+    TestTrue(TEXT("Picks the closest alive, non-cloaked, enemy-team, in-range character (skips teammate/cloaked/dead/farther/out-of-range)"),
+        Controller->GetCombatTarget() == NearEnemy);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRBasicBotNoValidTargetClearsCombatTargetTest,
+    "WTBR.AI.BasicBot.NoValidCandidateLeavesCombatTargetNull",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRBasicBotNoValidTargetClearsCombatTargetTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_AI_BasicBotNoTarget"));
+    UWorld* World = Fixture.GetWorld();
+
+    AWTBRCharacter* Bot = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Bot) return false;
+    Bot->SetTeamId(0);
+
+    // Only a teammate in range — nothing valid to acquire.
+    AWTBRCharacter* Teammate = TriggerRegressionTest_SpawnCharacter(World, FVector(100.0f, 0.0f, 0.0f));
+    if (!Teammate) return false;
+    Teammate->SetTeamId(0);
+
+    AWTBRBasicBotController* Controller = World->SpawnActor<AWTBRBasicBotController>();
+    if (!Controller) return false;
+
+    Controller->AcquireClosestRadarContactForTest(Bot);
+    TestNull(TEXT("No enemy in range — CombatTarget stays null"), Controller->GetCombatTarget());
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRBasicBotExecuteBotTriggerInputFiresLikePlayerTapTest,
+    "WTBR.AI.BasicBot.ExecuteBotTriggerInputFiresLikePlayerTap",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRBasicBotExecuteBotTriggerInputFiresLikePlayerTapTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_AI_BasicBotFire"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->Category = ETriggerCategory::Gunner;
+    DataAsset->VaelCostPerUse = 8.0f;
+    DataAsset->SoluxParams.SoluxFireCooldown = 5.0f;
+    DataAsset->SoluxParams.SoluxProjectileClass = AWTBRProjectileBase::StaticClass();
+
+    AWTBRCharacter* Bot = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Bot || !Bot->VaelComponent || !Bot->TriggerSetComponent) return false;
+    Bot->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRSoluxTrigger* Solux = NewObject<UWTBRSoluxTrigger>(Bot);
+    Solux->InitializeTrigger(Bot, DataAsset);
+    Bot->TriggerSetComponent->InstallTriggerForTest(ETriggerSlot::Main1, Solux);
+
+    // Mirrors AWTBRBasicBotController::UpdateCombat exactly: press then release
+    // with no analog movement input — a tap through the bot's own entry point,
+    // not a direct call into the Trigger class.
+    Bot->ExecuteBotTriggerInput(true, true);
+    Bot->ExecuteBotTriggerInput(true, false);
+
+    TestEqual(TEXT("Vael consumed by the bot's tap, same as a player tap"),
+        Bot->VaelComponent->GetCurrentVael(), 92.0f);
+    TestEqual(TEXT("Exactly one bullet spawned"), TriggerRegressionTest_CountProjectiles(World), 1);
+    TestTrue(TEXT("Solux is on cooldown after the bot's tap"), Solux->IsOnCooldown());
+
+    // Second tap while on cooldown must be rejected, just like for a player.
+    Bot->ExecuteBotTriggerInput(true, true);
+    Bot->ExecuteBotTriggerInput(true, false);
+    TestEqual(TEXT("Cooldown blocks the second tap — no extra Vael spent"),
+        Bot->VaelComponent->GetCurrentVael(), 92.0f);
+    TestEqual(TEXT("Cooldown blocks the second tap — no extra bullet"),
+        TriggerRegressionTest_CountProjectiles(World), 1);
 
     return true;
 }

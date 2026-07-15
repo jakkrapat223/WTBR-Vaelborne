@@ -126,13 +126,14 @@ void AWTBRAegornWallActor::TakeDamageFromProjectile(float DamageAmount)
     if (WallHP <= 0.0f) return;
 
     const float OldHP = WallHP;
-    WallHP = FMath::Max(0.0f, WallHP - DamageAmount);
+    const float EffectiveDamage = DamageAmount * BrittleDamageMultiplier;
+    WallHP = FMath::Max(0.0f, WallHP - EffectiveDamage);
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] WallDamage | OldHP=%.1f | Damage=%.1f | NewHP=%.1f"),
         OldHP,
-        DamageAmount,
+        EffectiveDamage,
         WallHP);
 
-    OnWallDamaged(WallHP, DamageAmount);
+    OnWallDamaged(WallHP, EffectiveDamage);
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Test46 AegornWall] OnWallDamaged Fired | Wall=%s"),
         *GetNameSafe(this));
 
@@ -142,6 +143,20 @@ void AWTBRAegornWallActor::TakeDamageFromProjectile(float DamageAmount)
             *GetNameSafe(this));
         DestroyWall(/*bExpiredNaturally=*/false);
     }
+}
+
+void AWTBRAegornWallActor::ApplyBrittle(float DamageMultiplier, float Duration)
+{
+    if (!HasAuthority() || DamageMultiplier <= 1.0f || Duration <= 0.0f) return;
+
+    BrittleDamageMultiplier = FMath::Max(BrittleDamageMultiplier, DamageMultiplier);
+    GetWorldTimerManager().SetTimer(BrittleExpiryTimer, this,
+        &AWTBRAegornWallActor::ClearBrittle, Duration, false);
+}
+
+void AWTBRAegornWallActor::ClearBrittle()
+{
+    BrittleDamageMultiplier = 1.0f;
 }
 
 float AWTBRAegornWallActor::GetWallHPPercent() const

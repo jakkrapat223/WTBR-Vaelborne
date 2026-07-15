@@ -105,6 +105,15 @@ void AWTBRProjectileBase::InitializeProjectile(
     ProjectileMovement->MaxSpeed     = CachedSpeed;
 }
 
+void AWTBRProjectileBase::ConfigureOnHitEffects(float InBleedDamagePerTick, float InBleedDuration,
+    float InShieldBrittleDamageMultiplier, float InShieldBrittleDuration)
+{
+    BleedDamagePerTick = FMath::Max(0.0f, InBleedDamagePerTick);
+    BleedDuration = FMath::Max(0.0f, InBleedDuration);
+    ShieldBrittleDamageMultiplier = FMath::Max(1.0f, InShieldBrittleDamageMultiplier);
+    ShieldBrittleDuration = FMath::Max(0.0f, InShieldBrittleDuration);
+}
+
 void AWTBRProjectileBase::Launch(FVector Direction, AActor* InInstigator)
 {
     if (!HasAuthority()) return;
@@ -284,6 +293,7 @@ void AWTBRProjectileBase::OnOverlapBegin(
 
     if (AWTBRAegornWallActor* AegornWall = Cast<AWTBRAegornWallActor>(OtherActor))
     {
+        AegornWall->ApplyBrittle(ShieldBrittleDamageMultiplier, ShieldBrittleDuration);
         AegornWall->HandleProjectileContact(this, TEXT("ProjectileOverlap"));
         return;
     }
@@ -346,6 +356,7 @@ void AWTBRProjectileBase::OnOverlapBegin(
                 OldHP,
                 BaseDamage);
             HitChar->HealthComponent->ApplyDamage(BaseDamage, OwnerInstigator.Get());
+            HitChar->HealthComponent->ApplyBleed(BleedDamagePerTick, BleedDuration, OwnerInstigator.Get());
             const float NewHP = HitChar->HealthComponent->GetCurrentHP();
             WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileDamageResult | Projectile=%s | Attacker=%s | Target=%s | OldHP=%.1f | Damage=%.1f | NewHP=%.1f"),
                 *GetNameSafe(this),

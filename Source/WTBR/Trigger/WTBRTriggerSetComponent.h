@@ -166,6 +166,10 @@ public:
     void SetSlotDataAssetForTest(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> InDataAsset);
     // Test-only: write a soft OptionDataAsset reference directly into a slot.
     void SetSlotOptionDataAssetForTest(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> InOptionDataAsset);
+    // Test-only: install a runtime trigger straight into RuntimeTriggers, bypassing
+    // the CanMutateTriggerLoadout()/AWTBRGameState gate InstallTrigger enforces
+    // (headless trigger-regression fixtures never spawn a GameState).
+    void InstallTriggerForTest(ETriggerSlot Slot, UWTBRTriggerBase* Trigger);
 #endif
 
     bool ReplaceTriggerSlotFromDataAsset(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> NewDataAsset);

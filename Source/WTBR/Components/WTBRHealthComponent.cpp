@@ -229,6 +229,40 @@ void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstiga
     }
 }
 
+void UWTBRHealthComponent::ApplyBleed(float DamagePerTick, float Duration, AActor* DamageInstigator)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority() || DamagePerTick <= 0.0f || Duration <= 0.0f)
+    {
+        return;
+    }
+
+    BleedDamagePerTick = DamagePerTick;
+    BleedDamageInstigator = DamageInstigator;
+    GetWorld()->GetTimerManager().SetTimer(BleedStatusTimerHandle, this,
+        &UWTBRHealthComponent::TickBleedStatus, 1.0f, true, 1.0f);
+    GetWorld()->GetTimerManager().SetTimer(BleedStatusExpiryTimerHandle, this,
+        &UWTBRHealthComponent::ClearBleedStatus, Duration, false);
+}
+
+void UWTBRHealthComponent::TickBleedStatus()
+{
+    if (CurrentCombatState == EWTBRCombatState::Alive)
+    {
+        ApplyDamage(BleedDamagePerTick, BleedDamageInstigator.Get());
+    }
+}
+
+void UWTBRHealthComponent::ClearBleedStatus()
+{
+    if (GetWorld())
+    {
+        GetWorld()->GetTimerManager().ClearTimer(BleedStatusTimerHandle);
+        GetWorld()->GetTimerManager().ClearTimer(BleedStatusExpiryTimerHandle);
+    }
+    BleedDamagePerTick = 0.0f;
+    BleedDamageInstigator = nullptr;
+}
+
 void UWTBRHealthComponent::ResetCombatRewardState()
 {
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;

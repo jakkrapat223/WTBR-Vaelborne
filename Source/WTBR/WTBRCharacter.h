@@ -21,6 +21,7 @@ class UWTBRInteractionComponent;
 class UWTBRInventoryComponent;
 class UWTBRHUDViewModelComponent;
 class UWTBRBagLootViewModelComponent;
+class UWTBRRadarWidget;
 class UTexture2D;
 class AWTBRDroppedTriggerActor;
 class AWTBRCorpseLootContainerActor;
@@ -177,6 +178,9 @@ public:
     UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
     TObjectPtr<UUserWidget> BagLootWidgetInstance;
 
+    UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
+    TObjectPtr<UWTBRRadarWidget> RadarWidgetInstance;
+
     FORCEINLINE TObjectPtr<USpringArmComponent> GetCameraBoom()    const { return CameraBoom; }
     FORCEINLINE TObjectPtr<UCameraComponent>    GetFollowCamera()  const { return FollowCamera; }
 
@@ -215,6 +219,11 @@ public:
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     bool CanAffordActiveSubTriggerForHUD() const;
+
+    // Server-only entry point for AI controllers. It deliberately reuses the
+    // exact input routing used by players (tap/release, cooldown, Vael, and
+    // dual-wield validation) rather than letting bots call Trigger classes.
+    void ExecuteBotTriggerInput(bool bIsMain, bool bIsPressed);
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     float GetActiveMainTriggerBaseVaelCostForHUD() const;
@@ -601,8 +610,23 @@ protected:
     UPROPERTY(ReplicatedUsing=OnRep_ActionPing)
     bool bActionPingActive = false;
 
+    // Set server-side by Vexorn. All clients omit a cloaked character from radar.
+    UPROPERTY(ReplicatedUsing=OnRep_RadarCloaked, BlueprintReadOnly, Category="WTBR | Radar")
+    bool bRadarCloaked = false;
+
+public:
+    UFUNCTION(BlueprintPure, Category="WTBR | Radar")
+    bool IsRadarCloaked() const { return bRadarCloaked; }
+
+    void SetRadarCloaked(bool bNewCloaked);
+
+private:
+
     UFUNCTION()
     void OnRep_ActionPing();
+
+    UFUNCTION()
+    void OnRep_RadarCloaked();
 
     UFUNCTION()
     void OnRep_bIsStaggered();

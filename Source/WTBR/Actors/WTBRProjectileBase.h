@@ -73,6 +73,14 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     float KnockbackForce = 0.0f;
 
+    float BleedDamagePerTick = 0.0f;
+    float BleedDuration = 0.0f;
+    float ShieldBrittleDamageMultiplier = 1.0f;
+    float ShieldBrittleDuration = 0.0f;
+
+    void ConfigureOnHitEffects(float InBleedDamagePerTick, float InBleedDuration,
+        float InShieldBrittleDamageMultiplier, float InShieldBrittleDuration);
+
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     TObjectPtr<AActor> OwnerInstigator;
 

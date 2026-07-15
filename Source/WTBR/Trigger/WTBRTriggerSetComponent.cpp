@@ -1378,6 +1378,19 @@ void UWTBRTriggerSetComponent::SetSlotOptionDataAssetForTest(int32 SlotIndex, TS
         RuntimeOptionTriggers.Remove(SlotIndex);
     }
 }
+
+void UWTBRTriggerSetComponent::InstallTriggerForTest(ETriggerSlot Slot, UWTBRTriggerBase* Trigger)
+{
+    const int32 Idx = (int32)Slot;
+    if (TriggerSlots.IsValidIndex(Idx) && RuntimeTriggers.IsValidIndex(Idx))
+    {
+        RuntimeTriggers[Idx] = Trigger;
+        if (Trigger)
+        {
+            TriggerSlots[Idx].CachedCategory = Trigger->Category;
+        }
+    }
+}
 #endif
 
 void UWTBRTriggerSetComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

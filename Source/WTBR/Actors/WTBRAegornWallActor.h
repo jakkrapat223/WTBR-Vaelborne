@@ -48,6 +48,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "WTBR | Aegorn Wall")
     void TakeDamageFromProjectile(float DamageAmount);
 
+    UFUNCTION(BlueprintCallable, Category = "WTBR | Aegorn Wall | Status")
+    void ApplyBrittle(float DamageMultiplier, float Duration);
+
     UFUNCTION(BlueprintPure, Category = "WTBR | Aegorn Wall")
     float GetWallHPPercent() const;
 
@@ -86,6 +89,7 @@ protected:
 
 private:
     void DestroyWall(bool bExpiredNaturally);
+    void ClearBrittle();
 
     UFUNCTION()
     void OnLifetimeExpired();
@@ -94,4 +98,6 @@ private:
     TArray<TObjectPtr<AActor>> DamagedProjectiles;
 
     FTimerHandle LifetimeTimer;
+    FTimerHandle BrittleExpiryTimer;
+    float BrittleDamageMultiplier = 1.0f;
 };

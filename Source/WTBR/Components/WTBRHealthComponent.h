@@ -106,6 +106,11 @@ public:
     UFUNCTION(BlueprintCallable, Category="Health")
     void ApplyDamage(float DamageAmount, AActor* DamageInstigator = nullptr);
 
+    // Feryx Star's damage-over-time effect. Reapplying refreshes the duration;
+    // it never creates parallel stacks of timers on the same target.
+    UFUNCTION(BlueprintCallable, Category="Health | Status")
+    void ApplyBleed(float DamagePerTick, float Duration, AActor* DamageInstigator = nullptr);
+
     // Call from respawn, revive, or round reset before this character can receive rewards again.
     UFUNCTION(BlueprintCallable, Category="Health")
     void ResetCombatRewardState();
@@ -227,6 +232,10 @@ private:
     FTimerHandle KnockdownIFrameTimerHandle;
     FTimerHandle BleedOutTimerHandle;
     FTimerHandle ReviveTimerHandle;
+    FTimerHandle BleedStatusTimerHandle;
+    FTimerHandle BleedStatusExpiryTimerHandle;
+    float BleedDamagePerTick = 0.0f;
+    TWeakObjectPtr<AActor> BleedDamageInstigator;
     TArray<FWTBRDamageContributionRecord> DamageHistory;
     // The most recent actor to deal actual damage to this component. Drives the
     // kill credit when a downed combatant bleeds out with no finishing blow —
@@ -281,6 +290,8 @@ private:
     void CompleteRevive();
     // Shared teardown for both StopRevive and CompleteRevive.
     void ClearReviveState(bool bResumeBleedOut);
+    void TickBleedStatus();
+    void ClearBleedStatus();
     void SetReviveInProgress(bool bNewInProgress);
 
     UFUNCTION()

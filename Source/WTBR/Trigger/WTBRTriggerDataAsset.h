@@ -207,6 +207,47 @@ struct FWTBRMantornParams
     float InFormHoldThreshold = 0.2f;
 };
 
+// FWTBRFeryxParams — Feryx short-blade tap / thrown blade-star hold.
+// Hold values live here (rather than in code) so combat tuning stays DataAsset-driven.
+USTRUCT(BlueprintType)
+struct FWTBRFeryxParams
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "0.05"))
+    float HoldThreshold = 0.2f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold")
+    TSubclassOf<AWTBRProjectileBase> StarProjectileClass;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "1"))
+    int32 StarCount = 3;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "0.0"))
+    float StarSpreadDegrees = 18.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "0.0"))
+    float StarDamage = 30.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "100.0"))
+    float StarSpeed = 2600.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "100.0"))
+    float StarRange = 1800.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Bleed", meta = (ClampMin = "0.0"))
+    float BleedDamagePerTick = 6.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Bleed", meta = (ClampMin = "0.0"))
+    float BleedDuration = 3.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Brittle", meta = (ClampMin = "1.0"))
+    float BrittleDamageMultiplier = 1.2f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Brittle", meta = (ClampMin = "0.0"))
+    float BrittleDuration = 2.0f;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // FWTBRLacernParams — Lacern (ดาบยืด)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1066,21 +1107,26 @@ struct FWTBRNyxveilParams
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FWTBRVexornParams — Vexorn (Signal Block — Passive Defense)
-// Passive: no button press, no Vael drain. Active while Vexorn is the Sub-Trigger.
+// FWTBRVexornParams — Vexorn (Bagworm-style radar cloak).
+// Passive while equipped as the active Sub-Trigger; drains Vael continuously.
 // ─────────────────────────────────────────────────────────────────────────────
 USTRUCT(BlueprintType)
 struct FWTBRVexornParams
 {
     GENERATED_BODY()
 
-    // Radius within which enemy pawns receive Signal Block (suppresses radar ping)
-    // ⚠ PLAYTEST PENDING
+    // Retained for backward-compatible DataAssets; Bagworm cloaks its owner
+    // rather than jamming other combatants.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vexorn | Combat")
     float VexornSuppressionRadius = 1500.0f;
 
-    // Passive — always 0, present for DataAsset consistency
+    // Vael consumed per second while radar cloak is active.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vexorn | Resources")
+    float VexornVaelDrainPerSecond = 1.0f;
+
+    // Retained for existing data assets and tests. Vexorn is now sustained by
+    // VexornVaelDrainPerSecond rather than a one-time activation cost.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vexorn | Resources", meta=(DeprecatedProperty, DeprecationMessage="Use VexornVaelDrainPerSecond"))
     float VexornVaelCost = 0.0f;
 
     // Informational: this trigger activates automatically on equip, not on button press
@@ -1168,6 +1214,11 @@ public:
         Category = "Trigger | Mantorn",
         meta = (EditCondition = "Category == ETriggerCategory::Melee"))
     FWTBRMantornParams MantornParams;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Trigger | Feryx",
+        meta = (EditCondition = "Category == ETriggerCategory::Melee"))
+    FWTBRFeryxParams FeryxParams;
 
     // ── Voltis ────────────────────────────────────────────────────────────
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
