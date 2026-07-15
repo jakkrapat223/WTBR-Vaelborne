@@ -501,6 +501,13 @@ public:
         return Other != nullptr && HasTeam() && Other->TeamId == TeamId;
     }
 
+    // Finds the closest-to-crosshair living enemy in range, inside the supplied
+    // aim cone, with an unobstructed visibility trace. Used by homing attacks.
+    static AWTBRCharacter* FindBestHomingTarget(
+        AWTBRCharacter* QueryingCharacter,
+        float SearchRadius,
+        float AimConeHalfAngleDegrees);
+
     // Server-only; AWTBRGameMode team assignment is the intended caller.
     void SetTeamId(int32 NewTeamId);
 

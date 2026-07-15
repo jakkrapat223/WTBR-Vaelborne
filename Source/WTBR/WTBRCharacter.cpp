@@ -1058,6 +1058,97 @@ AWTBRDroppedTriggerActor* AWTBRCharacter::FindAimedDroppedTriggerForPickup() con
     return BestDroppedTrigger;
 }
 
+AWTBRCharacter* AWTBRCharacter::FindBestHomingTarget(
+    AWTBRCharacter* QueryingCharacter,
+    float SearchRadius,
+    float AimConeHalfAngleDegrees)
+{
+    if (!IsValid(QueryingCharacter) || SearchRadius <= 0.0f)
+    {
+        return nullptr;
+    }
+
+    UWorld* World = QueryingCharacter->GetWorld();
+    if (!World)
+    {
+        return nullptr;
+    }
+
+    FVector EyeLocation = FVector::ZeroVector;
+    FRotator AimRotation = FRotator::ZeroRotator;
+    QueryingCharacter->GetActorEyesViewPoint(EyeLocation, AimRotation);
+
+    const FVector AimDirection = AimRotation.Vector().GetSafeNormal();
+    if (AimDirection.IsNearlyZero())
+    {
+        return nullptr;
+    }
+
+    const float SearchRadiusSq = FMath::Square(SearchRadius);
+    const float AimConeDotThreshold = FMath::Cos(FMath::DegreesToRadians(
+        FMath::Clamp(AimConeHalfAngleDegrees, 0.0f, 180.0f)));
+
+    AWTBRCharacter* BestTarget = nullptr;
+    float BestAimDot = -1.0f;
+    float BestDistanceSq = TNumericLimits<float>::Max();
+
+    for (TActorIterator<AWTBRCharacter> It(World); It; ++It)
+    {
+        AWTBRCharacter* Candidate = *It;
+        if (!IsValid(Candidate) || Candidate == QueryingCharacter ||
+            !IsValid(Candidate->HealthComponent) || !Candidate->HealthComponent->IsAlive() ||
+            QueryingCharacter->IsSameTeamAs(Candidate))
+        {
+            continue;
+        }
+
+        const float CandidateDistanceSq = FVector::DistSquared(
+            QueryingCharacter->GetActorLocation(), Candidate->GetActorLocation());
+        if (CandidateDistanceSq > SearchRadiusSq)
+        {
+            continue;
+        }
+
+        const FVector ToCandidate = Candidate->GetActorLocation() - EyeLocation;
+        const FVector CandidateDirection = ToCandidate.GetSafeNormal();
+        if (CandidateDirection.IsNearlyZero())
+        {
+            continue;
+        }
+
+        const float AimDot = FVector::DotProduct(AimDirection, CandidateDirection);
+        if (AimDot < AimConeDotThreshold)
+        {
+            continue;
+        }
+
+        FHitResult VisibilityHit;
+        FCollisionQueryParams TraceParams(SCENE_QUERY_STAT(WTBRHomingTargetLOS), false);
+        TraceParams.AddIgnoredActor(QueryingCharacter);
+        TraceParams.AddIgnoredActor(Candidate);
+        if (World->LineTraceSingleByChannel(
+                VisibilityHit, EyeLocation, Candidate->GetActorLocation(), ECC_Visibility, TraceParams))
+        {
+            continue;
+        }
+
+        const bool bBetterAim = AimDot > BestAimDot + KINDA_SMALL_NUMBER;
+        const bool bEqualAimCloser = FMath::IsNearlyEqual(AimDot, BestAimDot) &&
+            CandidateDistanceSq < BestDistanceSq - KINDA_SMALL_NUMBER;
+        const bool bCompleteTieWithEarlierName = FMath::IsNearlyEqual(AimDot, BestAimDot) &&
+            FMath::IsNearlyEqual(CandidateDistanceSq, BestDistanceSq) &&
+            (!BestTarget || Candidate->GetName() < BestTarget->GetName());
+        if (bBetterAim || bEqualAimCloser || bCompleteTieWithEarlierName)
+        {
+            BestTarget = Candidate;
+            BestAimDot = AimDot;
+            BestDistanceSq = CandidateDistanceSq;
+        }
+    }
+
+    return BestTarget;
+}
+
 void AWTBRCharacter::RequestPickupAimedDroppedTriggerIntoActiveMainSlot()
 {
     if (!IsValid(TriggerSetComponent))

@@ -4,8 +4,6 @@
 #include "Components/WTBRVaelComponent.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
 #include "Actors/WTBRProjectileBase.h"
-#include "Kismet/GameplayStatics.h"
-#include "Engine/World.h"
 
 bool UWTBRVenyxTrigger::Activate_Implementation(
     const FInputActionValue& InputValue, bool bIsDualWield)
@@ -24,6 +22,7 @@ bool UWTBRVenyxTrigger::Activate_Implementation(
     const float Speed         = DataAsset->VenyxParams.VenyxSpeed;
     const float HomingAccel   = DataAsset->VenyxParams.VenyxHomingAcceleration;
     const float SearchRadius  = DataAsset->VenyxParams.VenyxRange;
+    const float AimConeHalfAngle = DataAsset->VenyxParams.VenyxAimConeHalfAngleDegrees;
 
     AWTBRProjectileBase* SpawnedProj =
         FireProjectile(ProjClass, Damage, Speed, 0.0f, false, 0.0f);
@@ -32,36 +31,8 @@ bool UWTBRVenyxTrigger::Activate_Implementation(
 
     if (!IsValid(SpawnedProj)) return true;
 
-    // Sphere overlap to find the nearest valid target on the server
-    TArray<FOverlapResult> Overlaps;
-    FCollisionQueryParams Params;
-    Params.AddIgnoredActor(OwnerCharacter.Get());
-
-    GetWorld()->OverlapMultiByChannel(
-        Overlaps,
-        OwnerCharacter->GetActorLocation(),
-        FQuat::Identity,
-        ECC_Pawn,
-        FCollisionShape::MakeSphere(SearchRadius),
-        Params);
-
-    AWTBRCharacter* TargetCharacter = nullptr;
-    float NearestDistSq = FLT_MAX;
-    const FVector OwnerLoc = OwnerCharacter->GetActorLocation();
-
-    for (const FOverlapResult& Overlap : Overlaps)
-    {
-        AWTBRCharacter* Candidate = Cast<AWTBRCharacter>(Overlap.GetActor());
-        if (!IsValid(Candidate) || Candidate == OwnerCharacter.Get()) continue;
-        // Note: team filter to be added Phase 5
-
-        const float DistSq = FVector::DistSquared(OwnerLoc, Candidate->GetActorLocation());
-        if (DistSq < NearestDistSq)
-        {
-            NearestDistSq = DistSq;
-            TargetCharacter = Candidate;
-        }
-    }
+    AWTBRCharacter* TargetCharacter = AWTBRCharacter::FindBestHomingTarget(
+        OwnerCharacter.Get(), SearchRadius, AimConeHalfAngle);
 
     if (IsValid(TargetCharacter))
     {
