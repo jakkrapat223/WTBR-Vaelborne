@@ -12,6 +12,8 @@ public class WTBR : ModuleRules
         {
             "Core", "CoreUObject", "Engine", "InputCore",
             "EnhancedInput",
+            "AIModule",
+            "NavigationSystem",
             "NetCore",
             "UMG",
         });
