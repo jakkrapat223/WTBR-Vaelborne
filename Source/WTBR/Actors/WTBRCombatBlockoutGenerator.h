@@ -58,7 +58,10 @@ private:
 
     // Single source of truth for the map's road-safe spawn anchors. Cover
     // generation reads this same Data Asset that AWTBRGameMode uses at runtime.
-    UPROPERTY(EditDefaultsOnly, Category="WTBR | Blockout | Safe Spawn")
+    // Editable on the placed generator as well as a Blueprint default. This
+    // keeps a level author from needing to restart the editor to replace or
+    // assign a config created during the current editor session.
+    UPROPERTY(EditAnywhere, Category="WTBR | Blockout | Safe Spawn")
     TObjectPtr<UWTBRRandomSpawnConfigDataAsset> SafeSpawnConfig;
 
     void ClearBlockout();

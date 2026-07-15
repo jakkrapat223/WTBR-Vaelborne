@@ -12,6 +12,7 @@ namespace
 {
     constexpr float CubeSizeUnits = 100.0f;
     constexpr float GroundThickness = 200.0f;
+    const TCHAR* DefaultSafeSpawnConfigPath = TEXT("/Game/Data/DA_RandomSpawnConfig_15P_Blockout.DA_RandomSpawnConfig_15P_Blockout");
 
 }
 
@@ -39,12 +40,6 @@ AWTBRCombatBlockoutGenerator::AWTBRCombatBlockoutGenerator()
         }
     }
 
-    static ConstructorHelpers::FObjectFinder<UWTBRRandomSpawnConfigDataAsset> SpawnConfigAsset(
-        TEXT("/Game/Data/DA_RandomSpawnConfig_15P_Blockout.DA_RandomSpawnConfig_15P_Blockout"));
-    if (SpawnConfigAsset.Succeeded())
-    {
-        SafeSpawnConfig = SpawnConfigAsset.Object;
-    }
 }
 
 void AWTBRCombatBlockoutGenerator::OnConstruction(const FTransform& Transform)
@@ -55,6 +50,19 @@ void AWTBRCombatBlockoutGenerator::OnConstruction(const FTransform& Transform)
 
 void AWTBRCombatBlockoutGenerator::RebuildBlockout()
 {
+    // Do this at rebuild time instead of in the constructor: a Python setup
+    // script may create the Data Asset after this class's CDO was constructed.
+    // LoadObject can then resolve the newly-created asset without an editor
+    // restart, while an explicitly assigned instance setting always wins.
+    if (!IsValid(SafeSpawnConfig))
+    {
+        SafeSpawnConfig = LoadObject<UWTBRRandomSpawnConfigDataAsset>(nullptr, DefaultSafeSpawnConfigPath);
+        if (!IsValid(SafeSpawnConfig))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("WTBR Blockout: Safe Spawn config was not found at %s. Cover will not reserve spawn anchors until a config is assigned and Rebuild Blockout is run again."), DefaultSafeSpawnConfigPath);
+        }
+    }
+
     ClearBlockout();
 
     const float SafeMapSize = FMath::Max(10000.0f, MapSizeUnits);
