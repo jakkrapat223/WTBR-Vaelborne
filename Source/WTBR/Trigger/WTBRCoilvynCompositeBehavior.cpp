@@ -15,9 +15,15 @@ bool UWTBRCoilvynCompositeBehavior::ExecuteComposite(
     UWorld* World = OwningCharacter->GetWorld();
     if (!World) return false;
 
-    const FVector SpawnLocation = OwningCharacter->GetActorLocation()
-        + OwningCharacter->GetActorForwardVector() * 100.0f;
-    const FRotator SpawnRotation = OwningCharacter->GetActorRotation();
+    // Aim from the camera view, not the capsule — GetActorRotation() has no pitch,
+    // so firing upward/downward is impossible with it (same convention as Serpveil).
+    FVector EyeLocation;
+    FRotator AimRotation;
+    OwningCharacter->GetActorEyesViewPoint(EyeLocation, AimRotation);
+    AimRotation.Roll = 0.0f;
+    const FVector AimDirection = AimRotation.Vector();
+    const FVector SpawnLocation = EyeLocation + AimDirection * 100.0f;
+    const FRotator SpawnRotation = AimRotation;
     const FTransform SpawnTransform(SpawnRotation, SpawnLocation);
 
     TArray<TArray<FVector>> CubeWorldPaths;
@@ -50,7 +56,7 @@ bool UWTBRCoilvynCompositeBehavior::ExecuteComposite(
             Definition.HomingParams.TargetAcquisitionRange,
             Definition.HomingParams.AimConeHalfAngleDegrees))
         {
-            FVector ContinueDirection = OwningCharacter->GetActorForwardVector();
+            FVector ContinueDirection = AimDirection;
             if (PathPoints.Num() >= 2)
             {
                 const FVector LastSegment = PathPoints.Last() - PathPoints[PathPoints.Num() - 2];

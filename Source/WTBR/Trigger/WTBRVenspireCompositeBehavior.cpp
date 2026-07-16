@@ -30,10 +30,16 @@ bool UWTBRVenspireCompositeBehavior::ExecuteComposite(
     const float DamagePerProjectile = Targets.Num() > 0
         ? FMath::Max(1.0f, Definition.TotalDamageBudget / static_cast<float>(NumProjectiles))
         : Definition.TotalDamageBudget;
-    const FVector BaseSpawnLocation = OwningCharacter->GetActorLocation()
-        + OwningCharacter->GetActorForwardVector() * 100.0f;
-    const FRotator SpawnRotation = OwningCharacter->GetActorRotation();
-    const FVector RightVector = OwningCharacter->GetActorRightVector();
+    // Aim from the camera view, not the capsule — GetActorRotation() has no pitch,
+    // so firing upward/downward is impossible with it (same convention as Serpveil).
+    FVector EyeLocation;
+    FRotator AimRotation;
+    OwningCharacter->GetActorEyesViewPoint(EyeLocation, AimRotation);
+    AimRotation.Roll = 0.0f;
+    const FVector AimDirection = AimRotation.Vector();
+    const FVector BaseSpawnLocation = EyeLocation + AimDirection * 100.0f;
+    const FRotator SpawnRotation = AimRotation;
+    const FVector RightVector = FRotationMatrix(AimRotation).GetUnitAxis(EAxis::Y);
     bool bSpawnedProjectile = false;
 
     for (int32 Index = 0; Index < NumProjectiles; ++Index)
@@ -56,7 +62,7 @@ bool UWTBRVenspireCompositeBehavior::ExecuteComposite(
             Definition.ExplosionParams.bExplodes,
             Definition.ExplosionParams.ExplosionRadius);
         Projectile->FinishSpawning(SpawnTransform);
-        Projectile->Launch(OwningCharacter->GetActorForwardVector(), OwningCharacter);
+        Projectile->Launch(AimDirection, OwningCharacter);
 
         if (Targets.IsValidIndex(Index))
         {
