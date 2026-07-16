@@ -687,30 +687,6 @@ void AWTBRCharacter::WTBRDebugCharacterPrintMatchState() const
 #endif
 }
 
-void AWTBRCharacter::TEMP_DEBUG_PrintCompositeMergeState() const
-{
-#if UE_BUILD_SHIPPING
-    UE_LOG(LogTemp, Warning, TEXT("TEMP_DEBUG_PrintCompositeMergeState is disabled in Shipping builds."));
-#else
-    if (!IsValid(TriggerSetComponent))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("TEMP_DEBUG_PrintCompositeMergeState rejected: TriggerSetComponent is missing for character %s."),
-            *GetNameSafe(this));
-        return;
-    }
-
-    UE_LOG(LogTemp, Log,
-        TEXT("TEMP_DEBUG_PrintCompositeMergeState: Owner=%s MergeState=%s Ready=%s ReadyType=%s CooldownTimerActive=%s bCompositeCooldownActive=%s CanStartMerge=%s"),
-        *GetNameSafe(this),
-        *UEnum::GetValueAsString(TriggerSetComponent->GetCurrentMergeState()),
-        TriggerSetComponent->HasReadyComposite() ? TEXT("true") : TEXT("false"),
-        *UEnum::GetValueAsString(TriggerSetComponent->GetReadyCompositeType()),
-        TriggerSetComponent->IsCompositeCooldownActiveForTest() ? TEXT("true") : TEXT("false"),
-        TriggerSetComponent->bCompositeCooldownActive ? TEXT("true") : TEXT("false"),
-        TriggerSetComponent->CanStartMerge() ? TEXT("true") : TEXT("false"));
-#endif
-}
-
 void AWTBRCharacter::WTBRDebugCharacterPrintTriggerLoadoutGate() const
 {
 #if UE_BUILD_SHIPPING

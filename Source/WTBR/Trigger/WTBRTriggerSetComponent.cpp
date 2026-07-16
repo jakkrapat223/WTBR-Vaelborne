@@ -1456,14 +1456,12 @@ bool UWTBRTriggerSetComponent::FireReadyComposite()
 
     const EWTBRCompositeBulletType Type = ReadyCompositeType;
     const int32 MainSlotIndex = ReadyCompositeMainSlotIndex;
-    float TEMP_DEBUG_Cooldown = 0.0f;
 
     if (UWTBRCompositeRegistryDataAsset* Registry = CompositeRegistryAsset.LoadSynchronous())
     {
         FWTBRCompositeDefinition Definition;
         if (Registry->FindDefinition(Type, Definition) && Definition.CompositeCooldown > 0.0f)
         {
-            TEMP_DEBUG_Cooldown = Definition.CompositeCooldown;
             bCompositeCooldownActive = true;
             GetWorld()->GetTimerManager().SetTimer(
                 CompositeCooldownTimer,
@@ -1475,12 +1473,6 @@ bool UWTBRTriggerSetComponent::FireReadyComposite()
     }
 
     FireComposite(Type, MainSlotIndex);
-    if (GEngine && WTBRShouldLogValidation())
-    {
-        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Cyan,
-            FString::Printf(TEXT("[CompositeMerge] FIRE Type=%s Cooldown=%.2f Owner=%s"),
-                *UEnum::GetValueAsString(Type), TEMP_DEBUG_Cooldown, *GetNameSafe(GetOwner())));
-    }
     DiscardReadyComposite();
     return true;
 }

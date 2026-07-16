@@ -385,9 +385,6 @@ public:
     void WTBRDebugCharacterPrintMatchState() const;
 
     UFUNCTION(Exec)
-    void TEMP_DEBUG_PrintCompositeMergeState() const;
-
-    UFUNCTION(Exec)
     void WTBRDebugCharacterPrintTriggerLoadoutGate() const;
 
     UFUNCTION(Exec)
