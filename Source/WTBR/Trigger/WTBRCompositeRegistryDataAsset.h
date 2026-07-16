@@ -36,6 +36,14 @@ struct FWTBRCompositeHomingParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Homing", meta = (ClampMin = "0.0"))
     float HomingAcceleration = 0.0f;
 
+    // ⚠ PLAYTEST PENDING: mirrors Venyx's default target-acquisition aim cone.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Homing",
+        meta = (ClampMin = "0.0", ClampMax = "180.0"))
+    float AimConeHalfAngleDegrees = 35.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Homing", meta = (ClampMin = "1", ClampMax = "8"))
+    int32 SimultaneousTargetCount = 1;
+
     // ⚠ PLAYTEST PENDING: zero means no maximum homing speed is configured.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Homing", meta = (ClampMin = "0.0"))
     float MaximumHomingSpeed = 0.0f;
@@ -55,9 +63,70 @@ struct FWTBRCompositeExplosionParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Explosion", meta = (ClampMin = "0.0"))
     float ExplosionRadius = 0.0f;
 
+    // ⚠ PLAYTEST PENDING: disabled by default — first blast behaves exactly as before.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Explosion")
+    bool bHasSecondBlast = false;
+
+    // ⚠ PLAYTEST PENDING: delay in seconds between the first and second blast (the "telegraph").
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Explosion", meta = (ClampMin = "0.0"))
+    float SecondBlastDelay = 0.0f;
+
+    // ⚠ PLAYTEST PENDING: radius of the second (wide/weak) blast.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Explosion", meta = (ClampMin = "0.0"))
+    float SecondBlastRadius = 0.0f;
+
+    // ⚠ PLAYTEST PENDING: fraction of TotalDamageBudget allocated to the second blast.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Explosion",
+        meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float SecondBlastDamageRatio = 0.0f;
+
+    // ⚠ PLAYTEST PENDING: disabled by default — sphere explosion behaves exactly as before.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Explosion")
+    bool bIsShapedCharge = false;
+
+    // ⚠ PLAYTEST PENDING: half-angle of the forward splash cone (only used when shaped-charge).
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Explosion",
+        meta = (ClampMin = "0.0", ClampMax = "180.0"))
+    float ShapedChargeConeHalfAngleDegrees = 45.0f;
+
     // ⚠ PLAYTEST PENDING: neutral falloff shape for a future configured explosion.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Explosion", meta = (ClampMin = "0.0"))
     float DamageFalloffExponent = 1.0f;
+};
+
+/** One lane of a path preset: a shape plus its projectile formation. */
+USTRUCT(BlueprintType)
+struct FWTBRPathLane
+{
+    GENERATED_BODY()
+
+    // ⚠ PLAYTEST PENDING: fractions of Range in aim-local space (X forward, Y lateral, Z vertical).
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
+    TArray<FVector> NormalizedWaypoints;
+
+    // ⚠ PLAYTEST PENDING: number of projectiles spawned along this lane.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "1"))
+    int32 CubeCount = 1;
+
+    // ⚠ PLAYTEST PENDING: per-cube aim-local formation step in absolute units.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
+    FVector FormationOffset = FVector::ZeroVector;
+};
+
+/** A named, authorable multi-lane path shape. */
+USTRUCT(BlueprintType)
+struct FWTBRPathPreset
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
+    FName PresetId = NAME_None;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
+    FText DisplayName;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
+    TArray<FWTBRPathLane> Lanes;
 };
 
 /** One DataAsset-authored composite recipe. Values are intentionally unbalanced placeholders. */
@@ -90,6 +159,14 @@ struct FWTBRCompositeDefinition
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Balance", meta = (ClampMin = "0.0"))
     float TotalDamageBudget = 0.0f;
 
+    // ⚠ PLAYTEST PENDING: mirrors per-archetype projectile speed conventions.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Balance", meta = (ClampMin = "100.0"))
+    float ProjectileSpeed = 2500.0f;
+
+    // ⚠ PLAYTEST PENDING: enables character pass-through for composites such as Dualux.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Definition")
+    bool bCanPenetrate = false;
+
     // ⚠ PLAYTEST PENDING: balance is authored per composite definition.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Balance", meta = (ClampMin = "0.0"))
     float VaelCost = 0.0f;
@@ -107,7 +184,13 @@ struct FWTBRCompositeDefinition
     EWTBRCompositeMovementInterruptPolicy MovementInterruptPolicy =
         EWTBRCompositeMovementInterruptPolicy::None;
 
-    // PathPreset is intentionally omitted until Step 14 creates FWTBRPathPreset/FWTBRPathLane.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
+    FWTBRPathPreset PathPreset;
+
+    // ⚠ PLAYTEST PENDING: scales PathPreset's NormalizedWaypoints into world-space distance —
+    // passed as ResolvePathPreset's Range parameter.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "0.0"))
+    float PathRange = 1000.0f;
 
     // ⚠ PLAYTEST PENDING: generic homing values are authored per definition.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Homing")
@@ -138,4 +221,12 @@ public:
     /** Finds the full definition for an already-resolved Type. False if Type is None or unregistered. */
     UFUNCTION(BlueprintPure, Category = "Composite | Registry")
     bool FindDefinition(EWTBRCompositeBulletType Type, FWTBRCompositeDefinition& OutDefinition) const;
+
+    // Resolves a preset into one world-space waypoint list per (lane, cube) pair.
+    static void ResolvePathPreset(
+        const FWTBRPathPreset& Preset,
+        const FVector& SpawnOrigin,
+        const FRotator& AimRotation,
+        float Range,
+        TArray<TArray<FVector>>& OutCubeWorldPaths);
 };

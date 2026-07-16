@@ -109,6 +109,10 @@ void UWTBRSerpveilTrigger::OnTriggerActivated_Implementation(
     bCachedIsMain = bIsMain;
     bIsCharging = true;
     ChargeStartTime = CurrentTime;
+    bButtonReleased = false;
+    bModeIsPreset = false;
+    bWindupReady = false;
+    CommittedReach = FMath::Max(DataAsset->SerpveilParams.SerpveilMaxRange, 0.0f);
     OwnerCharacter->SetSerpveilChargeTelegraphActive(true);
 
     const float SplitDelay = FMath::Max(Params.SerpveilSplitDelay, 0.0f);
@@ -129,34 +133,90 @@ void UWTBRSerpveilTrigger::OnTriggerActivated_Implementation(
     World->GetTimerManager().SetTimer(
         WindupTimer,
         this,
-        &UWTBRSerpveilTrigger::ExecuteSplitVolley,
+        &UWTBRSerpveilTrigger::OnWindupComplete,
         SplitDelay,
         /*bLoop=*/false);
 }
 
-// ─── OnTriggerDeactivated — client sends charge result to server ──────────────
+void UWTBRSerpveilTrigger::OnWindupComplete()
+{
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return;
+    if (!bIsCharging) return;
+
+    if (bButtonReleased)
+    {
+        ExecuteSplitVolley();
+        return;
+    }
+
+    if (IsValid(DataAsset) && DataAsset->SerpveilParams.bSerpveilAutoFireAtFullCharge)
+    {
+        bModeIsPreset = true;
+        CommittedReach = FMath::Max(DataAsset->SerpveilParams.SerpveilPresetMaxRange, 0.0f);
+        ExecuteSplitVolley();
+        return;
+    }
+
+    bWindupReady = true;
+}
+
+// ─── OnTriggerDeactivated — release captures hold mode and reach ──────────────
 
 void UWTBRSerpveilTrigger::OnTriggerDeactivated_Implementation(
-    AActor* /*OwnerActor*/, bool bIsMain)
+    AActor* /*OwnerActor*/, bool /*bIsMain*/)
 {
-    if (!OwnerCharacter.IsValid()) return;
-    if (!OwnerCharacter->HasAuthority()) return;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return;
 
     UWorld* World = OwnerCharacter->GetWorld();
-    const bool bWindupCommitted = IsValid(World)
-        && World->GetTimerManager().IsTimerActive(WindupTimer);
-    WTBR_VALIDATION_LOG(Verbose,
-        TEXT("[Serpveil S1] ReleaseIgnored | Owner=%s | Main=%s | WindupCommitted=%s"),
-        *GetNameSafe(OwnerCharacter.Get()),
-        bIsMain ? TEXT("true") : TEXT("false"),
-        bWindupCommitted ? TEXT("true") : TEXT("false"));
+    if (!IsValid(World)) return;
 
-    // Releasing a committed shot must not cancel its timer or telegraph. If no
-    // S1 action remains, clear any stale cosmetic state defensively.
-    if (!bWindupCommitted && !bIsCharging)
+    const bool bWindupActive = World->GetTimerManager().IsTimerActive(WindupTimer);
+    if (!bWindupActive && !bIsCharging)
     {
-        OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
+        return;
     }
+
+    const float Elapsed = World->GetTimeSeconds() - ChargeStartTime;
+    WTBR_VALIDATION_LOG(Verbose,
+        TEXT("[Serpveil S2] ReleaseCaptured | Owner=%s | Elapsed=%.3f | WindupActive=%s"),
+        *GetNameSafe(OwnerCharacter.Get()),
+        Elapsed,
+        bWindupActive ? TEXT("true") : TEXT("false"));
+    HandleReleaseAtElapsed(Elapsed);
+}
+
+void UWTBRSerpveilTrigger::HandleReleaseAtElapsed(float Elapsed)
+{
+    bButtonReleased = true;
+    bModeIsPreset = Elapsed >= (IsValid(DataAsset)
+        ? DataAsset->SerpveilParams.SerpveilHoldThresholdSeconds : 0.0f);
+    CommittedReach = ComputeReachForElapsed(Elapsed);
+
+    if (bWindupReady)
+    {
+        ExecuteSplitVolley();
+    }
+}
+
+float UWTBRSerpveilTrigger::ComputeReachForElapsed(float Elapsed) const
+{
+    if (!IsValid(DataAsset)) return 0.0f;
+    const FWTBRSerpveilParams& Params = DataAsset->SerpveilParams;
+    const float BasicRange = FMath::Max(Params.SerpveilMaxRange, 0.0f);
+
+    if (Elapsed < Params.SerpveilHoldThresholdSeconds)
+    {
+        return BasicRange;
+    }
+
+    const float PresetMaxRange = FMath::Max(Params.SerpveilPresetMaxRange, BasicRange);
+    const float WindupDuration = FMath::Max(Params.SerpveilSplitDelay, KINDA_SMALL_NUMBER);
+    const float ThresholdToWindupSpan = FMath::Max(
+        WindupDuration - Params.SerpveilHoldThresholdSeconds, KINDA_SMALL_NUMBER);
+    const float ChargeFraction = FMath::Clamp(
+        (Elapsed - Params.SerpveilHoldThresholdSeconds) / ThresholdToWindupSpan, 0.0f, 1.0f);
+
+    return FMath::Lerp(BasicRange, PresetMaxRange, ChargeFraction);
 }
 
 void UWTBRSerpveilTrigger::Deactivate_Implementation()
@@ -199,6 +259,10 @@ bool UWTBRSerpveilTrigger::CancelCharge()
         World->GetTimerManager().ClearTimer(WindupTimer);
     }
     bIsCharging = false;
+    bButtonReleased = false;
+    bModeIsPreset = false;
+    bWindupReady = false;
+    CommittedReach = 0.0f;
     StopChargeTracking();
 
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil S1] WindupCanceled | Owner=%s | Main=%s | Elapsed=%.3f | NoFire=true | NoVaelConsume=true"),
@@ -330,7 +394,7 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
             *HandSocketName.ToString());
     }
 
-    const float MaxRange = FMath::Max(Params.SerpveilMaxRange, 0.0f);
+    const float MaxRange = FMath::Max(CommittedReach, 0.0f);
     const float FormationSpacing = FMath::Max(Params.SerpveilFormationSpacing, 0.0f);
     const float FormationStagger = FMath::Max(Params.SerpveilFormationStagger, 0.0f);
     const FRotationMatrix AimMatrix(AimRotation);

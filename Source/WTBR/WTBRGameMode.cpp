@@ -348,6 +348,13 @@ void AWTBRGameMode::WTBRRestartRound()
 				continue;
 			}
 
+			if (IsValid(Character->TriggerSetComponent))
+			{
+				Character->TriggerSetComponent->CancelMerge();
+				Character->TriggerSetComponent->DiscardReadyComposite();
+				Character->TriggerSetComponent->ClearCompositeCooldownForMatchRestart();
+			}
+
 			if (IsValid(Character->HealthComponent))
 			{
 				Character->HealthComponent->ResetCombatRewardState();

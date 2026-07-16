@@ -496,6 +496,47 @@ void AWTBRProjectileBase::TriggerExplosion()
     if (!HasAuthority()) return;
 
     const FVector Center = GetActorLocation();
+    ApplyRadialDamage(ExplosionRadius, BaseDamage);
+
+#if ENABLE_DRAW_DEBUG
+    DrawDebugSphere(GetWorld(), Center, ExplosionRadius, 16,
+        FColor::Orange, false, 0.5f);
+#endif
+
+    ProjectileState = EProjectileState::Exploded;
+    OnExplosionVFX(Center, ExplosionRadius);
+
+    if (bHasDelayedSecondExplosion)
+    {
+        SetLifeSpan(0.0f);
+        GetWorldTimerManager().SetTimer(
+            SecondExplosionTimer, this, &AWTBRProjectileBase::TriggerSecondExplosion,
+            SecondExplosionDelay, false);
+        return;
+    }
+
+    Destroy();
+}
+
+void AWTBRProjectileBase::TriggerSecondExplosion()
+{
+    if (!HasAuthority()) return;
+
+    const FVector Center = GetActorLocation();
+    ApplyRadialDamage(SecondExplosionRadius, SecondExplosionDamage);
+
+#if ENABLE_DRAW_DEBUG
+    DrawDebugSphere(GetWorld(), Center, SecondExplosionRadius, 16,
+        FColor::Orange, false, 0.5f);
+#endif
+
+    OnExplosionVFX(Center, SecondExplosionRadius);
+    Destroy();
+}
+
+void AWTBRProjectileBase::ApplyRadialDamage(float Radius, float Damage)
+{
+    const FVector Center = GetActorLocation();
 
     TArray<FHitResult> Hits;
     FCollisionQueryParams Params;
@@ -505,23 +546,27 @@ void AWTBRProjectileBase::TriggerExplosion()
 
     GetWorld()->SweepMultiByChannel(
         Hits, Center, Center, FQuat::Identity,
-        ECC_Pawn, FCollisionShape::MakeSphere(ExplosionRadius), Params);
+        ECC_Pawn, FCollisionShape::MakeSphere(Radius), Params);
 
     for (const FHitResult& Hit : Hits)
     {
         AWTBRCharacter* HitChar = Cast<AWTBRCharacter>(Hit.GetActor());
         if (!IsValid(HitChar) || !IsValid(HitChar->HealthComponent)) continue;
-        HitChar->HealthComponent->ApplyDamage(BaseDamage, OwnerInstigator.Get());
+        if (!IsLocationWithinShapedChargeCone(HitChar->GetActorLocation())) continue;
+        HitChar->HealthComponent->ApplyDamage(Damage, OwnerInstigator.Get());
     }
+}
 
-#if ENABLE_DRAW_DEBUG
-    DrawDebugSphere(GetWorld(), Center, ExplosionRadius, 16,
-        FColor::Orange, false, 0.5f);
-#endif
+bool AWTBRProjectileBase::IsLocationWithinShapedChargeCone(const FVector& TargetLocation) const
+{
+    if (!bIsShapedCharge) return true;
 
-    ProjectileState = EProjectileState::Exploded;
-    OnExplosionVFX(Center, ExplosionRadius);
-    Destroy();
+    const FVector ToTarget = TargetLocation - GetActorLocation();
+    if (ToTarget.IsNearlyZero()) return true;
+
+    const float ConeDotThreshold = FMath::Cos(FMath::DegreesToRadians(
+        FMath::Clamp(ShapedChargeConeHalfAngleDegrees, 0.0f, 180.0f)));
+    return FVector::DotProduct(GetActorForwardVector(), ToTarget.GetSafeNormal()) >= ConeDotThreshold;
 }
 
 // ─── Bullet Clash ────────────────────────────────────────────────────────────
@@ -725,6 +770,27 @@ void AWTBRProjectileBase::InitializePathMovement(
 void AWTBRProjectileBase::OnInterpMovementEnd(const FHitResult& /*ImpactResult*/, float /*Time*/)
 {
     if (!HasAuthority()) return;
+
+    if (bHomeAfterPathEnd && PathEndHomingTarget.IsValid())
+    {
+        InterpMovement->Deactivate();
+
+        USceneComponent* DesiredUpdatedComponent = IsValid(BoxCollision)
+            ? static_cast<USceneComponent*>(BoxCollision) : RootComponent;
+        if (IsValid(DesiredUpdatedComponent))
+        {
+            ProjectileMovement->SetUpdatedComponent(DesiredUpdatedComponent);
+        }
+
+        ProjectileMovement->StopMovementImmediately();
+        ProjectileMovement->Deactivate();
+        ProjectileMovement->Velocity = PathEndContinueDirection.GetSafeNormal() * CachedSpeed;
+        ProjectileMovement->Activate();
+
+        EnableHoming(PathEndHomingTarget.Get(), PathEndHomingAcceleration);
+        return;
+    }
+
     ProjectileState = EProjectileState::Destroyed;
     Destroy();
 }

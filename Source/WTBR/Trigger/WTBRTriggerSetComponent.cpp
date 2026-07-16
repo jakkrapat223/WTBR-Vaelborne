@@ -8,6 +8,7 @@
 #include "Trigger/WTBRSerpveilTrigger.h"
 #include "Trigger/WTBRFeryxTrigger.h"
 #include "Trigger/WTBRMantornTrigger.h"
+#include "Trigger/WTBRCompositeBehaviorBase.h"
 #include "Engine/Engine.h"
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
@@ -66,6 +67,9 @@ void UWTBRTriggerSetComponent::BeginPlay()
 
 void UWTBRTriggerSetComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    CancelMerge();
+    DiscardReadyComposite();
+
     // Cancel all in-flight loads when component is destroyed
     // (match end, player disconnect, etc.)
     for (auto& Pair : PendingSlotLoads)
@@ -202,6 +206,12 @@ void UWTBRTriggerSetComponent::CycleMainSlot()
 {
     if (!HasServerAuthority()) return;
 
+    if (CurrentMergeState != EWTBRCompositeBulletType::None)
+    {
+        CancelMerge();
+    }
+    DiscardReadyComposite();
+
     if (RuntimeTriggers.IsValidIndex(ActiveMainIndex))
     {
         if (UWTBRSerpveilTrigger* SerpveilTrigger =
@@ -244,6 +254,12 @@ void UWTBRTriggerSetComponent::CycleMainSlot()
 void UWTBRTriggerSetComponent::CycleSubSlot()
 {
     if (!HasServerAuthority()) return;
+
+    if (CurrentMergeState != EWTBRCompositeBulletType::None)
+    {
+        CancelMerge();
+    }
+    DiscardReadyComposite();
 
     // See SwitchSubSlot — OnUnequipped() below does not clear cosmetic state.
     if (AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner()))
@@ -534,6 +550,7 @@ void UWTBRTriggerSetComponent::CleanupRuntimeTriggerForReplacement(int32 SlotInd
     {
         CancelMerge();
     }
+    DiscardReadyComposite();
 
     UWTBRTriggerBase* OldTrigger = RuntimeTriggers[SlotIndex];
     if (!IsValid(OldTrigger))
@@ -1203,33 +1220,130 @@ void UWTBRTriggerSetComponent::OnRep_DualWieldState()
 void UWTBRTriggerSetComponent::Server_StartCompositeMerge_Implementation()
 {
     if (!HasServerAuthority()) return;
-    if (CurrentMergeState != EWTBRCompositeBulletType::None) return; // already merging
-    if (GetWorld()->GetTimerManager().IsTimerActive(CompositeCooldownTimer)) return; // still on cooldown from the last successful fire
+    if (CurrentMergeState != EWTBRCompositeBulletType::None)
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT already-merging Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
+    if (GetWorld()->GetTimerManager().IsTimerActive(CompositeCooldownTimer))
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT on-cooldown Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
+    if (ReadyCompositeType != EWTBRCompositeBulletType::None)
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT already-ready Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
 
-    if (!IsValidSlotIndex(ActiveMainIndex) || !IsValidSlotIndex(ActiveSubIndex)) return;
+    if (!IsValidSlotIndex(ActiveMainIndex) || !IsValidSlotIndex(ActiveSubIndex))
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT invalid-slots Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
     UWTBRTriggerDataAsset* MainDA = TriggerSlots[ActiveMainIndex].DataAsset.Get();
     UWTBRTriggerDataAsset* SubDA  = TriggerSlots[ActiveSubIndex].DataAsset.Get();
-    if (!MainDA || !SubDA) return;
+    if (!MainDA || !SubDA)
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT invalid-slots Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
 
     UWTBRCompositeRegistryDataAsset* Registry = CompositeRegistryAsset.LoadSynchronous();
-    if (!Registry) return;
+    if (!Registry)
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT no-registry Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
 
     const EWTBRCompositeBulletType Type =
         Registry->ResolveCompositeType(MainDA->BulletArchetype, SubDA->BulletArchetype);
-    if (Type == EWTBRCompositeBulletType::None) return;
+    if (Type == EWTBRCompositeBulletType::None)
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT no-resolve Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
 
     // Validate the WHOLE definition BEFORE touching Vael — an unauthored/misconfigured
     // definition must never cost the player anything.
     FWTBRCompositeDefinition Definition;
-    if (!Registry->FindDefinition(Type, Definition)) return;
-    if (!Definition.ProjectileClass) return;
-    if (Definition.MergeTime <= 0.0f) return;
+    if (!Registry->FindDefinition(Type, Definition))
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT invalid-definition Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
+    if (!Definition.ProjectileClass)
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT invalid-definition Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
+    if (Definition.MergeTime <= 0.0f)
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT invalid-definition Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
 
     AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner());
-    if (!OwnerChar || !OwnerChar->VaelComponent) return;
+    if (!OwnerChar || !OwnerChar->VaelComponent)
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT insufficient-Vael Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
 
     FGuid ReservationHandle;
-    if (!OwnerChar->VaelComponent->TryReserveVael(Definition.VaelCost, ReservationHandle)) return;
+    if (!OwnerChar->VaelComponent->TryReserveVael(Definition.VaelCost, ReservationHandle))
+    {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red,
+                FString::Printf(TEXT("[CompositeMerge] REJECT insufficient-Vael Owner=%s"), *GetNameSafe(GetOwner())));
+        }
+        return;
+    }
 
     ActiveMergeSnapshot.CompositeType        = Type;
     ActiveMergeSnapshot.MainSlotIndex        = ActiveMainIndex;
@@ -1240,6 +1354,7 @@ void UWTBRTriggerSetComponent::Server_StartCompositeMerge_Implementation()
     ActiveMergeSnapshot.MergeStartServerTime = GetWorld()->GetTimeSeconds();
 
     CurrentMergeState = Type;
+    CompositeMergeDuration = Definition.MergeTime;
     if (OwnerChar->MovementExtComponent)
     {
         OwnerChar->MovementExtComponent->SetDebuffPenalty(1.0f); // Root: translation only, camera/aim free
@@ -1249,12 +1364,25 @@ void UWTBRTriggerSetComponent::Server_StartCompositeMerge_Implementation()
         this, &UWTBRTriggerSetComponent::OnMergeCompleteCallback,
         Definition.MergeTime,
         false);
+
+    if (GEngine && WTBRShouldLogValidation())
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Cyan,
+            FString::Printf(TEXT("[CompositeMerge] START Type=%s Duration=%.2f Owner=%s"),
+                *UEnum::GetValueAsString(Type), Definition.MergeTime, *GetNameSafe(GetOwner())));
+    }
 }
 
 void UWTBRTriggerSetComponent::CancelMerge()
 {
     if (!HasServerAuthority()) return;
     if (CurrentMergeState == EWTBRCompositeBulletType::None) return;
+
+    if (GEngine && WTBRShouldLogValidation())
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Orange,
+            FString::Printf(TEXT("[CompositeMerge] CANCEL Owner=%s"), *GetNameSafe(GetOwner())));
+    }
 
     GetWorld()->GetTimerManager().ClearTimer(MergeTimer);
 
@@ -1278,6 +1406,7 @@ void UWTBRTriggerSetComponent::OnMergeCompleteCallback()
     if (!HasServerAuthority()) return;
 
     const FWTBRCompositeMergeSnapshot Snapshot = ActiveMergeSnapshot;
+    // Existing VFX signal now means the merge finished and the bullet is ready.
     bMergeWasFired    = true;
     CurrentMergeState = EWTBRCompositeBulletType::None;
     ActiveMergeSnapshot = FWTBRCompositeMergeSnapshot();
@@ -1300,26 +1429,95 @@ void UWTBRTriggerSetComponent::OnMergeCompleteCallback()
     if (!SlotStillMatches(Snapshot.MainSlotIndex, Snapshot.MainArchetype) ||
         !SlotStillMatches(Snapshot.SubSlotIndex, Snapshot.SubArchetype))
     {
+        if (GEngine && WTBRShouldLogValidation())
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Yellow,
+                FString::Printf(TEXT("[CompositeMerge] REFUND (slot changed) Owner=%s"), *GetNameSafe(GetOwner())));
+        }
         OwnerChar->VaelComponent->ReleaseReservation(Snapshot.ReservationHandle);
         return;
     }
 
     OwnerChar->VaelComponent->CommitReservation(Snapshot.ReservationHandle);
+    ReadyCompositeType = Snapshot.CompositeType;
+    ReadyCompositeMainSlotIndex = Snapshot.MainSlotIndex;
+
+    if (GEngine && WTBRShouldLogValidation())
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Green,
+            FString::Printf(TEXT("[CompositeMerge] READY Type=%s Owner=%s"),
+                *UEnum::GetValueAsString(Snapshot.CompositeType), *GetNameSafe(GetOwner())));
+    }
+}
+
+bool UWTBRTriggerSetComponent::FireReadyComposite()
+{
+    if (!HasServerAuthority() || ReadyCompositeType == EWTBRCompositeBulletType::None) return false;
+
+    const EWTBRCompositeBulletType Type = ReadyCompositeType;
+    const int32 MainSlotIndex = ReadyCompositeMainSlotIndex;
+    float TEMP_DEBUG_Cooldown = 0.0f;
 
     if (UWTBRCompositeRegistryDataAsset* Registry = CompositeRegistryAsset.LoadSynchronous())
     {
-        FWTBRCompositeDefinition FiredDefinition;
-        if (Registry->FindDefinition(Snapshot.CompositeType, FiredDefinition) &&
-            FiredDefinition.CompositeCooldown > 0.0f)
+        FWTBRCompositeDefinition Definition;
+        if (Registry->FindDefinition(Type, Definition) && Definition.CompositeCooldown > 0.0f)
         {
+            TEMP_DEBUG_Cooldown = Definition.CompositeCooldown;
+            bCompositeCooldownActive = true;
             GetWorld()->GetTimerManager().SetTimer(
                 CompositeCooldownTimer,
-                FiredDefinition.CompositeCooldown,
+                this,
+                &UWTBRTriggerSetComponent::OnCompositeCooldownExpired,
+                Definition.CompositeCooldown,
                 false);
         }
     }
 
-    FireComposite(Snapshot.CompositeType, Snapshot.MainSlotIndex);
+    FireComposite(Type, MainSlotIndex);
+    if (GEngine && WTBRShouldLogValidation())
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Cyan,
+            FString::Printf(TEXT("[CompositeMerge] FIRE Type=%s Cooldown=%.2f Owner=%s"),
+                *UEnum::GetValueAsString(Type), TEMP_DEBUG_Cooldown, *GetNameSafe(GetOwner())));
+    }
+    DiscardReadyComposite();
+    return true;
+}
+
+void UWTBRTriggerSetComponent::OnCompositeCooldownExpired()
+{
+    bCompositeCooldownActive = false;
+}
+
+bool UWTBRTriggerSetComponent::CanStartMerge() const
+{
+    if (CurrentMergeState != EWTBRCompositeBulletType::None) return false;
+    if (ReadyCompositeType != EWTBRCompositeBulletType::None) return false;
+    if (bCompositeCooldownActive) return false;
+    if (!IsValidSlotIndex(ActiveMainIndex) || !IsValidSlotIndex(ActiveSubIndex)) return false;
+
+    const UWTBRTriggerDataAsset* MainDA = TriggerSlots[ActiveMainIndex].DataAsset.Get();
+    const UWTBRTriggerDataAsset* SubDA = TriggerSlots[ActiveSubIndex].DataAsset.Get();
+    if (!MainDA || !SubDA) return false;
+
+    const UWTBRCompositeRegistryDataAsset* Registry = CompositeRegistryAsset.LoadSynchronous();
+    return Registry && Registry->ResolveCompositeType(
+        MainDA->BulletArchetype, SubDA->BulletArchetype) != EWTBRCompositeBulletType::None;
+}
+
+void UWTBRTriggerSetComponent::DiscardReadyComposite()
+{
+    if (!HasServerAuthority()) return;
+
+    if (ReadyCompositeType != EWTBRCompositeBulletType::None && GEngine && WTBRShouldLogValidation())
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Orange,
+            FString::Printf(TEXT("[CompositeMerge] DISCARD Owner=%s"), *GetNameSafe(GetOwner())));
+    }
+
+    ReadyCompositeType = EWTBRCompositeBulletType::None;
+    ReadyCompositeMainSlotIndex = INDEX_NONE;
 }
 
 void UWTBRTriggerSetComponent::FireComposite(EWTBRCompositeBulletType Type, int32 MainSlotIndex)
@@ -1332,6 +1530,20 @@ void UWTBRTriggerSetComponent::FireComposite(EWTBRCompositeBulletType Type, int3
 
     AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetOwner());
     if (!OwnerChar || !GetWorld()) return;
+
+    if (UWTBRCompositeRegistryDataAsset* Registry = CompositeRegistryAsset.LoadSynchronous())
+    {
+        FWTBRCompositeDefinition Definition;
+        if (Registry->FindDefinition(Type, Definition) && Definition.BehaviorClass)
+        {
+            if (UWTBRCompositeBehaviorBase* Behavior =
+                NewObject<UWTBRCompositeBehaviorBase>(this, Definition.BehaviorClass))
+            {
+                Behavior->ExecuteComposite(OwnerChar, Definition);
+            }
+            return;
+        }
+    }
 
     // ── Labyrn: Serpveil + Serpveil — dual mirrored path ─────────────────────
     if (Type == EWTBRCompositeBulletType::Labyrn)
@@ -1477,6 +1689,9 @@ void UWTBRTriggerSetComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProper
     DOREPLIFETIME(UWTBRTriggerSetComponent, ActiveSubIndex);
     DOREPLIFETIME(UWTBRTriggerSetComponent, CurrentDualWieldState);
     DOREPLIFETIME(UWTBRTriggerSetComponent, CurrentMergeState);
+    DOREPLIFETIME(UWTBRTriggerSetComponent, ReadyCompositeType);
+    DOREPLIFETIME(UWTBRTriggerSetComponent, CompositeMergeDuration);
+    DOREPLIFETIME(UWTBRTriggerSetComponent, bCompositeCooldownActive);
     DOREPLIFETIME(UWTBRTriggerSetComponent, bMergeWasFired);
     DOREPLIFETIME(UWTBRTriggerSetComponent, bMantornFormActive);
 }

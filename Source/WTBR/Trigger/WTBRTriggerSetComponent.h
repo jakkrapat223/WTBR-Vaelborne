@@ -217,6 +217,18 @@ public:
         Category = "WTBR | Composite")
     EWTBRCompositeBulletType CurrentMergeState = EWTBRCompositeBulletType::None;
 
+    // Replicated for the HUD; the server retains the originating Main slot separately.
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "WTBR | Composite")
+    EWTBRCompositeBulletType ReadyCompositeType = EWTBRCompositeBulletType::None;
+
+    // Total merge duration replicated once at merge start for client-local HUD countdowns.
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "WTBR | Composite")
+    float CompositeMergeDuration = 0.0f;
+
+    // Replicated cooldown state for client HUD availability indicators.
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "WTBR | Composite")
+    bool bCompositeCooldownActive = false;
+
     // Client → Server: request merge. Server resolves the active archetypes, validates the whole
     // definition, reserves Vael (not yet deducted), and starts the timer.
     UFUNCTION(Server, Reliable)
@@ -226,12 +238,41 @@ public:
     UFUNCTION(BlueprintCallable, Category = "WTBR | Composite")
     void CancelMerge();
 
+    // Authority-only: fires the already committed composite, then clears its ready state.
+    bool FireReadyComposite();
+
+    // Authority-only: discards an already committed composite without a Vael refund.
+    void DiscardReadyComposite();
+
+    // A match restart is a fresh round, so it must not inherit a successful-fire cooldown.
+    void ClearCompositeCooldownForMatchRestart()
+    {
+        if (UWorld* World = GetWorld())
+        {
+            World->GetTimerManager().ClearTimer(CompositeCooldownTimer);
+        }
+        bCompositeCooldownActive = false;
+    }
+
     UFUNCTION(BlueprintPure, Category = "WTBR | Composite")
     EWTBRCompositeBulletType GetCurrentMergeState() const { return CurrentMergeState; }
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Composite")
+    bool HasReadyComposite() const { return ReadyCompositeType != EWTBRCompositeBulletType::None; }
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Composite")
+    EWTBRCompositeBulletType GetReadyCompositeType() const { return ReadyCompositeType; }
+
+    // Client-safe read-only availability check. Server validation still owns Vael reservation.
+    UFUNCTION(BlueprintPure, Category = "WTBR | Composite")
+    bool CanStartMerge() const;
 
     // Test-only seam: invokes the merge-complete path directly without waiting for MergeTimer.
     UFUNCTION(BlueprintCallable, Category = "WTBR | Debug")
     void TriggerMergeCompleteForTest() { OnMergeCompleteCallback(); }
+
+    UFUNCTION(BlueprintCallable, Category = "WTBR | Debug")
+    void EndPlayForTest() { EndPlay(EEndPlayReason::Destroyed); }
 
     UFUNCTION(BlueprintPure, Category = "WTBR | Debug")
     bool HasPendingMergeReservationForTest() const { return ActiveMergeSnapshot.ReservationHandle.IsValid(); }
@@ -360,12 +401,17 @@ private:
 
     FWTBRCompositeMergeSnapshot ActiveMergeSnapshot;
 
+    // Server-only source slot captured when the merge completes.
+    int32 ReadyCompositeMainSlotIndex = INDEX_NONE;
+
     // Cooldown after a successful composite fire (separate from any future cancel lockout) —
     // sourced from the registry Definition's CompositeCooldown; gates a NEW merge attempt.
     FTimerHandle CompositeCooldownTimer;
 
+    void OnCompositeCooldownExpired();
+
     // Replicated alongside CurrentMergeState so OnRep_MergeState can distinguish
-    // a successful fire (true) from a forced cancel (false) without an extra RPC.
+    // a completed merge / ready bullet (true) from a forced cancel (false) without an extra RPC.
     UPROPERTY(Replicated)
     bool bMergeWasFired = false;
 

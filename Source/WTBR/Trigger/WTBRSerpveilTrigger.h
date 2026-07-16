@@ -38,6 +38,11 @@ public:
 
     bool CancelCharge();
     bool IsCharging() const { return bIsCharging; }
+    void OnWindupCompleteForTest() { OnWindupComplete(); }
+    void HandleReleaseAtElapsedForTest(float Elapsed) { HandleReleaseAtElapsed(Elapsed); }
+    bool GetModeIsPresetForTest() const { return bModeIsPreset; }
+    bool GetWindupReadyForTest() const { return bWindupReady; }
+    float GetCommittedReachForTest() const { return CommittedReach; }
 
     // Blueprint aim-preview line (client only)
     UFUNCTION(BlueprintCallable, Category = "WTBR | Serpveil")
@@ -69,12 +74,19 @@ private:
     float LastSerpveilFireTime = -1000000.0f;
     bool  bCachedIsMain   = false;
     bool  bIsCharging     = false;
+    bool  bButtonReleased = false;
+    bool  bModeIsPreset   = false;
+    bool  bWindupReady    = false;
+    float CommittedReach  = 0.0f;
     FTimerHandle ChargeUpdateTimer;
     FTimerHandle WindupTimer;
 
     void UpdateChargeProgress();
     void StopChargeTracking();
     void ExecuteSplitVolley();
+    void OnWindupComplete();
+    void HandleReleaseAtElapsed(float Elapsed);
+    float ComputeReachForElapsed(float Elapsed) const;
 
     UFUNCTION()
     void HandleOwnerDeath();

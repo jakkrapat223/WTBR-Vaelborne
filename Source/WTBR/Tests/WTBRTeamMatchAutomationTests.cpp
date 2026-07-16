@@ -5,7 +5,13 @@
 #include "Misc/AutomationTest.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Actors/WTBRProjectileBase.h"
 #include "Components/WTBRHealthComponent.h"
+#include "Components/WTBRMovementExtComponent.h"
+#include "Components/WTBRVaelComponent.h"
+#include "Trigger/WTBRCompositeRegistryDataAsset.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
+#include "Trigger/WTBRTriggerSetComponent.h"
 #include "WTBRCharacter.h"
 #include "WTBRGameMode.h"
 #include "WTBRGameState.h"
@@ -114,6 +120,41 @@ namespace
     {
         Victim->HealthComponent->ApplyDamage(10000.0f, nullptr);
         GameMode->NotifyCombatantEliminated(Victim, nullptr);
+    }
+
+    UWTBRTriggerDataAsset* MakeRestartMergeTestArchetypeDataAsset(EWTBRBulletArchetype Archetype)
+    {
+        UWTBRTriggerDataAsset* DataAsset = NewObject<UWTBRTriggerDataAsset>(GetTransientPackage());
+        DataAsset->BulletArchetype = Archetype;
+        return DataAsset;
+    }
+
+    UWTBRCompositeRegistryDataAsset* MakeRestartMergeTestRegistry(float CompositeCooldown = 0.0f)
+    {
+        UWTBRCompositeRegistryDataAsset* Registry =
+            NewObject<UWTBRCompositeRegistryDataAsset>(GetTransientPackage());
+        FWTBRCompositeDefinition& Definition = Registry->Definitions.AddDefaulted_GetRef();
+        Definition.RequiredArchetypeA = EWTBRBulletArchetype::Solux;
+        Definition.RequiredArchetypeB = EWTBRBulletArchetype::Fulgrix;
+        Definition.CompositeType = EWTBRCompositeBulletType::Solgrix;
+        Definition.ProjectileClass = AWTBRProjectileBase::StaticClass();
+        Definition.VaelCost = 20.0f;
+        Definition.MergeTime = 0.5f;
+        Definition.CompositeCooldown = CompositeCooldown;
+        return Registry;
+    }
+
+    void StartRestartMergeTest(UWTBRTriggerSetComponent* TriggerSet, float CompositeCooldown = 0.0f)
+    {
+        TriggerSet->SetSlotDataAssetForTest(0,
+            TSoftObjectPtr<UWTBRTriggerDataAsset>(
+                MakeRestartMergeTestArchetypeDataAsset(EWTBRBulletArchetype::Solux)));
+        TriggerSet->SetSlotDataAssetForTest(4,
+            TSoftObjectPtr<UWTBRTriggerDataAsset>(
+                MakeRestartMergeTestArchetypeDataAsset(EWTBRBulletArchetype::Fulgrix)));
+        TriggerSet->CompositeRegistryAsset =
+            TSoftObjectPtr<UWTBRCompositeRegistryDataAsset>(MakeRestartMergeTestRegistry(CompositeCooldown));
+        TriggerSet->Server_StartCompositeMerge_Implementation();
     }
 }
 
@@ -506,6 +547,119 @@ bool FWTBRTeamFifteenPuppetMatchSmokeTest::RunTest(const FString& /*Parameters*/
     TestFalse(TEXT("Winning team cleared on restart"), GameState->HasWinningTeam());
     TestEqual(TEXT("Team scores cleared on restart"), GameState->GetTeamScores().Num(), 0);
 
+    return true;
+}
+
+// ── Composite merge cleanup: match restart ───────────────────────────────────
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRRestartCancelsActiveCompositeMergeTest,
+    "WTBR.Composite.Merge.Restart.RestartCancelsActiveMerge",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRRestartCancelsActiveCompositeMergeTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTeamWorldFixture Fixture(TEXT("WTBR_MergeRestart_Cancel"));
+    UWorld* World = Fixture.GetWorld();
+    AWTBRGameState* GameState = SpawnTeamGameState(World, MakeTeamRules(1, true), EWTBRMatchPhase::PostMatch);
+    AWTBRGameMode* GameMode = SpawnTeamGameMode(World);
+    AWTBRCharacter* Character = SpawnTeamCharacter(World, FVector::ZeroVector);
+    TestNotNull(TEXT("GameState spawns"), GameState);
+    TestNotNull(TEXT("GameMode spawns"), GameMode);
+    TestNotNull(TEXT("Character spawns"), Character);
+    if (!GameState || !GameMode || !Character || !Character->TriggerSetComponent || !Character->VaelComponent) return false;
+
+    Character->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+    StartRestartMergeTest(Character->TriggerSetComponent);
+    TestTrue(TEXT("Merge reservation is active before restart"),
+        Character->TriggerSetComponent->HasPendingMergeReservationForTest());
+
+    GameMode->WTBRRestartRound();
+
+    TestEqual(TEXT("Restart clears the active merge state"),
+        Character->TriggerSetComponent->GetCurrentMergeState(), EWTBRCompositeBulletType::None);
+    TestEqual(TEXT("Restart releases the merge reservation"),
+        Character->VaelComponent->GetAvailableVael(), Character->VaelComponent->GetCurrentVael());
+    TestFalse(TEXT("Restart clears the pending reservation handle"),
+        Character->TriggerSetComponent->HasPendingMergeReservationForTest());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRRestartDiscardsReadyCompositeTest,
+    "WTBR.Composite.Ready.RestartDiscardsReadyComposite",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRRestartDiscardsReadyCompositeTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTeamWorldFixture Fixture(TEXT("WTBR_ReadyRestart_Discard"));
+    UWorld* World = Fixture.GetWorld();
+    AWTBRGameState* GameState = SpawnTeamGameState(World, MakeTeamRules(1, true), EWTBRMatchPhase::PostMatch);
+    AWTBRGameMode* GameMode = SpawnTeamGameMode(World);
+    AWTBRCharacter* Character = SpawnTeamCharacter(World, FVector::ZeroVector);
+    if (!GameState || !GameMode || !Character || !Character->TriggerSetComponent || !Character->VaelComponent) return false;
+
+    Character->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+    StartRestartMergeTest(Character->TriggerSetComponent);
+    Character->TriggerSetComponent->TriggerMergeCompleteForTest();
+    TestTrue(TEXT("Composite is ready before restart"), Character->TriggerSetComponent->HasReadyComposite());
+
+    GameMode->WTBRRestartRound();
+
+    TestFalse(TEXT("Restart discards the ready composite"), Character->TriggerSetComponent->HasReadyComposite());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRRestartClearsCompositeMergeRootTest,
+    "WTBR.Composite.Merge.Restart.RestartClearsMergeRoot",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRRestartClearsCompositeMergeRootTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTeamWorldFixture Fixture(TEXT("WTBR_MergeRestart_Root"));
+    UWorld* World = Fixture.GetWorld();
+    AWTBRGameState* GameState = SpawnTeamGameState(World, MakeTeamRules(1, true), EWTBRMatchPhase::PostMatch);
+    AWTBRGameMode* GameMode = SpawnTeamGameMode(World);
+    AWTBRCharacter* Character = SpawnTeamCharacter(World, FVector::ZeroVector);
+    if (!GameState || !GameMode || !Character || !Character->TriggerSetComponent || !Character->MovementExtComponent) return false;
+
+    StartRestartMergeTest(Character->TriggerSetComponent);
+    TestEqual(TEXT("Merge applies Root before restart"),
+        Character->MovementExtComponent->GetSpeedModifiers().DebuffPenalty, 1.0f);
+
+    GameMode->WTBRRestartRound();
+
+    TestEqual(TEXT("Restart clears Root"),
+        Character->MovementExtComponent->GetSpeedModifiers().DebuffPenalty, 0.0f);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRRestartClearsCompositeCooldownTest,
+    "WTBR.Composite.Merge.Restart.RestartClearsCompositeCooldown",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRRestartClearsCompositeCooldownTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTeamWorldFixture Fixture(TEXT("WTBR_MergeRestart_Cooldown"));
+    UWorld* World = Fixture.GetWorld();
+    AWTBRGameState* GameState = SpawnTeamGameState(World, MakeTeamRules(1, true), EWTBRMatchPhase::PostMatch);
+    AWTBRGameMode* GameMode = SpawnTeamGameMode(World);
+    AWTBRCharacter* Character = SpawnTeamCharacter(World, FVector::ZeroVector);
+    if (!GameState || !GameMode || !Character || !Character->TriggerSetComponent) return false;
+
+    StartRestartMergeTest(Character->TriggerSetComponent, 2.0f);
+    Character->TriggerSetComponent->TriggerMergeCompleteForTest();
+    TestTrue(TEXT("Ready composite fires successfully before restart"),
+        Character->TriggerSetComponent->FireReadyComposite());
+    TestTrue(TEXT("Successful fire starts cooldown before restart"),
+        Character->TriggerSetComponent->IsCompositeCooldownActiveForTest());
+
+    GameMode->WTBRRestartRound();
+
+    TestFalse(TEXT("Restart clears composite cooldown"),
+        Character->TriggerSetComponent->IsCompositeCooldownActiveForTest());
     return true;
 }
 

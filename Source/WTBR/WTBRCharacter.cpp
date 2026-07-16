@@ -434,6 +434,10 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         {
             EIC->BindAction(CancelAction, ETriggerEvent::Started, this, &AWTBRCharacter::HandleCancelInput);
         }
+        if (IsValid(CompositeMergeAction))
+        {
+            EIC->BindAction(CompositeMergeAction, ETriggerEvent::Started, this, &AWTBRCharacter::HandleCompositeMergeInput);
+        }
         if (IsValid(BagAction))
         {
             EIC->BindAction(BagAction, ETriggerEvent::Started, this, &AWTBRCharacter::ToggleBagLootLayer);
@@ -601,6 +605,14 @@ void AWTBRCharacter::HandleCancelInput()
     CancelCurrentAction();
 }
 
+void AWTBRCharacter::HandleCompositeMergeInput()
+{
+    if (TriggerSetComponent)
+    {
+        TriggerSetComponent->Server_StartCompositeMerge();
+    }
+}
+
 void AWTBRCharacter::Dodge(const FInputActionValue& Value)
 {
     if (StaminaComponent) StaminaComponent->TryConsumeDodgeStamina();
@@ -672,6 +684,30 @@ void AWTBRCharacter::WTBRDebugCharacterPrintMatchState() const
         Rules.bEnablePassiveVaelRegen ? TEXT("true") : TEXT("false"),
         Rules.VaelRegenPerSecond,
         Rules.bAllowTriggerSwapDuringMatch ? TEXT("true") : TEXT("false"));
+#endif
+}
+
+void AWTBRCharacter::TEMP_DEBUG_PrintCompositeMergeState() const
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("TEMP_DEBUG_PrintCompositeMergeState is disabled in Shipping builds."));
+#else
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("TEMP_DEBUG_PrintCompositeMergeState rejected: TriggerSetComponent is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    UE_LOG(LogTemp, Log,
+        TEXT("TEMP_DEBUG_PrintCompositeMergeState: Owner=%s MergeState=%s Ready=%s ReadyType=%s CooldownTimerActive=%s bCompositeCooldownActive=%s CanStartMerge=%s"),
+        *GetNameSafe(this),
+        *UEnum::GetValueAsString(TriggerSetComponent->GetCurrentMergeState()),
+        TriggerSetComponent->HasReadyComposite() ? TEXT("true") : TEXT("false"),
+        *UEnum::GetValueAsString(TriggerSetComponent->GetReadyCompositeType()),
+        TriggerSetComponent->IsCompositeCooldownActiveForTest() ? TEXT("true") : TEXT("false"),
+        TriggerSetComponent->bCompositeCooldownActive ? TEXT("true") : TEXT("false"),
+        TriggerSetComponent->CanStartMerge() ? TEXT("true") : TEXT("false"));
 #endif
 }
 
@@ -1147,6 +1183,111 @@ AWTBRCharacter* AWTBRCharacter::FindBestHomingTarget(
     }
 
     return BestTarget;
+}
+
+void AWTBRCharacter::FindBestHomingTargets(
+    AWTBRCharacter* QueryingCharacter,
+    float SearchRadius,
+    float AimConeHalfAngleDegrees,
+    int32 MaxTargets,
+    TArray<AWTBRCharacter*>& OutTargets)
+{
+    OutTargets.Reset();
+    if (!IsValid(QueryingCharacter) || SearchRadius <= 0.0f || MaxTargets <= 0)
+    {
+        return;
+    }
+
+    UWorld* World = QueryingCharacter->GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    FVector EyeLocation = FVector::ZeroVector;
+    FRotator AimRotation = FRotator::ZeroRotator;
+    QueryingCharacter->GetActorEyesViewPoint(EyeLocation, AimRotation);
+
+    const FVector AimDirection = AimRotation.Vector().GetSafeNormal();
+    if (AimDirection.IsNearlyZero())
+    {
+        return;
+    }
+
+    const float SearchRadiusSq = FMath::Square(SearchRadius);
+    const float AimConeDotThreshold = FMath::Cos(FMath::DegreesToRadians(
+        FMath::Clamp(AimConeHalfAngleDegrees, 0.0f, 180.0f)));
+
+    struct FWTBRHomingTargetCandidate
+    {
+        AWTBRCharacter* Character = nullptr;
+        float AimDot = -1.0f;
+        float DistanceSq = TNumericLimits<float>::Max();
+    };
+    TArray<FWTBRHomingTargetCandidate> Candidates;
+
+    for (TActorIterator<AWTBRCharacter> It(World); It; ++It)
+    {
+        AWTBRCharacter* Candidate = *It;
+        if (!IsValid(Candidate) || Candidate == QueryingCharacter ||
+            !IsValid(Candidate->HealthComponent) || !Candidate->HealthComponent->IsAlive() ||
+            QueryingCharacter->IsSameTeamAs(Candidate))
+        {
+            continue;
+        }
+
+        const float CandidateDistanceSq = FVector::DistSquared(
+            QueryingCharacter->GetActorLocation(), Candidate->GetActorLocation());
+        if (CandidateDistanceSq > SearchRadiusSq)
+        {
+            continue;
+        }
+
+        const FVector ToCandidate = Candidate->GetActorLocation() - EyeLocation;
+        const FVector CandidateDirection = ToCandidate.GetSafeNormal();
+        if (CandidateDirection.IsNearlyZero())
+        {
+            continue;
+        }
+
+        const float AimDot = FVector::DotProduct(AimDirection, CandidateDirection);
+        if (AimDot < AimConeDotThreshold)
+        {
+            continue;
+        }
+
+        FHitResult VisibilityHit;
+        FCollisionQueryParams TraceParams(SCENE_QUERY_STAT(WTBRHomingTargetLOS), false);
+        TraceParams.AddIgnoredActor(QueryingCharacter);
+        TraceParams.AddIgnoredActor(Candidate);
+        if (World->LineTraceSingleByChannel(
+                VisibilityHit, EyeLocation, Candidate->GetActorLocation(), ECC_Visibility, TraceParams))
+        {
+            continue;
+        }
+
+        Candidates.Add({Candidate, AimDot, CandidateDistanceSq});
+    }
+
+    Candidates.Sort([](const FWTBRHomingTargetCandidate& A, const FWTBRHomingTargetCandidate& B)
+    {
+        if (!FMath::IsNearlyEqual(A.AimDot, B.AimDot))
+        {
+            return A.AimDot > B.AimDot;
+        }
+        if (!FMath::IsNearlyEqual(A.DistanceSq, B.DistanceSq))
+        {
+            return A.DistanceSq < B.DistanceSq;
+        }
+        return A.Character->GetName() < B.Character->GetName();
+    });
+
+    const int32 TargetCount = FMath::Min(FMath::Max(0, MaxTargets), Candidates.Num());
+    OutTargets.Reserve(TargetCount);
+    for (int32 Index = 0; Index < TargetCount; ++Index)
+    {
+        OutTargets.Add(Candidates[Index].Character);
+    }
 }
 
 void AWTBRCharacter::RequestPickupAimedDroppedTriggerIntoActiveMainSlot()
@@ -2097,6 +2238,16 @@ void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FV
     if (TriggerSetComponent->IsMantornFormActive())
     {
         HandleMantornFormInput(bIsMain, bIsPressed);
+        return;
+    }
+    if (bIsPressed && TriggerSetComponent->HasReadyComposite())
+    {
+        TriggerSetComponent->FireReadyComposite();
+        return;
+    }
+    if (bIsPressed && TriggerSetComponent->GetCurrentMergeState() != EWTBRCompositeBulletType::None)
+    {
+        TriggerSetComponent->CancelMerge();
         return;
     }
     // Not in form — clear any leftover in-form attack state (e.g. the buttons that

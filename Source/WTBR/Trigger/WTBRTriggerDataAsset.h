@@ -881,6 +881,18 @@ struct FWTBRSerpveilParams
         meta = (ClampMin = "0.0"))
     float SerpveilSplitDelay = 0.4f;
 
+    // ⚠ PLAYTEST PENDING: elapsed hold time past which a hold commits to Preset mode.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Windup", meta = (ClampMin = "0.0"))
+    float SerpveilHoldThresholdSeconds = 0.15f;
+
+    // ⚠ PLAYTEST PENDING: maximum reach in Preset mode at full charge.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "100.0"))
+    float SerpveilPresetMaxRange = 2200.0f;
+
+    // ⚠ PLAYTEST PENDING: true fires immediately at full charge; false waits for release.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Windup")
+    bool bSerpveilAutoFireAtFullCharge = true;
+
     // DEPRECATED by zigzag tap pattern — fan spread let only one cube land at range
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Serpveil | Path",

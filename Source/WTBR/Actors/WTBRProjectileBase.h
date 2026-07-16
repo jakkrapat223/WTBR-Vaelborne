@@ -69,6 +69,39 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     bool bCanPenetrate = false;
 
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    bool bHasDelayedSecondExplosion = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    float SecondExplosionDelay = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    float SecondExplosionRadius = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    float SecondExplosionDamage = 0.0f;
+
+    // Coilvyn: if true, OnInterpMovementEnd transitions to homing instead of destroying.
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    bool bHomeAfterPathEnd = false;
+
+    // Target acquired at cast time; it is never re-queried at path end.
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    TWeakObjectPtr<USceneComponent> PathEndHomingTarget;
+
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    float PathEndHomingAcceleration = 0.0f;
+
+    // Direction from the resolved path's final segment before homing curves its flight.
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    FVector PathEndContinueDirection = FVector::ForwardVector;
+
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    bool bIsShapedCharge = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    float ShapedChargeConeHalfAngleDegrees = 45.0f;
+
     // Ventryx (Black Trigger) — non-zero launches hit character away from impact point
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     float KnockbackForce = 0.0f;
@@ -129,6 +162,16 @@ public:
     UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
     void SpawnCubeSplits();
 
+    void TriggerExplosionForTest() { TriggerExplosion(); }
+    void TriggerSecondExplosionForTest() { TriggerSecondExplosion(); }
+    void OnInterpMovementEndForTest() { OnInterpMovementEnd(FHitResult(), 0.0f); }
+    bool IsSecondExplosionTimerActiveForTest() const
+    {
+        return GetWorldTimerManager().IsTimerActive(SecondExplosionTimer);
+    }
+
+    bool IsLocationWithinShapedChargeCone(const FVector& TargetLocation) const;
+
 protected:
     virtual void BeginPlay() override;
     virtual void GetLifetimeReplicatedProps(
@@ -154,7 +197,10 @@ protected:
 private:
     float CachedSpeed   = 0.0f;
     bool  bHandledClash = false; // prevents double-processing when both bullets' overlaps fire
+    FTimerHandle SecondExplosionTimer;
 
     void TriggerExplosion();
+    void TriggerSecondExplosion();
+    void ApplyRadialDamage(float Radius, float Damage);
     void OnBulletClash(AWTBRProjectileBase* OtherBullet);
 };

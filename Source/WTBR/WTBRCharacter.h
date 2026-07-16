@@ -116,6 +116,12 @@ class AWTBRCharacter : public ACharacter
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
     TObjectPtr<UInputAction> CancelAction;
 
+    // Optional — owner must author IA_CompositeMerge (suggested default key: V;
+    // MMB is reserved for a future Ping system), add it to the default IMC, and
+    // assign it on BP_WTBRCharacter. Defaults null; binding is skipped when unassigned.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
+    TObjectPtr<UInputAction> CompositeMergeAction;
+
     // Optional -- assign IA_Bag in BP_WTBRCharacter or IMC (IA_Bag is mapped to Z
     // in IMC_WTBR_Default). Defaults null; binding is skipped if not assigned, so
     // the game runs identically without it. Routes to the existing
@@ -255,6 +261,9 @@ public:
     UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
     UInputAction* GetInteractInputAction() const { return InteractAction; }
 
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
+    UInputAction* GetCompositeMergeInputAction() const { return CompositeMergeAction; }
+
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     UWTBRHUDViewModelComponent* GetHUDViewModelComponent() const { return HUDViewModelComponent; }
 
@@ -374,6 +383,9 @@ public:
 
     UFUNCTION(Exec)
     void WTBRDebugCharacterPrintMatchState() const;
+
+    UFUNCTION(Exec)
+    void TEMP_DEBUG_PrintCompositeMergeState() const;
 
     UFUNCTION(Exec)
     void WTBRDebugCharacterPrintTriggerLoadoutGate() const;
@@ -508,6 +520,16 @@ public:
         float SearchRadius,
         float AimConeHalfAngleDegrees);
 
+    // Same filters as FindBestHomingTarget (alive/enemy-team/range/aim-cone/LOS), but collects up
+    // to MaxTargets DISTINCT targets ordered by the same aim-then-distance-then-name comparator.
+    // Used by composites needing genuine simultaneous multi-target homing (e.g. Venspire).
+    static void FindBestHomingTargets(
+        AWTBRCharacter* QueryingCharacter,
+        float SearchRadius,
+        float AimConeHalfAngleDegrees,
+        int32 MaxTargets,
+        TArray<AWTBRCharacter*>& OutTargets);
+
     // Server-only; AWTBRGameMode team assignment is the intended caller.
     void SetTeamId(int32 NewTeamId);
 
@@ -599,6 +621,8 @@ protected:
     // charge cancel. Presentation-only routing — no new gameplay mutation, no
     // change to Server_CancelCurrentAction's existing behavior.
     void HandleCancelInput();
+
+    void HandleCompositeMergeInput();
 
     // ─── Server RPCs ──────────────────────────────────────────────────────────
     UFUNCTION(Server, Reliable)

@@ -136,6 +136,9 @@ bool FWTBRSuccessfulFireStartsCompositeCooldownTest::RunTest(const FString& /*Pa
     StartCooldownTestMerge(TriggerSet, MakeCooldownTestRegistry(2.0f));
     TriggerSet->TriggerMergeCompleteForTest();
 
+    TestFalse(TEXT("Merge completion without fire leaves the composite cooldown inactive"),
+        TriggerSet->IsCompositeCooldownActiveForTest());
+    TestTrue(TEXT("Ready composite fires successfully"), TriggerSet->FireReadyComposite());
     TestTrue(TEXT("Successful fire starts the composite cooldown"),
         TriggerSet->IsCompositeCooldownActiveForTest());
     return true;
@@ -158,6 +161,7 @@ bool FWTBRCooldownBlocksNewMergeAttemptWhileActiveTest::RunTest(const FString& /
 
     StartCooldownTestMerge(TriggerSet, MakeCooldownTestRegistry(2.0f));
     TriggerSet->TriggerMergeCompleteForTest();
+    TestTrue(TEXT("Ready composite fires successfully"), TriggerSet->FireReadyComposite());
     TriggerSet->Server_StartCompositeMerge_Implementation();
 
     TestEqual(TEXT("Cooldown blocks a new merge"),
@@ -232,6 +236,7 @@ bool FWTBRZeroCompositeCooldownNeverBlocksTest::RunTest(const FString& /*Paramet
 
     TestFalse(TEXT("A zero CompositeCooldown leaves no active timer"),
         TriggerSet->IsCompositeCooldownActiveForTest());
+    TestTrue(TEXT("Ready composite fires successfully"), TriggerSet->FireReadyComposite());
     TriggerSet->Server_StartCompositeMerge_Implementation();
     TestEqual(TEXT("A zero CompositeCooldown permits an immediate second merge"),
         TriggerSet->GetCurrentMergeState(), EWTBRCompositeBulletType::Solgrix);
