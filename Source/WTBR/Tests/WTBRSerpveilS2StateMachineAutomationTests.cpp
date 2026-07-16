@@ -6,6 +6,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Components/InterpToMovementComponent.h"
 #include "UObject/Package.h"
 #include "Actors/WTBRProjectileBase.h"
 #include "Components/WTBRVaelComponent.h"
@@ -65,6 +66,47 @@ namespace
             if (IsValid(*It)) ++Count;
         }
         return Count;
+    }
+
+    bool AllSerpveilS2ProjectilesUseActivePathMovement(UWorld* World)
+    {
+        if (!World) return false;
+
+        int32 Count = 0;
+        for (TActorIterator<AWTBRProjectileBase> It(World); It; ++It)
+        {
+            if (!IsValid(*It)) continue;
+            ++Count;
+            if (!It->InterpMovement || !It->InterpMovement->IsActive() ||
+                It->InterpMovement->Duration <= 0.0f)
+            {
+                return false;
+            }
+        }
+        return Count > 0;
+    }
+
+    void AddSerpveilS2AuthoredPresetPath(UWTBRTriggerDataAsset* DataAsset)
+    {
+        if (!DataAsset) return;
+
+        FWTBRPathLane& FirstLane = DataAsset->SerpveilParams.SerpveilPresetPath.Lanes.AddDefaulted_GetRef();
+        FirstLane.NormalizedWaypoints = {
+            FVector(0.0f, 0.0f, 0.0f),
+            FVector(0.5f, 0.3f, 0.0f),
+            FVector(1.0f, 0.0f, 0.0f),
+        };
+        FirstLane.CubeCount = 2;
+        FirstLane.FormationOffset = FVector(0.0f, 75.0f, 0.0f);
+
+        FWTBRPathLane& SecondLane = DataAsset->SerpveilParams.SerpveilPresetPath.Lanes.AddDefaulted_GetRef();
+        SecondLane.NormalizedWaypoints = {
+            FVector(0.0f, 0.0f, 0.0f),
+            FVector(0.4f, -0.25f, 0.0f),
+            FVector(1.0f, 0.0f, 0.0f),
+        };
+        SecondLane.CubeCount = 3;
+        SecondLane.FormationOffset = FVector(0.0f, 50.0f, 0.0f);
     }
 
     UWTBRTriggerDataAsset* MakeSerpveilS2DataAsset(
@@ -261,6 +303,54 @@ bool FWTBRSerpveilS2CancelTest::RunTest(const FString& /*Parameters*/)
     TestEqual(TEXT("Cancel resets committed reach"), Trigger->GetCommittedReachForTest(), 0.0f);
     TestEqual(TEXT("Cancel spawns no projectile"), CountSerpveilS2Projectiles(Fixture.GetWorld()), 0);
     TestEqual(TEXT("Cancel spends no Vael"), Owner->VaelComponent->GetCurrentVael(), VaelBefore);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRSerpveilS2PresetPathTest,
+    "WTBR.Serpveil.S2.PresetModeUsesAuthoredCurvedPaths",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRSerpveilS2PresetPathTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRSerpveilS2WorldFixture Fixture(TEXT("WTBR_SerpveilS2_PresetPath"));
+    AWTBRCharacter* Owner = SpawnSerpveilS2Character(Fixture.GetWorld());
+    UWTBRTriggerDataAsset* DataAsset = MakeSerpveilS2DataAsset();
+    AddSerpveilS2AuthoredPresetPath(DataAsset);
+    UWTBRSerpveilTrigger* Trigger = MakeSerpveilS2Trigger(Owner, DataAsset);
+    if (!Owner || !Trigger) return false;
+
+    TestTrue(TEXT("Charge begins"), BeginSerpveilS2Charge(Trigger, Owner));
+    Trigger->OnWindupCompleteForTest();
+    TestTrue(TEXT("Full-charge fire enters Preset mode"), Trigger->GetModeIsPresetForTest());
+    TestEqual(TEXT("Two authored lanes resolve to five cube paths"),
+        CountSerpveilS2Projectiles(Fixture.GetWorld()), 5);
+    TestTrue(TEXT("Every authored cube path engages non-trivial path movement"),
+        AllSerpveilS2ProjectilesUseActivePathMovement(Fixture.GetWorld()));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRSerpveilS2EmptyPresetFallbackTest,
+    "WTBR.Serpveil.S2.EmptyPresetFallsBackToStraightVolley",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRSerpveilS2EmptyPresetFallbackTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRSerpveilS2WorldFixture Fixture(TEXT("WTBR_SerpveilS2_EmptyPresetFallback"));
+    AWTBRCharacter* Owner = SpawnSerpveilS2Character(Fixture.GetWorld());
+    UWTBRTriggerDataAsset* DataAsset = MakeSerpveilS2DataAsset();
+    UWTBRSerpveilTrigger* Trigger = MakeSerpveilS2Trigger(Owner, DataAsset);
+    if (!Owner || !Trigger) return false;
+
+    TestEqual(TEXT("No preset lanes are authored"), DataAsset->SerpveilParams.SerpveilPresetPath.Lanes.Num(), 0);
+    TestTrue(TEXT("Charge begins"), BeginSerpveilS2Charge(Trigger, Owner));
+    Trigger->OnWindupCompleteForTest();
+    TestTrue(TEXT("Full-charge fire enters Preset mode"), Trigger->GetModeIsPresetForTest());
+    TestEqual(TEXT("Empty preset falls back to the configured straight volley"),
+        CountSerpveilS2Projectiles(Fixture.GetWorld()), DataAsset->SerpveilParams.SerpveilCubeSplitCount);
+    TestTrue(TEXT("Fallback volley still engages straight two-point path movement"),
+        AllSerpveilS2ProjectilesUseActivePathMovement(Fixture.GetWorld()));
     return true;
 }
 

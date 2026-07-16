@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "Trigger/WTBRPathPresetTypes.h"
 
 class USkeletalMesh;
 class UAnimMontage;
@@ -888,6 +889,10 @@ struct FWTBRSerpveilParams
     // ⚠ PLAYTEST PENDING: maximum reach in Preset mode at full charge.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "100.0"))
     float SerpveilPresetMaxRange = 2200.0f;
+
+    // ⚠ PLAYTEST PENDING: authored curved path for Preset mode. Empty lanes fall back to straight fire.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path")
+    FWTBRPathPreset SerpveilPresetPath;
 
     // ⚠ PLAYTEST PENDING: true fires immediately at full charge; false waits for release.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Windup")

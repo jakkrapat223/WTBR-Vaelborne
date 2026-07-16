@@ -2,6 +2,7 @@
 #include "Trigger/WTBRSerpveilTrigger.h"
 #include "WTBRValidationLog.h"
 #include "Actors/WTBRProjectileBase.h"
+#include "Trigger/WTBRCompositeRegistryDataAsset.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Subsystem/WTBRActionPingSubsystem.h"
 #include "Components/WTBRHealthComponent.h"
@@ -411,6 +412,68 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
         Params.SerpveilSpeed,
         Params.SerpveilPerCubeDamage);
 
+    auto CompleteVolley = [this, World, &Params, VaelCost, VaelComp](int32 RequestedCount, int32 CompletedCount)
+    {
+        LastSerpveilFireTime = World->GetTimeSeconds();
+        if (UWTBRActionPingSubsystem* PingSystem = World->GetSubsystem<UWTBRActionPingSubsystem>())
+        {
+            PingSystem->RegisterActionPing(OwnerCharacter.Get());
+        }
+
+        // Preserve the existing BP event signature until S2 replaces shape presets.
+        OnSerpveilFired(Params.PresetShape);
+        OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
+
+        WTBR_VALIDATION_LOG(Verbose,
+            TEXT("[Serpveil S1] VolleyComplete | Owner=%s | Requested=%d | Spawned=%d | VaelCost=%.2f | NewVael=%.2f | TelegraphOff=true"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            RequestedCount,
+            CompletedCount,
+            VaelCost,
+            VaelComp->GetCurrentVael());
+    };
+
+    if (bModeIsPreset)
+    {
+        TArray<TArray<FVector>> CubeWorldPaths;
+        UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
+            Params.SerpveilPresetPath, SpawnOrigin, AimRotation, MaxRange, CubeWorldPaths);
+
+        if (CubeWorldPaths.Num() > 0)
+        {
+            int32 PresetSpawnedCount = 0;
+            for (const TArray<FVector>& Path : CubeWorldPaths)
+            {
+                if (Path.Num() < 2) continue;
+
+                const FTransform SpawnTransform(AimRotation, Path[0]);
+                AWTBRProjectileBase* Projectile = World->SpawnActorDeferred<AWTBRProjectileBase>(
+                    Params.SerpveilProjectileClass,
+                    SpawnTransform,
+                    nullptr,
+                    nullptr,
+                    ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+                if (!IsValid(Projectile)) continue;
+
+                Projectile->InitializeProjectile(
+                    Params.SerpveilPerCubeDamage,
+                    Params.SerpveilSpeed,
+                    ETriggerCategory::Gunner,
+                    false,
+                    false,
+                    0.0f);
+                Projectile->CubeSplitCount = 0;
+                Projectile->OwnerInstigator = OwnerCharacter.Get();
+                Projectile->FinishSpawning(SpawnTransform);
+                Projectile->InitializePathMovement(Path, Params.SerpveilSpeed, OwnerCharacter.Get());
+                ++PresetSpawnedCount;
+            }
+
+            CompleteVolley(CubeWorldPaths.Num(), PresetSpawnedCount);
+            return;
+        }
+    }
+
     for (int32 CubeIndex = 0; CubeIndex < CubeCount; ++CubeIndex)
     {
         // Saw-tooth launch formation (▲▼▲): cubes line up sideways, centred on
@@ -470,23 +533,7 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
             Projectile->CubeSplitCount);
     }
 
-    LastSerpveilFireTime = World->GetTimeSeconds();
-    if (UWTBRActionPingSubsystem* PingSystem = World->GetSubsystem<UWTBRActionPingSubsystem>())
-    {
-        PingSystem->RegisterActionPing(OwnerCharacter.Get());
-    }
-
-    // Preserve the existing BP event signature until S2 replaces shape presets.
-    OnSerpveilFired(Params.PresetShape);
-    OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
-
-    WTBR_VALIDATION_LOG(Verbose,
-        TEXT("[Serpveil S1] VolleyComplete | Owner=%s | Requested=%d | Spawned=%d | VaelCost=%.2f | NewVael=%.2f | TelegraphOff=true"),
-        *GetNameSafe(OwnerCharacter.Get()),
-        CubeCount,
-        SpawnedCount,
-        VaelCost,
-        VaelComp->GetCurrentVael());
+    CompleteVolley(CubeCount, SpawnedCount);
 }
 
 // ─── GetPreviewPathPoints (client only, for aim preview Blueprint) ────────────
