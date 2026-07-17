@@ -6,21 +6,39 @@
       "dataAsset": "/Game/Data/Triggers/DA_Telorn",
       "trail": "/Game/VFX/Sniper/NS_Telorn_Trail",
       "impact": "/Game/VFX/Sniper/NS_Telorn_Impact",
-      "maxImpactVFXDistance": 20000
+      "maxImpactVFXDistance": 20000,
+      "surfaceOverrides": [
+        { "surfaceType": 1, "effect": "/Game/VFX/Surfaces/NS_Impact_Metal" },
+        { "surfaceType": 2, "effect": "/Game/VFX/Surfaces/NS_Impact_Stone" },
+        { "surfaceType": 3, "effect": "/Game/VFX/Surfaces/NS_Impact_Flesh" },
+        { "surfaceType": 4, "effect": "/Game/VFX/Surfaces/NS_Impact_Shield" }
+      ]
     },
     {
       "sniper": "Piercex",
       "dataAsset": "/Game/Data/Triggers/DA_Piercex",
       "trail": "/Game/VFX/Sniper/NS_Piercex_Trail",
       "impact": "/Game/VFX/Sniper/NS_Piercex_Impact",
-      "maxImpactVFXDistance": 20000
+      "maxImpactVFXDistance": 20000,
+      "surfaceOverrides": [
+        { "surfaceType": 1, "effect": "/Game/VFX/Surfaces/NS_Impact_Metal" },
+        { "surfaceType": 2, "effect": "/Game/VFX/Surfaces/NS_Impact_Stone" },
+        { "surfaceType": 3, "effect": "/Game/VFX/Surfaces/NS_Impact_Flesh" },
+        { "surfaceType": 4, "effect": "/Game/VFX/Surfaces/NS_Impact_Shield" }
+      ]
     },
     {
       "sniper": "Fulgris",
       "dataAsset": "/Game/Data/Triggers/DA_Fulgris",
       "trail": "/Game/VFX/Sniper/NS_Fulgris_Trail",
       "impact": "/Game/VFX/Sniper/NS_Fulgris_Impact",
-      "maxImpactVFXDistance": 20000
+      "maxImpactVFXDistance": 20000,
+      "surfaceOverrides": [
+        { "surfaceType": 1, "effect": "/Game/VFX/Surfaces/NS_Impact_Metal" },
+        { "surfaceType": 2, "effect": "/Game/VFX/Surfaces/NS_Impact_Stone" },
+        { "surfaceType": 3, "effect": "/Game/VFX/Surfaces/NS_Impact_Flesh" },
+        { "surfaceType": 4, "effect": "/Game/VFX/Surfaces/NS_Impact_Shield" }
+      ]
     }
   ]
 }
