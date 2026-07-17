@@ -311,6 +311,12 @@ body {
     linear-gradient(135deg, rgba(5, 18, 26, 0.9), rgba(2, 7, 12, 0.76));
 }
 
+.minimap-umg-image-proxy {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
 .map-grid {
   position: absolute;
   inset: 0;
@@ -464,6 +470,20 @@ body {
   background: linear-gradient(90deg, #0ba8ff, var(--vael));
 }
 
+.vael-card.critical {
+  border-color: var(--red);
+  box-shadow: 0 0 22px rgba(255, 36, 56, 0.32), inset 0 0 24px rgba(255, 36, 56, 0.14);
+}
+
+.vael-card.critical .vael-icon {
+  color: var(--red);
+  border-right-color: rgba(255, 36, 56, 0.5);
+}
+
+.vael-card.critical .vael-fill {
+  background: linear-gradient(90deg, #c41626, var(--red));
+}
+
 .quick-item {
   display: grid;
   justify-items: center;
@@ -545,6 +565,16 @@ body {
   opacity: 0.78;
 }
 
+.quick-item__count--binding,
+.umg-binding-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0.01;
+  pointer-events: none;
+}
+
 .pickup-prompt .binding {
   min-width: 28px;
   height: 24px;
@@ -554,10 +584,10 @@ body {
 .right-combat-stack {
   position: absolute;
   right: 36px;
-  bottom: 82px;
+  bottom: 48px;
   width: 326px;
-  display: grid;
-  gap: 18px;
+  display: flex;
+  flex-direction: column;
 }
 
 .cancel-prompt {
@@ -582,9 +612,52 @@ body {
   opacity: 1;
 }
 
+.composite-merge-bar {
+  position: relative;
+  width: 326px;
+  height: 38px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  background: var(--panel-bg);
+  border: 1px solid rgba(233, 251, 255, 0.34);
+  box-shadow: 0 0 12px rgba(32, 217, 255, 0.14), inset 0 0 16px rgba(5, 24, 34, 0.42);
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+}
+
+.composite-merge-progress {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.composite-merge-progress__fill {
+  display: block;
+  width: 65%;
+  height: 100%;
+  background-color: var(--cyan);
+  background-image: linear-gradient(90deg, var(--cyan), var(--orange));
+  box-shadow: 0 0 14px rgba(32, 217, 255, 0.38);
+}
+
+.composite-merge-status {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.75);
+}
+
 .trigger-card {
-  min-height: 140px;
-  padding: 10px 16px 16px;
+  width: 326px;
+  min-height: 86px;
+  height: 86px;
+  padding: 6px 12px 8px;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.055), transparent 46%),
     var(--panel-bg-strong);
@@ -592,21 +665,26 @@ body {
   backdrop-filter: blur(8px);
 }
 
+.trigger-card + .trigger-card {
+  margin-top: 12px;
+}
+
 .main-trigger {
-  border-color: rgba(32, 217, 255, 0.72);
-  box-shadow: 0 0 18px rgba(32, 217, 255, 0.18), inset 0 0 30px rgba(20, 115, 180, 0.14);
+  border: 2px solid rgba(32, 217, 255, 0.96);
+  box-shadow: 0 0 22px rgba(32, 217, 255, 0.28), inset 0 0 30px rgba(20, 115, 180, 0.16);
 }
 
 .sub-trigger {
-  border-color: rgba(255, 75, 47, 0.72);
-  box-shadow: 0 0 18px rgba(255, 75, 47, 0.18), inset 0 0 30px rgba(255, 75, 47, 0.1);
+  border: 2px solid rgba(255, 75, 47, 0.96);
+  box-shadow: 0 0 22px rgba(255, 75, 47, 0.28), inset 0 0 30px rgba(255, 75, 47, 0.12);
 }
 
 .slot-diamonds {
   text-align: center;
   color: var(--muted);
-  letter-spacing: 0.22em;
-  font-size: 15px;
+  letter-spacing: 0.14em;
+  font-size: 10px;
+  line-height: 12px;
 }
 
 .main-trigger .slot-diamonds {
@@ -619,42 +697,46 @@ body {
 
 .trigger-content {
   display: grid;
-  grid-template-columns: 82px 1fr 42px;
+  grid-template-columns: 180px 1fr 38px;
   align-items: center;
-  gap: 14px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 3px;
 }
 
 .trigger-icon {
-  width: 72px;
-  height: 72px;
+  width: 176px;
+  height: 56px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.035);
 }
 
 .slash-icon {
+  color: #cff6ff;
   background:
-    linear-gradient(135deg, transparent 35%, white 36% 40%, transparent 41%),
-    linear-gradient(125deg, transparent 45%, white 46% 50%, transparent 51%),
-    linear-gradient(150deg, transparent 54%, white 55% 59%, transparent 60%),
-    rgba(255, 255, 255, 0.035);
+    linear-gradient(135deg, transparent 30%, var(--cyan) 31% 36%, transparent 37%),
+    linear-gradient(125deg, transparent 43%, #e9fbff 44% 48%, transparent 49%),
+    linear-gradient(150deg, transparent 54%, var(--cyan) 55% 60%, transparent 61%),
+    rgba(32, 217, 255, 0.055);
 }
 
 .shield-icon {
-  clip-path: polygon(50% 7%, 82% 20%, 74% 64%, 50% 91%, 26% 64%, 18% 20%);
-  border-color: transparent;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.18));
+  clip-path: polygon(16% 50%, 34% 18%, 55% 27%, 82% 50%, 55% 73%, 34% 82%);
+  border-color: rgba(255, 75, 47, 0.48);
+  color: #ffd9c9;
+  background:
+    radial-gradient(ellipse at 45% 50%, transparent 0 20%, var(--orange) 21% 26%, transparent 27% 42%, var(--orange) 43% 48%, transparent 49%),
+    rgba(255, 75, 47, 0.055);
 }
 
 .trigger-copy {
   display: grid;
-  gap: 8px;
+  gap: 2px;
 }
 
 .trigger-copy span {
-  font-size: 15px;
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
 }
 
 .main-trigger .trigger-copy span {
@@ -666,12 +748,53 @@ body {
 }
 
 .trigger-copy strong {
-  font-size: 28px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.trigger-cost {
+  color: var(--muted);
+  font-size: 9px;
+  font-style: normal;
+  line-height: 10px;
+}
+
+.trigger-cooldown {
+  height: 4px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.13);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+}
+
+.trigger-cooldown__fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  background-color: var(--cyan);
+}
+
+.sub-trigger .trigger-cooldown__fill {
+  background-color: var(--orange);
+}
+
+.trigger-key-wrap {
+  display: grid;
+  width: 38px;
+  height: 22px;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(233, 251, 255, 0.34);
+  border-radius: 3px;
 }
 
 .trigger-binding {
   justify-self: end;
+  min-width: 36px;
+  height: 20px;
+  border: 0;
+  background: transparent;
+  font-size: 9px;
 }
 
 .center-combat {
@@ -746,7 +869,7 @@ body {
 }
 
 .hit-marker {
-  display: none;
+  display: block;
   position: absolute;
   left: 50%;
   top: calc(50% - 54px);
@@ -755,11 +878,22 @@ body {
   border-top: 2px solid rgba(255, 255, 255, 0.55);
   border-bottom: 2px solid rgba(255, 255, 255, 0.55);
   transform: translateX(-50%) rotate(45deg);
-  opacity: 0.18;
+  opacity: 0;
 }
 
 .hit-marker.visible {
-  display: block;
+  opacity: 0.18;
+}
+
+.damage-feedback {
+  position: absolute;
+  left: 50%;
+  top: calc(50% - 84px);
+  transform: translateX(-50%);
+  color: var(--orange);
+  font-size: 18px;
+  font-weight: 800;
+  opacity: 0;
 }
 
 .focus-marker {

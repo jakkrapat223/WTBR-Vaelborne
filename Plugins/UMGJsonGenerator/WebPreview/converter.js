@@ -350,7 +350,10 @@
           }
           if (forcedType === "ProgressBar") { emitProgressBar(el, cs, rect); return; }
           if (forcedType === "Image") {
-            push("Image", nameFor("Image", el, usedNames), rect, {});
+            const props = {};
+            const tint = cssColorToHex(cs.color, effectiveOpacity(el, captureRoot));
+            if (tint) props.color = tint;
+            push("Image", nameFor("Image", el, usedNames), rect, props);
             warnings.push(describeElement(el) + ": Image emitted without imagePath — assign a texture in the JSON.");
             return;
           }

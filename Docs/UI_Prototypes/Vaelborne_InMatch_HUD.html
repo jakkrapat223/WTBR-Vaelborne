@@ -17,7 +17,7 @@
     - Client UI must not mutate inventory, slots, loot, ground items, or dropped triggers directly.
 
     Remappable key display rule:
-    - Visible labels such as E, X, Q, S, 4, LMB, and RMB are mock examples only.
+    - Visible action labels use the remappable [Input] placeholder only.
     - Production UI must resolve display names/glyphs from Input Mapping / Enhanced Input.
     - Future implementation should support keyboard, mouse, and gamepad glyph/display names.
 
@@ -43,110 +43,128 @@
       </div>
 
       <aside class="match-cluster top-left" aria-label="Match state and kill feed">
-        <div class="match-summary panel angular" aria-label="Match summary">
+        <div class="match-summary panel angular" data-umg-name="Border_MatchSummary" data-umg-type="Border" aria-label="Match summary">
           <div class="match-stat match-stat--alive">
-            <span class="stat-icon">A</span>
-            <span class="stat-label">ALIVE</span>
-            <span class="stat-value">42</span>
+            <span class="stat-icon" data-umg="skip">A</span>
+            <span class="stat-label" data-umg-name="Txt_AliveLabel" data-umg-type="TextBlock">ALIVE</span>
+            <span class="stat-value" data-umg-name="Txt_AliveValue" data-umg-type="TextBlock">42</span>
           </div>
           <div class="match-stat match-stat--kill">
-            <span class="stat-icon">K</span>
-            <span class="stat-label">KILL</span>
-            <span class="stat-value">03</span>
+            <span class="stat-icon" data-umg="skip">K</span>
+            <span class="stat-label" data-umg-name="Txt_KillLabel" data-umg-type="TextBlock">KILL</span>
+            <span class="stat-value" data-umg-name="Txt_KillValue" data-umg-type="TextBlock">03</span>
           </div>
         </div>
         <!-- Production should show this only for death/elimination events, then hide or fade it after a short duration. -->
-        <div class="kill-feed visible" aria-label="Kill feed sample">
-          <div class="kill-feed__entry"><span class="killer">Vaelborn</span><span class="verb">eliminated</span><span class="victim">ShadowRogue</span></div>
-          <div class="kill-feed__entry"><span class="killer">Nyx_07</span><span class="verb">eliminated</span><span class="victim">IronVoid</span></div>
-          <div class="kill-feed__entry"><span class="killer">Vaelborn</span><span class="verb">eliminated</span><span class="victim">SilentEdge</span></div>
+        <div class="kill-feed hidden" data-umg-name="Border_KillFeed" data-umg-type="Border" aria-label="Kill feed sample">
+          <span class="umg-binding-only" data-umg-name="Txt_KillFeedTitle" data-umg-type="TextBlock">KILL FEED</span>
+          <div class="kill-feed__entry" data-umg-name="Txt_KillFeedLine1" data-umg-type="TextBlock">Vaelborn eliminated ShadowRogue</div>
+          <div class="kill-feed__entry" data-umg-name="Txt_KillFeedLine2" data-umg-type="TextBlock">Nyx_07 eliminated IronVoid</div>
+          <div class="kill-feed__entry" data-umg-name="Txt_KillFeedLine3" data-umg-type="TextBlock">Vaelborn eliminated SilentEdge</div>
         </div>
       </aside>
 
       <div class="top-center-reserve" aria-hidden="true"></div>
 
+      <!-- BINDING TODO: Zone/Timer/Phase strip remains visible in this prototype. Hide it only for BR mode during the future binding pass. -->
       <aside class="navigation-stack top-right" aria-label="Map and zone state">
-        <div class="minimap panel angular">
-          <div class="map-grid"></div>
-          <div class="safe-zone"></div>
-          <div class="player-arrow"></div>
-          <span class="map-marker marker-a"></span>
-          <span class="map-marker marker-b"></span>
-          <span class="map-marker marker-c"></span>
-          <div class="compass">N</div>
+        <div class="minimap panel angular" data-umg-name="Border_Minimap" data-umg-type="Border">
+          <div class="minimap-umg-image-proxy" data-umg-name="Img_MinimapPlaceholder" data-umg-type="Image" data-umg="keep" aria-hidden="true"></div>
+          <div class="map-grid" data-umg="skip"></div>
+          <div class="safe-zone" data-umg="skip"></div>
+          <div class="player-arrow" data-umg="skip"></div>
+          <span class="map-marker marker-a" data-umg="skip"></span>
+          <span class="map-marker marker-b" data-umg="skip"></span>
+          <span class="map-marker marker-c" data-umg="skip"></span>
+          <div class="compass" data-umg-name="Txt_MinimapTitle" data-umg-type="TextBlock">N</div>
         </div>
-        <div class="zone-strip panel">
-          <span><b>ZONE</b> 2</span>
-          <span>01:24</span>
-          <span><b>PHASE</b> 3</span>
+        <div class="zone-strip panel" data-umg-name="Border_ZoneStrip" data-umg-type="Border">
+          <span><b data-umg-name="Txt_ZoneLabel" data-umg-type="TextBlock">ZONE</b> <i data-umg-name="Txt_ZoneValue" data-umg-type="TextBlock">2</i></span>
+          <span data-umg-name="Txt_ZoneTimer" data-umg-type="TextBlock">01:24</span>
+          <span><b data-umg-name="Txt_PhaseLabel" data-umg-type="TextBlock">PHASE</b> <i data-umg-name="Txt_PhaseValue" data-umg-type="TextBlock">3</i></span>
         </div>
       </aside>
 
       <section class="vitals-stack bottom-left" aria-label="HP VAEL and quick item">
-        <div class="vital-card panel hp-card">
+        <div class="vital-card panel hp-card" data-umg-name="Border_PlayerVitals" data-umg-type="Border">
           <div class="vital-icon hp-icon">+</div>
           <div class="vital-body">
             <div class="vital-top">
-              <span>HP</span>
-              <strong>820 / 1000</strong>
+              <span data-umg-name="Txt_HPLabel" data-umg-type="TextBlock">HP</span>
+              <strong data-umg-name="Txt_HPValue" data-umg-type="TextBlock">820 / 1000</strong>
             </div>
-            <div class="bar-track"><span class="bar-fill hp-fill"></span></div>
+            <div class="bar-track" data-umg-name="PB_HP" data-umg-type="ProgressBar"><span class="bar-fill hp-fill"></span></div>
           </div>
         </div>
 
         <div class="vital-row">
-          <div class="vital-card panel vael-card">
+          <!-- BINDING TODO: add/remove the "critical" class on this card based on affordability, NOT a
+               flat percentage: Current VAEL < the active Main/Sub Trigger's Vael cost. A Trigger with
+               VaelCost == 0 (e.g. Feryx, Lacern tap) must NEVER show this red state, even at 0 VAEL. -->
+          <div class="vital-card panel vael-card" data-umg-name="Border_VaelCard" data-umg-type="Border">
             <div class="vital-icon vael-icon">◆</div>
             <div class="vital-body">
               <div class="vital-top">
-                <span>VAEL</span>
-                <strong>64%</strong>
+                <span data-umg-name="Txt_VaelLabel" data-umg-type="TextBlock">VAEL</span>
+                <strong data-umg-name="Txt_VaelValue" data-umg-type="TextBlock">64%</strong>
               </div>
-              <div class="bar-track"><span class="bar-fill vael-fill"></span></div>
+              <div class="bar-track" data-umg-name="PB_Vael" data-umg-type="ProgressBar"><span class="bar-fill vael-fill"></span></div>
             </div>
           </div>
 
-          <button class="quick-item normal" aria-label="Quick Item consumable x3">
-            <!-- "4" is a remappable QuickItem action binding display example only; production resolves it from Input Mapping / Enhanced Input. -->
-            <span class="quick-item__icon-wrap" aria-hidden="true">
+          <!-- BINDING TODO: these 3 widgets are visually-hidden (umg-binding-only class) on purpose —
+               they exist to carry a real bindable name/type into the JSON without duplicating the
+               already-visible icon+badge. Whoever wires binding must resize/reveal them (or replace the
+               visible decorative spans with these) rather than leaving them invisible in the final WBP. -->
+          <button class="quick-item normal" data-umg="ignore" aria-label="Quick Item consumable x3">
+            <span class="quick-item__icon-wrap" data-umg="skip" aria-hidden="true">
               <span class="quick-item__icon">+</span>
               <span class="quick-item__count">x3</span>
             </span>
-            <span class="quick-item__key binding">4</span>
+            <span class="quick-item__count quick-item__count--binding" data-umg-name="Txt_QuickItemCount" data-umg-type="TextBlock">x3</span>
+            <span class="quick-item__key binding" data-umg-name="Txt_QuickItemKey" data-umg-type="TextBlock">[Input]</span>
+            <span class="umg-binding-only" data-umg-name="Txt_QuickItemLabel" data-umg-type="TextBlock">QUICK ITEM</span>
+            <span class="umg-binding-only" data-umg-name="Txt_QuickItemName" data-umg-type="TextBlock">Quick Item</span>
           </button>
         </div>
       </section>
 
       <section class="right-combat-stack" aria-label="Trigger and cancel state">
-        <button class="cancel-prompt visible">
-          <!-- "X" is a remappable Cancel action binding display example only. -->
-          <span class="binding">X</span>
-          <span>Cancel</span>
-        </button>
+        <div class="cancel-prompt hidden" data-umg-name="Border_CancelPrompt" data-umg-type="Border">
+          <span class="binding" data-umg-name="Txt_CancelPrompt" data-umg-type="TextBlock">[Input] Cancel</span>
+        </div>
 
-        <article class="trigger-card panel angular main-trigger" aria-label="Main Trigger Lacern">
-          <div class="slot-diamonds" aria-label="Active Main slot indicator">◇ ◆ ◇ ◇</div>
+        <!-- BINDING TODO: hidden by default (idle, no active merge). Visible only while CurrentMergeState != None OR bCompositeCooldownActive OR HasReadyComposite(). Text/fill/color driven by state, see wtbr-composite-merge-hud-mockup-state memory. -->
+        <div class="composite-merge-bar" data-umg-name="Border_CompositeMergeBar" data-umg-type="Border" aria-label="Composite Merge status">
+          <div class="composite-merge-progress" data-umg-name="PB_CompositeMergeProgress" data-umg-type="ProgressBar"><span class="composite-merge-progress__fill"></span></div>
+          <span class="composite-merge-status" data-umg-name="Txt_CompositeMergeStatus" data-umg-type="TextBlock">FULGVYN — MERGING 65%</span>
+        </div>
+
+        <article class="trigger-card panel angular main-trigger" data-umg-name="Border_MainTriggerCard" data-umg-type="Border" aria-label="Main Trigger FULGRIX">
+          <div class="slot-diamonds" data-umg-name="Txt_MainTriggerSlotIndicator" data-umg-type="TextBlock" aria-label="Active Main slot indicator">◆ ◇ ◇ ◇</div>
           <div class="trigger-content">
-            <div class="trigger-icon slash-icon"></div>
+            <div class="trigger-icon slash-icon" data-umg-name="Img_MainTriggerIcon" data-umg-type="Image"></div>
             <div class="trigger-copy">
-              <span>MAIN</span>
-              <strong>Lacern</strong>
+              <span data-umg-name="Txt_MainTriggerLabel" data-umg-type="TextBlock">MAIN</span>
+              <strong data-umg-name="Txt_MainTriggerName" data-umg-type="TextBlock">FULGRIX</strong>
+              <em class="trigger-cost" data-umg-name="Txt_MainTriggerCost" data-umg-type="TextBlock">Cost: 0</em>
+              <div class="trigger-cooldown" data-umg-name="PB_MainTriggerCooldown" data-umg-type="ProgressBar"><span class="trigger-cooldown__fill"></span></div>
             </div>
-            <!-- "Q" is a remappable Main Use binding display example only. -->
-            <div class="binding trigger-binding">Q</div>
+            <div class="trigger-key-wrap" data-umg-name="Border_MainTriggerKeyBox" data-umg-type="Border"><span class="binding trigger-binding" data-umg-name="Txt_MainTriggerKey" data-umg-type="TextBlock">[Input]</span></div>
           </div>
         </article>
 
-        <article class="trigger-card panel angular sub-trigger" aria-label="Sub Trigger Aegorn">
-          <div class="slot-diamonds" aria-label="Active Sub slot indicator">◇ ◇ ◆ ◇</div>
+        <article class="trigger-card panel angular sub-trigger" data-umg-name="Border_SubTriggerCard" data-umg-type="Border" aria-label="Sub Trigger VENYX">
+          <div class="slot-diamonds" data-umg-name="Txt_SubTriggerSlotIndicator" data-umg-type="TextBlock" aria-label="Active Sub slot indicator">◇ ◆ ◇ ◇</div>
           <div class="trigger-content">
-            <div class="trigger-icon shield-icon"></div>
+            <div class="trigger-icon shield-icon" data-umg-name="Img_SubTriggerIcon" data-umg-type="Image"></div>
             <div class="trigger-copy">
-              <span>SUB</span>
-              <strong>Aegorn</strong>
+              <span data-umg-name="Txt_SubTriggerLabel" data-umg-type="TextBlock">SUB</span>
+              <strong data-umg-name="Txt_SubTriggerName" data-umg-type="TextBlock">VENYX</strong>
+              <em class="trigger-cost" data-umg-name="Txt_SubTriggerCost" data-umg-type="TextBlock">Cost: 30</em>
+              <div class="trigger-cooldown" data-umg-name="PB_SubTriggerCooldown" data-umg-type="ProgressBar"><span class="trigger-cooldown__fill"></span></div>
             </div>
-            <!-- "S" is a remappable Sub Use binding display example only. -->
-            <div class="binding trigger-binding">S</div>
+            <div class="trigger-key-wrap" data-umg-name="Border_SubTriggerKeyBox" data-umg-type="Border"><span class="binding trigger-binding" data-umg-name="Txt_SubTriggerKey" data-umg-type="TextBlock">[Input]</span></div>
           </div>
         </article>
       </section>
@@ -155,13 +173,12 @@
         <div class="crosshair">
           <span></span><span></span><span></span><span></span>
         </div>
-        <div class="pickup-prompt hidden">
-          <!-- "E" is a remappable Pick Up binding display example only; production resolves it from Input Mapping / Enhanced Input. -->
-          <span class="binding">E</span>
-          <span>Pick Up</span>
+        <div class="pickup-prompt hidden" data-umg-name="Border_PickupPrompt" data-umg-type="Border">
+          <span class="binding" data-umg-name="Txt_PickupPrompt" data-umg-type="TextBlock">[Input] Pick Up</span>
         </div>
         <!-- Future enemy/focus/hit markers are contextual only and hidden by default. -->
-        <div class="hit-marker" aria-hidden="true"></div>
+        <div class="hit-marker" data-umg="keep" aria-hidden="true"><span data-umg-name="Txt_HitMarker" data-umg-type="TextBlock">+</span></div>
+        <span class="damage-feedback" data-umg="keep" data-umg-name="Txt_DamageFeedback" data-umg-type="TextBlock" aria-hidden="true">32</span>
         <div class="focus-marker" aria-hidden="true">◇</div>
       </section>
       </div>
