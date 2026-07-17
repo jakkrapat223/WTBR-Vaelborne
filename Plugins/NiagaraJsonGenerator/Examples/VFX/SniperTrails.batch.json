@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "validateOnly": false,
+  "stopOnError": false,
+  "files": [
+    "NS_Telorn_Trail.json",
+    "NS_Piercex_Trail.json",
+    "NS_Fulgris_Trail.json"
+  ]
+}

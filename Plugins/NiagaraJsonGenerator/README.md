@@ -1,20 +1,33 @@
-# Niagara JSON Generator — Spike (v0.1)
+# WTBR Niagara JSON Generator (v1.1.0)
 
 **Engine:** Unreal Engine 5.1.1
 **Type:** Editor-only plugin (C++)
-**Status:** SPIKE — proves `duplicate template + set User Parameter defaults + save`.
-Not a production importer yet.
+**Status:** Production template-driven importer for WTBR.
+
+Version 1 keeps the safe template workflow and adds:
+
+- full read-only validation (`WTBR.Niagara.ValidateJson`);
+- strict template contracts that abort before creating/updating an output asset;
+- batch import/validation manifests (`WTBR.Niagara.ImportBatch`);
+- schema versioning while remaining compatible with v0.1 JSON;
+- `vector2` and `vector4` parameters in addition to the original types;
+- three Tools-menu actions for import, validation, and batch workflows.
+- a **Generate VFX Preset** dialog for Color, Energy, Speed, and Spark Count;
+- automatic Niagara Editor preview after a preset is generated;
+- runtime asset-parameter overrides for Material, Texture, Curve, Mesh, and
+  Ribbon-profile assets, bound through Trigger Data Assets.
 
 ---
 
-## Spike Scope (hard limits)
+## Production Scope (intentional limits)
 
-| In scope | Out of scope (do NOT extend this spike into these) |
+| In scope | Deliberate non-goals |
 |----------|------------------------------------------------------|
 | Duplicate an existing Niagara System template asset | Creating a Niagara System / emitter graph from scratch |
 | Set exposed **User Parameter** defaults on the asset | Touching module stack, scratch modules, or any graph internals |
 | Save the asset so values persist across editor restarts | Runtime component parameter overrides (already possible via BP) |
-| Update-in-place when the output asset already exists | Batch import, commandlet, WBP-style validation suite |
+| Update-in-place when the output asset already exists | Replacing artistic review or performance profiling |
+| Validate one spec or batch-import many specs | Automatic authoring of arbitrary Niagara module graphs |
 
 ---
 
@@ -23,7 +36,7 @@ Not a production importer yet.
 The production template lives at `/Game/VFX/Templates/NS_Template_Burst` and must
 expose 4 User Parameters **wired so they drive the visual**. ~10 minutes, once.
 This is deliberately human work: programmatic module-stack editing is out of scope
-by design (see Spike Scope).
+by design (see Production Scope).
 
 1. Content Browser → `Content/VFX/` → create folder `Templates`.
 2. Right-click in it → **FX → Niagara System** → **New system from selected emitter(s)**
@@ -64,7 +77,7 @@ by design (see Spike Scope).
 
 **Method A — Tools menu (interactive):**
 1. Open the project in Unreal Editor (plugin builds with the WTBREditor target).
-2. **Tools → Import Niagara JSON (Spike)...**
+2. **Tools → Import Niagara JSON...**
 3. Select `Plugins/NiagaraJsonGenerator/Examples/NS_Test_Burst_FromJson.json`.
 4. A toast shows the summary; details are in the Output Log under `LogNiagaraJsonSpike`.
 
@@ -72,6 +85,97 @@ by design (see Spike Scope).
 ```
 WTBR.Niagara.ImportJson E:\World Trigger\WTBR-Vaelborne\Plugins\NiagaraJsonGenerator\Examples\NS_Test_Burst_FromJson.json
 ```
+
+**Validate without modifying assets:**
+
+```text
+WTBR.Niagara.ValidateJson E:\Path\To\Effect.json
+```
+
+Validation checks JSON shape, the template asset, every exposed parameter name/type,
+and the output target. It never duplicates, modifies, dirties, or saves an asset.
+
+**Batch import or validation:**
+
+```text
+WTBR.Niagara.ImportBatch E:\Path\To\Batch.json
+```
+
+Batch manifest schema (relative spec paths resolve beside the manifest):
+
+```json
+{
+  "schemaVersion": 1,
+  "validateOnly": false,
+  "stopOnError": false,
+  "files": [
+    "NS_Telorn_Impact.json",
+    "NS_Piercex_Impact.json",
+    "NS_Fulgris_Impact.json"
+  ]
+}
+```
+
+**Bind generated Sniper VFX to WTBR gameplay:**
+
+```text
+WTBR.Niagara.AutoBindSniper E:\Path\To\SniperVFX.bind.json
+```
+
+The binder writes the selected trail, default impact, surface overrides, and
+per-client impact cull distance into Telorn, Piercex, and Fulgris Trigger Data
+Assets. It enables the runtime built-in impact path, so migrated projectiles no
+longer need a Blueprint `Spawn System at Location` graph.
+
+```json
+{
+  "schemaVersion": 1,
+  "bindings": [
+    {
+      "sniper": "Telorn",
+      "dataAsset": "/Game/Data/Triggers/DA_Telorn",
+      "trail": "/Game/VFX/Sniper/NS_Telorn_Trail",
+      "impact": "/Game/VFX/Sniper/NS_Telorn_Impact",
+      "maxImpactVFXDistance": 20000,
+      "surfaceOverrides": [
+        { "surfaceType": 1, "effect": "/Game/VFX/Sniper/NS_Telorn_Impact_Metal" }
+      ],
+      "assetOverrides": [
+        { "parameter": "User.ImpactMaterial", "asset": "/Game/VFX/Materials/M_Impact_Metal" },
+        { "parameter": "User.RibbonProfile", "asset": "/Game/VFX/Curves/CV_RibbonProfile" }
+      ]
+    }
+  ]
+}
+```
+
+`surfaceType` is the numeric physical-surface ID configured in **Project Settings
+→ Physics → Physical Surfaces**. Omit `surfaceOverrides` to use `impact` for every
+surface. The supplied WTBR Sniper manifest deliberately does this until dedicated
+metal/stone/shield impact assets exist.
+
+`assetOverrides` is optional. Each item binds an existing content asset to a
+compatible exposed Niagara `User.*` UObject parameter at spawn time. Use it for
+Material, Texture, Curve, Static Mesh, or Ribbon-profile inputs; the template is
+responsible for exposing and wiring the matching parameter type.
+
+## No-JSON Preset Editor
+
+Open **Tools → Generate VFX Preset...**, select a template/output path, choose a
+color, and enter Energy, Speed, and Spark Count. The editor creates a strict
+internal spec under `Saved/VFXPresets`, imports it, and opens the generated asset
+in Niagara's Preview Scene. The template must expose `User.Color` (color),
+`User.Energy` (float), `User.Speed` (float), and `User.SparkCount` (int).
+
+**Audit static Niagara complexity:**
+
+```text
+WTBR.Niagara.AuditSystem /Game/VFX/Sniper/NS_Telorn_Impact
+```
+
+The audit reports enabled emitter count, renderer count, CPU/GPU simulation, and
+pre-allocation. It does not alter the asset; it warns when static complexity is
+above the WTBR gameplay-effect guardrails.
 (Unquoted paths with spaces are re-joined automatically.)
 
 Re-running the same JSON updates the existing output asset **in place** (no duplicate
@@ -79,12 +183,14 @@ copies, no GUID churn) — edit values in the JSON and re-import to iterate.
 
 ---
 
-## JSON Schema (spike)
+## JSON Schema (v1)
 
 ```json
 {
+	"schemaVersion": 1,
 	"template": "/Game/VFX/Templates/NS_Template_Burst",
 	"outputPath": "/Game/VFX/Generated/NS_Test_Burst_FromJson",
+	"strict": true,
 	"addMissingParams": false,
 	"params": {
 		"User.Color":      { "type": "color", "value": [0.45, 0.30, 1.00, 1.0] },
@@ -97,14 +203,16 @@ copies, no GUID churn) — edit values in the JSON and re-import to iterate.
 
 | Field | Required | Notes |
 |-------|----------|-------|
+| `schemaVersion` | Recommended | Production schema version. Currently `1`; omitted v0.1 specs remain compatible. |
 | `template` | ✅ | Content path of an existing `UNiagaraSystem`. **Whitelist: must be under `/Game/VFX/Templates/`** (E004) — prevents duplicating gameplay assets by accident. Missing on disk / wrong class → E101/E102. |
 | `outputPath` | ✅ | Must be under `/Game/VFX/` (E006) and **never under `/Game/VFX/Templates/`** (E007 — templates are read-only inputs). Existing package on disk → update in place; exists but won't load as a NiagaraSystem → refuse (E201). |
+| `strict` | No (default `false`) | When `true`, every JSON parameter must already exist on the template with the exact Niagara type. Any mismatch aborts before the output asset is touched. Recommended for production specs. |
 | `addMissingParams` | — (default `false`, **always**) | `true` = params not exposed on the template are **added** to the exposed store. A param added this way is *not wired to any module*, so it stores a value but drives nothing visually — explicit per-file opt-in only. Non-bool value → W005, treated as `false`. |
 | `params` | ✅ | Object. Keys accept both `User.Color` and `Color` (normalized via `MakeUserVariable`). Each entry must be `{ "type": ..., "value": ... }`. Empty object → W004. |
 
 Unknown top-level fields → W001 warning, import continues.
 
-Supported `type` values: `float`, `int`, `bool`, `color` (`[r,g,b]` or `[r,g,b,a]`, 0–1 floats), `vector3` (`[x,y,z]`, exactly 3 numbers; aliases `vec3`/`vector` accepted).
+Supported `type` values: `float`, `int`, `bool`, `color` (`[r,g,b]` or `[r,g,b,a]`, 0–1 floats), `vector2`, `vector3`, and `vector4` (aliases `vec2`, `vec3`/`vector`, and `vec4`).
 
 Mismatched type vs. the template's exposed param → W102 warning + that param skipped
 (the store's type wins; the value is never force-cast).
@@ -288,7 +396,7 @@ Run after the automated checks pass:
       every second: expect a dense (128) burst of large (60) orange particles.
 - [ ] Edit `Examples/NS_Test_Burst_FromJson_Round2.json` — e.g. Color to green
       `[0.2, 1.0, 0.3, 1.0]`, SpawnCount to `16` — and re-import via
-      **Tools → Import Niagara JSON (Spike)...** (or the console command).
+      **Tools → Import Niagara JSON...** (or the console command).
 - [ ] **The placed effect in the level must visibly change** (sparse green instead of
       dense orange). If the viewport doesn't refresh, reselect the actor or toggle
       its Activate — the asset on disk is already updated (verify with
@@ -350,8 +458,8 @@ Negative checks worth 2 minutes:
   `FVector3f` explicitly.
 - **`addMissingParams: true` adds a *dangling* parameter** — it appears in the User
   Parameters panel and persists, but drives nothing until a human links it inside a
-  module. Fine for spike testing, misleading for production — the future full plugin
-  should default this off and treat "param missing on template" as a spec error.
+  module. It is useful for controlled experiments but production specs should use
+  `strict: true`, which treats a missing template parameter as an error.
 - **No visual verification possible from code** — the importer confirms values are
   stored, not that the effect looks right. Human eyes (or a future screenshot loop)
   still gate quality.
@@ -360,8 +468,8 @@ Negative checks worth 2 minutes:
   UMG `widget_tree` finding from the T1 spike); the C++ editor module is what makes it
   work. Asset duplication alone *is* available to Python.
 
-## Next Steps (only if spike passes)
+## Recommended Next Content Steps
 
-1. Template library: `NS_Base_SlashTrail`, `NS_Base_HitBurst`, `NS_Base_Beam`, `NS_Base_GroundImpact` with an agreed User Parameter naming convention.
-2. Promote spike importer → `FNiagaraJsonImporter` with validation suite + Examples/Invalid fixtures (mirror UMGJsonGenerator Phase 1).
-3. Headless commandlet path for automation (`-run=` or `-ExecCmds="WTBR.Niagara.ImportJson ..."`).
+1. Expand the curated template library: `NS_Base_SlashTrail`, `NS_Base_HitBurst`, `NS_Base_Beam`, and `NS_Base_GroundImpact` with an agreed User Parameter naming convention.
+2. Put `"schemaVersion": 1` and `"strict": true` in every new gameplay VFX spec.
+3. Group weapon families into batch manifests and run validation before import in CI or a headless editor process.

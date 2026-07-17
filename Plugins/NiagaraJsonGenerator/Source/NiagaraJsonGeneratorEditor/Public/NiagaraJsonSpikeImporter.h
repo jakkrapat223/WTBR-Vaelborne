@@ -5,15 +5,34 @@
 class UNiagaraSystem;
 class FJsonObject;
 
-// ── Spike-scoped importer ─────────────────────────────────────────────────────
+// Production template-driven importer. The legacy class/file name is retained
+// so existing automation and integrations remain source-compatible.
 // Duplicates an existing Niagara System template asset and sets exposed User
 // Parameter defaults from a JSON spec, then saves the asset.
-// Hard scope limits (per spike contract): no emitter/graph creation, no module
+// Intentional scope limits: no emitter/graph creation, no module
 // stack or scratch module access — exposed-parameter store only.
 class NIAGARAJSONGENERATOREDITOR_API FNiagaraJsonSpikeImporter
 {
 public:
 	static UNiagaraSystem* ImportFromFile(const FString& FilePath);
+	static bool ValidateFile(const FString& FilePath);
+	static bool ImportBatchFromFile(const FString& FilePath);
+
+	// Editor-preset workflow: generates a strict JSON spec internally from the
+	// common artistic controls, then imports it. Artists never edit JSON for
+	// Color/Energy/Speed/SparkCount iterations.
+	static UNiagaraSystem* GeneratePreset(const FString& TemplatePath,
+	                                     const FString& OutputPath,
+	                                     const FLinearColor& Color,
+	                                     float Energy, float Speed, int32 SparkCount);
+
+	// Applies trail/impact settings to WTBR's Sniper Trigger Data Assets. This
+	// is intentionally separate from effect generation: validate/generate first,
+	// then bind the resulting Niagara assets to gameplay in one explicit step.
+	static bool AutoBindSniperFromFile(const FString& FilePath);
+	// Logs a static Niagara complexity report (emitters, renderers, simulation
+	// targets and allocation caps) without modifying the asset.
+	static bool AuditSystemPerformance(const FString& AssetPath);
 
 	// Read-back for validation: logs every exposed User Parameter (name, type,
 	// value) of a saved NiagaraSystem asset. Lets headless runs assert that
@@ -34,6 +53,10 @@ private:
 	// WITHOUT touching any asset. Returns false if any E-code error was found —
 	// the caller must then skip DuplicateAsset/Modify/SaveLoadedAsset entirely.
 	static bool ValidateSpec(const TSharedPtr<FJsonObject>& Root, FImportStats& Stats);
+	static bool ValidateTemplateContract(const TSharedPtr<FJsonObject>& Root,
+	                                     UNiagaraSystem* TemplateSystem,
+	                                     bool bLogAsErrors, FImportStats& Stats);
+	static bool ValidateOutputTarget(const FString& OutputPath);
 
 	// Existence-detection + safe load/duplicate. Treats FPackageName::DoesPackageExist
 	// (disk) as the source of truth — NOT UEditorAssetLibrary::DoesAssetExist (Asset

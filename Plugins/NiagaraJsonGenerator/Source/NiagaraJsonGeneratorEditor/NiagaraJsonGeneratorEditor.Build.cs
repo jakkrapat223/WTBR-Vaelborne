@@ -17,12 +17,14 @@ public class NiagaraJsonGeneratorEditor : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
+			"WTBR",
 			"UnrealEd",
 			"EditorScriptingUtilities",
 			"Json",
 			"ToolMenus",
 			"Slate",
 			"SlateCore",
+			"AppFramework",
 			"DesktopPlatform",
 			"AssetRegistry",
 		});

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "validateOnly": true,
+  "stopOnError": true,
+  "files": [
+    "NS_Test_Burst_FromJson.json",
+    "NS_Test_Burst_FromJson_Round2.json"
+  ]
+}

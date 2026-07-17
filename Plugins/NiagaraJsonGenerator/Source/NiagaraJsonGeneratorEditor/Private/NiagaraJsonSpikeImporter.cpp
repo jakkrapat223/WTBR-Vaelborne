@@ -4,22 +4,29 @@
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Dom/JsonObject.h"
 #include "EditorAssetLibrary.h"
+#include "Editor.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
+#include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 #include "NiagaraSystem.h"
+#include "NiagaraEmitter.h"
+#include "NiagaraEmitterHandle.h"
 #include "NiagaraTypes.h"
 #include "NiagaraUserRedirectionParameterStore.h"
+#include "Trigger/WTBRTriggerDataAsset.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Widgets/Notifications/SNotificationList.h"
+#include "Subsystems/AssetEditorSubsystem.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogNiagaraJsonSpike, Log, All);
 
 namespace
 {
-	// Supported spike param types, mapped to Niagara type definitions.
+	// Supported production parameter types, mapped to Niagara type definitions.
 	// Sizes must match SetParameterValue<T>'s sizeof check:
 	//   float(4) / int32(4) / FNiagaraBool(4) / FLinearColor(16) / FVector3f(12)
 	const FNiagaraTypeDefinition* ResolveTypeDef(const FString& TypeName)
@@ -29,10 +36,12 @@ namespace
 		if (Lower == TEXT("int") || Lower == TEXT("int32"))    { return &FNiagaraTypeDefinition::GetIntDef(); }
 		if (Lower == TEXT("bool"))                             { return &FNiagaraTypeDefinition::GetBoolDef(); }
 		if (Lower == TEXT("color") || Lower == TEXT("linearcolor")) { return &FNiagaraTypeDefinition::GetColorDef(); }
+		if (Lower == TEXT("vector2") || Lower == TEXT("vec2")) { return &FNiagaraTypeDefinition::GetVec2Def(); }
 		if (Lower == TEXT("vector3") || Lower == TEXT("vec3") || Lower == TEXT("vector"))
 		{
 			return &FNiagaraTypeDefinition::GetVec3Def();
 		}
+		if (Lower == TEXT("vector4") || Lower == TEXT("vec4")) { return &FNiagaraTypeDefinition::GetVec4Def(); }
 		return nullptr;
 	}
 
@@ -88,6 +97,16 @@ namespace
 			OutExpected = TEXT("an array [x,y,z] of exactly 3 numbers");
 			return bIsArray && Arr->Num() == 3 && AllNumbers(*Arr);
 		}
+		if (TypeDef == FNiagaraTypeDefinition::GetVec2Def())
+		{
+			OutExpected = TEXT("an array [x,y] of exactly 2 numbers");
+			return bIsArray && Arr->Num() == 2 && AllNumbers(*Arr);
+		}
+		if (TypeDef == FNiagaraTypeDefinition::GetVec4Def())
+		{
+			OutExpected = TEXT("an array [x,y,z,w] of exactly 4 numbers");
+			return bIsArray && Arr->Num() == 4 && AllNumbers(*Arr);
+		}
 		OutExpected = TEXT("(unknown)");
 		return false;
 	}
@@ -132,13 +151,35 @@ bool FNiagaraJsonSpikeImporter::ValidateSpec(const TSharedPtr<FJsonObject>& Root
 
 	// W001 — unknown top-level fields (warn, keep importing)
 	static const TSet<FString> KnownTopLevelFields =
-		{ TEXT("template"), TEXT("outputPath"), TEXT("addMissingParams"), TEXT("params") };
+		{ TEXT("schemaVersion"), TEXT("template"), TEXT("outputPath"),
+		  TEXT("strict"), TEXT("addMissingParams"), TEXT("params") };
 	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Root->Values)
 	{
 		if (!KnownTopLevelFields.Contains(Pair.Key))
 		{
 			Warn(TEXT("W001"), FString::Printf(
 				TEXT("Unknown top-level field \"%s\" — ignored"), *Pair.Key));
+		}
+	}
+
+	// schemaVersion is optional for backwards compatibility with v0.1 specs.
+	// New production specs should declare version 1 explicitly.
+	if (Root->HasField(TEXT("schemaVersion")))
+	{
+		double SchemaVersion = 0.0;
+		if (!Root->TryGetNumberField(TEXT("schemaVersion"), SchemaVersion)
+			|| SchemaVersion != 1.0)
+		{
+			Error(TEXT("E014"), TEXT("\"schemaVersion\" must be the number 1"));
+		}
+	}
+
+	if (Root->HasField(TEXT("strict")))
+	{
+		bool bUnused = false;
+		if (!Root->TryGetBoolField(TEXT("strict"), bUnused))
+		{
+			Error(TEXT("E015"), TEXT("\"strict\" must be true or false"));
 		}
 	}
 
@@ -228,7 +269,7 @@ bool FNiagaraJsonSpikeImporter::ValidateSpec(const TSharedPtr<FJsonObject>& Root
 			if (!TypeDef)
 			{
 				Error(TEXT("E011"), FString::Printf(
-					TEXT("%s: unsupported type \"%s\" (allowed: float, int, bool, color, vector3)"),
+					TEXT("%s: unsupported type \"%s\" (allowed: float, int, bool, color, vector2, vector3, vector4)"),
 					*EntryLabel, *TypeName));
 				continue;
 			}
@@ -260,6 +301,102 @@ bool FNiagaraJsonSpikeImporter::ValidateSpec(const TSharedPtr<FJsonObject>& Root
 // Existence-detection + safe load/duplicate — see header comment for why this
 // cannot use UEditorAssetLibrary::DoesAssetExist alone (Asset Registry cache,
 // stale for a package a *different* prior process just wrote to disk).
+bool FNiagaraJsonSpikeImporter::ValidateTemplateContract(
+	const TSharedPtr<FJsonObject>& Root, UNiagaraSystem* TemplateSystem,
+	bool bLogAsErrors, FImportStats& Stats)
+{
+	if (!Root.IsValid() || !TemplateSystem)
+	{
+		return false;
+	}
+
+	FNiagaraUserRedirectionParameterStore& Store = TemplateSystem->GetExposedParameters();
+	TArray<FNiagaraVariable> ExistingParams;
+	Store.GetParameters(ExistingParams);
+
+	const TSharedPtr<FJsonObject>* ParamsObj = nullptr;
+	if (!Root->TryGetObjectField(TEXT("params"), ParamsObj) || !ParamsObj->IsValid())
+	{
+		return false;
+	}
+
+	int32 Issues = 0;
+	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*ParamsObj)->Values)
+	{
+		const TSharedPtr<FJsonObject>* Entry = nullptr;
+		FString TypeName;
+		if (!Pair.Value.IsValid() || !Pair.Value->TryGetObject(Entry)
+			|| !Entry->IsValid() || !(*Entry)->TryGetStringField(TEXT("type"), TypeName))
+		{
+			continue;
+		}
+
+		const FNiagaraTypeDefinition* TypeDef = ResolveTypeDef(TypeName);
+		if (!TypeDef)
+		{
+			continue;
+		}
+
+		FNiagaraVariable Requested(*TypeDef, FName(*Pair.Key));
+		FNiagaraUserRedirectionParameterStore::MakeUserVariable(Requested);
+		const FNiagaraVariable* Existing = ExistingParams.FindByPredicate(
+			[&Requested](const FNiagaraVariable& Param)
+			{
+				return Param.GetName() == Requested.GetName();
+			});
+
+		FString Message;
+		if (!Existing)
+		{
+			Message = FString::Printf(
+				TEXT("Template contract: %s is not exposed by %s"),
+				*Requested.GetName().ToString(), *TemplateSystem->GetPathName());
+		}
+		else if (Existing->GetType() != *TypeDef)
+		{
+			Message = FString::Printf(
+				TEXT("Template contract: %s type mismatch (template=%s, JSON=%s)"),
+				*Requested.GetName().ToString(), *Existing->GetType().GetName(), *TypeName);
+		}
+
+		if (!Message.IsEmpty())
+		{
+			Issues++;
+			if (bLogAsErrors)
+			{
+				UE_LOG(LogNiagaraJsonSpike, Error, TEXT("E301: %s"), *Message);
+			}
+			else
+			{
+				LogWarning(FString::Printf(TEXT("W301: %s"), *Message), &Stats);
+			}
+		}
+	}
+
+	return Issues == 0;
+}
+
+bool FNiagaraJsonSpikeImporter::ValidateOutputTarget(const FString& OutputPath)
+{
+	if (!FPackageName::DoesPackageExist(OutputPath))
+	{
+		return true;
+	}
+
+	IAssetRegistry& AssetRegistry =
+		FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+	AssetRegistry.ScanPathsSynchronous(
+		TArray<FString>{ FPackageName::GetLongPackagePath(OutputPath) }, true);
+
+	if (!Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(OutputPath)))
+	{
+		LogError(FString::Printf(
+			TEXT("E302: Existing output is not a NiagaraSystem: %s"), *OutputPath));
+		return false;
+	}
+	return true;
+}
+
 UNiagaraSystem* FNiagaraJsonSpikeImporter::ResolveOutputAsset(const FString& TemplatePath,
                                                               const FString& OutputPath,
                                                               bool& bOutIsNewAsset)
@@ -375,6 +512,21 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePat
 	}
 
 	// ── 4. Duplicate template, or update the output asset in place ───────────
+	bool bStrict = false;
+	Root->TryGetBoolField(TEXT("strict"), bStrict);
+	if (bStrict && !ValidateTemplateContract(Root, TemplateSystem, true, Stats))
+	{
+		LogError(FString::Printf(
+			TEXT("E300: Strict template-contract validation failed for %s - no output asset was touched."),
+			*FilePath));
+		return nullptr;
+	}
+
+	if (!ValidateOutputTarget(OutputPath))
+	{
+		return nullptr;
+	}
+
 	bool bIsNewAsset = false;
 	UNiagaraSystem* System = ResolveOutputAsset(TemplatePath, OutputPath, bIsNewAsset);
 	if (!System)
@@ -424,6 +576,509 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::ImportFromFile(const FString& FilePat
 	Notify(Summary, Stats.Skipped == 0);
 
 	return System;
+}
+
+bool FNiagaraJsonSpikeImporter::ValidateFile(const FString& FilePath)
+{
+	FString JsonText;
+	if (!FFileHelper::LoadFileToString(JsonText, *FilePath))
+	{
+		LogError(FString::Printf(TEXT("E001: Cannot read file: %s"), *FilePath));
+		return false;
+	}
+
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		LogError(FString::Printf(TEXT("E002: Invalid JSON in file: %s"), *FilePath));
+		return false;
+	}
+
+	FImportStats Stats;
+	if (!ValidateSpec(Root, Stats))
+	{
+		LogError(FString::Printf(
+			TEXT("E000: Validation failed for %s - no assets were touched."), *FilePath));
+		return false;
+	}
+
+	FString TemplatePath;
+	FString OutputPath;
+	Root->TryGetStringField(TEXT("template"), TemplatePath);
+	Root->TryGetStringField(TEXT("outputPath"), OutputPath);
+
+	if (!UEditorAssetLibrary::DoesAssetExist(TemplatePath))
+	{
+		LogError(FString::Printf(TEXT("E101: Template asset not found: %s"), *TemplatePath));
+		return false;
+	}
+
+	UNiagaraSystem* TemplateSystem = Cast<UNiagaraSystem>(
+		UEditorAssetLibrary::LoadAsset(TemplatePath));
+	if (!TemplateSystem)
+	{
+		LogError(FString::Printf(TEXT("E102: Template asset is not a NiagaraSystem: %s"), *TemplatePath));
+		return false;
+	}
+
+	const bool bContractValid = ValidateTemplateContract(
+		Root, TemplateSystem, false, Stats);
+	const bool bOutputValid = ValidateOutputTarget(OutputPath);
+	const bool bValid = bContractValid && bOutputValid;
+
+	const FString Summary = FString::Printf(
+		TEXT("Validation %s: %s | template contract: %s, warnings: %d, no assets modified"),
+		bValid ? TEXT("PASSED") : TEXT("FAILED"), *FilePath,
+		bContractValid ? TEXT("valid") : TEXT("invalid"), Stats.Warnings);
+	UE_LOG(LogNiagaraJsonSpike, Display, TEXT("%s"), *Summary);
+	Notify(Summary, bValid);
+	return bValid;
+}
+
+bool FNiagaraJsonSpikeImporter::ImportBatchFromFile(const FString& FilePath)
+{
+	FString JsonText;
+	if (!FFileHelper::LoadFileToString(JsonText, *FilePath))
+	{
+		LogError(FString::Printf(TEXT("B001: Cannot read batch manifest: %s"), *FilePath));
+		return false;
+	}
+
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		LogError(FString::Printf(TEXT("B002: Invalid batch JSON: %s"), *FilePath));
+		return false;
+	}
+
+	double SchemaVersion = 0.0;
+	if (!Root->TryGetNumberField(TEXT("schemaVersion"), SchemaVersion) || SchemaVersion != 1.0)
+	{
+		LogError(TEXT("B003: Batch manifest requires \"schemaVersion\": 1"));
+		return false;
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* Files = nullptr;
+	if (!Root->TryGetArrayField(TEXT("files"), Files) || !Files || Files->Num() == 0)
+	{
+		LogError(TEXT("B004: Batch manifest requires a non-empty \"files\" array"));
+		return false;
+	}
+
+	bool bStopOnError = false;
+	bool bValidateOnly = false;
+	Root->TryGetBoolField(TEXT("stopOnError"), bStopOnError);
+	Root->TryGetBoolField(TEXT("validateOnly"), bValidateOnly);
+
+	const FString ManifestDir = FPaths::GetPath(FPaths::ConvertRelativePathToFull(FilePath));
+	int32 Succeeded = 0;
+	int32 Failed = 0;
+	for (const TSharedPtr<FJsonValue>& FileValue : *Files)
+	{
+		FString SpecPath;
+		if (!FileValue.IsValid() || !FileValue->TryGetString(SpecPath) || SpecPath.IsEmpty())
+		{
+			UE_LOG(LogNiagaraJsonSpike, Error,
+				TEXT("B005: Every batch \"files\" entry must be a non-empty string"));
+			Failed++;
+			if (bStopOnError) { break; }
+			continue;
+		}
+
+		if (FPaths::IsRelative(SpecPath))
+		{
+			SpecPath = FPaths::Combine(ManifestDir, SpecPath);
+		}
+		SpecPath = FPaths::ConvertRelativePathToFull(SpecPath);
+		FPaths::NormalizeFilename(SpecPath);
+
+		const bool bSucceeded = bValidateOnly
+			? ValidateFile(SpecPath)
+			: ImportFromFile(SpecPath) != nullptr;
+		if (bSucceeded)
+		{
+			Succeeded++;
+		}
+		else
+		{
+			Failed++;
+			if (bStopOnError) { break; }
+		}
+	}
+
+	const FString Summary = FString::Printf(
+		TEXT("Batch %s complete | succeeded: %d, failed: %d, manifest: %s"),
+		bValidateOnly ? TEXT("validation") : TEXT("import"),
+		Succeeded, Failed, *FilePath);
+	UE_LOG(LogNiagaraJsonSpike, Display, TEXT("%s"), *Summary);
+	Notify(Summary, Failed == 0);
+	return Failed == 0;
+}
+
+UNiagaraSystem* FNiagaraJsonSpikeImporter::GeneratePreset(
+    const FString& TemplatePath, const FString& OutputPath,
+    const FLinearColor& Color, float Energy, float Speed, int32 SparkCount)
+{
+    // Keep the importer as the single write path. The preset dialog simply
+    // produces this short-lived strict spec in Saved/, rather than requiring
+    // artists to author or maintain a JSON file.
+    TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
+    Root->SetNumberField(TEXT("schemaVersion"), 1.0);
+    Root->SetStringField(TEXT("template"), TemplatePath);
+    Root->SetStringField(TEXT("outputPath"), OutputPath);
+    Root->SetBoolField(TEXT("strict"), true);
+
+    TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+    auto AddFloat = [&Params](const TCHAR* Name, float Value)
+    {
+        TSharedPtr<FJsonObject> Param = MakeShared<FJsonObject>();
+        Param->SetStringField(TEXT("type"), TEXT("float"));
+        Param->SetNumberField(TEXT("value"), Value);
+        Params->SetObjectField(Name, Param);
+    };
+    auto AddInt = [&Params](const TCHAR* Name, int32 Value)
+    {
+        TSharedPtr<FJsonObject> Param = MakeShared<FJsonObject>();
+        Param->SetStringField(TEXT("type"), TEXT("int"));
+        Param->SetNumberField(TEXT("value"), Value);
+        Params->SetObjectField(Name, Param);
+    };
+    TArray<TSharedPtr<FJsonValue>> ColorValues;
+    ColorValues.Add(MakeShared<FJsonValueNumber>(Color.R));
+    ColorValues.Add(MakeShared<FJsonValueNumber>(Color.G));
+    ColorValues.Add(MakeShared<FJsonValueNumber>(Color.B));
+    ColorValues.Add(MakeShared<FJsonValueNumber>(Color.A));
+    TSharedPtr<FJsonObject> ColorParam = MakeShared<FJsonObject>();
+    ColorParam->SetStringField(TEXT("type"), TEXT("color"));
+    ColorParam->SetArrayField(TEXT("value"), ColorValues);
+    Params->SetObjectField(TEXT("User.Color"), ColorParam);
+    AddFloat(TEXT("User.Energy"), Energy);
+    AddFloat(TEXT("User.Speed"), Speed);
+    AddInt(TEXT("User.SparkCount"), FMath::Max(0, SparkCount));
+    Root->SetObjectField(TEXT("params"), Params);
+
+    const FString PresetDir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("VFXPresets"));
+    IFileManager::Get().MakeDirectory(*PresetDir, true);
+    const FString PresetFile = FPaths::Combine(PresetDir, FString::Printf(
+        TEXT("Preset_%s.json"), *FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+    FString Serialized;
+    const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Serialized);
+    if (!FJsonSerializer::Serialize(Root.ToSharedRef(), Writer)
+        || !FFileHelper::SaveStringToFile(Serialized, *PresetFile))
+    {
+        LogError(FString::Printf(TEXT("PR001: Could not create internal preset spec: %s"), *PresetFile));
+        return nullptr;
+    }
+    UNiagaraSystem* GeneratedSystem = ImportFromFile(PresetFile);
+    if (GeneratedSystem && GEditor)
+    {
+        // Opens Niagara's built-in preview scene immediately after generation.
+        // The Content Browser then renders its normal asset thumbnail from the
+        // same system, so the artist can inspect it before binding gameplay.
+        if (UAssetEditorSubsystem* AssetEditor =
+            GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
+        {
+            AssetEditor->OpenEditorForAsset(GeneratedSystem);
+        }
+    }
+    return GeneratedSystem;
+}
+
+bool FNiagaraJsonSpikeImporter::AutoBindSniperFromFile(const FString& FilePath)
+{
+	FString JsonText;
+	if (!FFileHelper::LoadFileToString(JsonText, *FilePath))
+	{
+		LogError(FString::Printf(TEXT("A001: Cannot read Sniper binding manifest: %s"), *FilePath));
+		return false;
+	}
+
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		LogError(FString::Printf(TEXT("A002: Invalid Sniper binding JSON: %s"), *FilePath));
+		return false;
+	}
+
+	double SchemaVersion = 0.0;
+	if (!Root->TryGetNumberField(TEXT("schemaVersion"), SchemaVersion) || SchemaVersion != 1.0)
+	{
+		LogError(TEXT("A003: Sniper binding manifest requires \"schemaVersion\": 1"));
+		return false;
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* Bindings = nullptr;
+	if (!Root->TryGetArrayField(TEXT("bindings"), Bindings) || !Bindings || Bindings->Num() == 0)
+	{
+		LogError(TEXT("A004: Sniper binding manifest requires a non-empty \"bindings\" array"));
+		return false;
+	}
+
+	int32 Bound = 0;
+	int32 Failed = 0;
+	for (const TSharedPtr<FJsonValue>& BindingValue : *Bindings)
+	{
+		const TSharedPtr<FJsonObject>* Binding = nullptr;
+		if (!BindingValue.IsValid() || !BindingValue->TryGetObject(Binding) || !Binding->IsValid())
+		{
+			UE_LOG(LogNiagaraJsonSpike, Error, TEXT("A005: Every binding entry must be an object"));
+			Failed++;
+			continue;
+		}
+
+		FString SniperName;
+		FString DataAssetPath;
+		FString ImpactPath;
+		FString TrailPath;
+		if (!(*Binding)->TryGetStringField(TEXT("sniper"), SniperName)
+			|| !(*Binding)->TryGetStringField(TEXT("dataAsset"), DataAssetPath)
+			|| !(*Binding)->TryGetStringField(TEXT("impact"), ImpactPath))
+		{
+			UE_LOG(LogNiagaraJsonSpike, Error,
+				TEXT("A006: Binding requires string fields \"sniper\", \"dataAsset\", and \"impact\""));
+			Failed++;
+			continue;
+		}
+		(*Binding)->TryGetStringField(TEXT("trail"), TrailPath);
+
+		UWTBRTriggerDataAsset* DataAsset = Cast<UWTBRTriggerDataAsset>(
+			UEditorAssetLibrary::LoadAsset(DataAssetPath));
+		UNiagaraSystem* Impact = Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(ImpactPath));
+		UNiagaraSystem* Trail = TrailPath.IsEmpty()
+			? nullptr : Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(TrailPath));
+		if (!DataAsset || !Impact || (!TrailPath.IsEmpty() && !Trail))
+		{
+			UE_LOG(LogNiagaraJsonSpike, Error, TEXT("A007: Invalid DataAsset or Niagara asset in binding for %s"), *SniperName);
+			Failed++;
+			continue;
+		}
+
+		FWTBRProjectileVFXConfig* VFXConfig = nullptr;
+		const FString SniperLower = SniperName.ToLower();
+		if (SniperLower == TEXT("telorn"))
+		{
+			VFXConfig = &DataAsset->TelornParams.VFX;
+		}
+		else if (SniperLower == TEXT("piercex"))
+		{
+			VFXConfig = &DataAsset->PiercexParams.VFX;
+		}
+		else if (SniperLower == TEXT("fulgris"))
+		{
+			VFXConfig = &DataAsset->FulgrisParams.VFX;
+		}
+		else
+		{
+			UE_LOG(LogNiagaraJsonSpike, Error, TEXT("A008: Unknown Sniper \"%s\" (allowed: Telorn, Piercex, Fulgris)"), *SniperName);
+			Failed++;
+			continue;
+		}
+
+		float MaxDistance = 20000.0f;
+		double MaxDistanceJson = 0.0;
+		if ((*Binding)->TryGetNumberField(TEXT("maxImpactVFXDistance"), MaxDistanceJson)
+			&& MaxDistanceJson >= 0.0)
+		{
+			MaxDistance = static_cast<float>(MaxDistanceJson);
+		}
+		if (MaxDistance <= 0.0f)
+		{
+			LogWarning(FString::Printf(
+				TEXT("P103: %s impact VFX has distance culling disabled; confirm this is intentional."),
+				*SniperName));
+		}
+		else if (MaxDistance > 50000.0f)
+		{
+			LogWarning(FString::Printf(
+				TEXT("P104: %s impact VFX cull distance is %.0f cm; review Niagara scalability/LOD."),
+				*SniperName, MaxDistance));
+		}
+
+		TArray<FWTBRSurfaceImpactVFX> SurfaceOverrides;
+		const TArray<TSharedPtr<FJsonValue>>* Overrides = nullptr;
+		if ((*Binding)->TryGetArrayField(TEXT("surfaceOverrides"), Overrides) && Overrides)
+		{
+			bool bOverridesValid = true;
+			for (const TSharedPtr<FJsonValue>& OverrideValue : *Overrides)
+			{
+				const TSharedPtr<FJsonObject>* Override = nullptr;
+				double SurfaceNumber = 0.0;
+				FString EffectPath;
+				if (!OverrideValue.IsValid() || !OverrideValue->TryGetObject(Override)
+					|| !Override->IsValid()
+					|| !(*Override)->TryGetNumberField(TEXT("surfaceType"), SurfaceNumber)
+					|| !(*Override)->TryGetStringField(TEXT("effect"), EffectPath)
+					|| SurfaceNumber < 0.0 || SurfaceNumber >= static_cast<double>(SurfaceType_Max))
+				{
+					bOverridesValid = false;
+					break;
+				}
+
+				UNiagaraSystem* SurfaceEffect = Cast<UNiagaraSystem>(
+					UEditorAssetLibrary::LoadAsset(EffectPath));
+				if (!SurfaceEffect)
+				{
+					bOverridesValid = false;
+					break;
+				}
+
+				FWTBRSurfaceImpactVFX& NewOverride = SurfaceOverrides.AddDefaulted_GetRef();
+				NewOverride.SurfaceType = static_cast<EPhysicalSurface>(static_cast<uint8>(SurfaceNumber));
+				NewOverride.Effect = SurfaceEffect;
+			}
+
+			if (!bOverridesValid)
+			{
+				UE_LOG(LogNiagaraJsonSpike, Error, TEXT("A009: Invalid surfaceOverrides for %s"), *SniperName);
+				Failed++;
+				continue;
+			}
+		}
+
+		// Asset parameters are deliberately generic: Niagara templates own the
+		// exact compatible type, while the manifest supplies the selected
+		// Material/Texture/Curve/Mesh/Ribbon-profile content asset.
+		TArray<FWTBRNiagaraAssetParameter> AssetOverrides;
+		const TArray<TSharedPtr<FJsonValue>>* AssetOverrideValues = nullptr;
+		if ((*Binding)->TryGetArrayField(TEXT("assetOverrides"), AssetOverrideValues)
+			&& AssetOverrideValues)
+		{
+			bool bAssetOverridesValid = true;
+			for (const TSharedPtr<FJsonValue>& OverrideValue : *AssetOverrideValues)
+			{
+				const TSharedPtr<FJsonObject>* Override = nullptr;
+				FString ParameterName;
+				FString AssetPath;
+				if (!OverrideValue.IsValid() || !OverrideValue->TryGetObject(Override)
+					|| !Override->IsValid()
+					|| !(*Override)->TryGetStringField(TEXT("parameter"), ParameterName)
+					|| !(*Override)->TryGetStringField(TEXT("asset"), AssetPath)
+					|| ParameterName.IsEmpty())
+				{
+					bAssetOverridesValid = false;
+					break;
+				}
+
+				UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
+				if (!IsValid(Asset))
+				{
+					bAssetOverridesValid = false;
+					break;
+				}
+
+				FWTBRNiagaraAssetParameter& NewOverride = AssetOverrides.AddDefaulted_GetRef();
+				NewOverride.ParameterName = FName(*ParameterName);
+				NewOverride.Asset = Asset;
+			}
+
+			if (!bAssetOverridesValid)
+			{
+				UE_LOG(LogNiagaraJsonSpike, Error,
+					TEXT("A010: Invalid assetOverrides for %s (each entry needs parameter + valid asset)"),
+					*SniperName);
+				Failed++;
+				continue;
+			}
+		}
+
+		DataAsset->Modify();
+		VFXConfig->TrailEffect = Trail;
+		VFXConfig->DefaultImpactEffect = Impact;
+		VFXConfig->SurfaceImpactOverrides = MoveTemp(SurfaceOverrides);
+		VFXConfig->ImpactAssetParameters = MoveTemp(AssetOverrides);
+		VFXConfig->bUseBuiltInImpactVFX = true;
+		VFXConfig->MaxImpactVFXDistance = MaxDistance;
+		DataAsset->MarkPackageDirty();
+		if (!UEditorAssetLibrary::SaveLoadedAsset(DataAsset, false))
+		{
+			UE_LOG(LogNiagaraJsonSpike, Error, TEXT("A011: Failed to save DataAsset: %s"), *DataAssetPath);
+			Failed++;
+			continue;
+		}
+
+		UE_LOG(LogNiagaraJsonSpike, Display,
+			TEXT("Auto-bound %s | DataAsset=%s | Trail=%s | Impact=%s | SurfaceOverrides=%d | AssetOverrides=%d | MaxDistance=%.0f"),
+			*SniperName, *DataAssetPath, *GetNameSafe(Trail), *GetNameSafe(Impact),
+			VFXConfig->SurfaceImpactOverrides.Num(), VFXConfig->ImpactAssetParameters.Num(),
+			VFXConfig->MaxImpactVFXDistance);
+		AuditSystemPerformance(ImpactPath);
+		if (!TrailPath.IsEmpty())
+		{
+			AuditSystemPerformance(TrailPath);
+		}
+		Bound++;
+	}
+
+	const FString Summary = FString::Printf(
+		TEXT("Sniper VFX auto-bind complete | bound: %d, failed: %d, manifest: %s"),
+		Bound, Failed, *FilePath);
+	UE_LOG(LogNiagaraJsonSpike, Display, TEXT("%s"), *Summary);
+	Notify(Summary, Failed == 0);
+	return Failed == 0;
+}
+
+bool FNiagaraJsonSpikeImporter::AuditSystemPerformance(const FString& AssetPath)
+{
+	UNiagaraSystem* System = Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(AssetPath));
+	if (!System)
+	{
+		LogError(FString::Printf(TEXT("P001: NiagaraSystem not found: %s"), *AssetPath));
+		return false;
+	}
+
+	int32 EnabledEmitters = 0;
+	int32 CpuEmitters = 0;
+	int32 GpuEmitters = 0;
+	int32 RendererCount = 0;
+	int32 PreAllocationTotal = 0;
+
+	for (const FNiagaraEmitterHandle& Handle : System->GetEmitterHandles())
+	{
+		const FVersionedNiagaraEmitterData* EmitterData = Handle.GetInstance().GetEmitterData();
+		if (!EmitterData || !Handle.GetIsEnabled())
+		{
+			continue;
+		}
+
+		EnabledEmitters++;
+		const bool bGpu = EmitterData->SimTarget == ENiagaraSimTarget::GPUComputeSim;
+		if (bGpu)
+		{
+			GpuEmitters++;
+		}
+		else
+		{
+			CpuEmitters++;
+		}
+		const int32 EmitterRenderers = EmitterData->GetRenderers().Num();
+		RendererCount += EmitterRenderers;
+		PreAllocationTotal += EmitterData->PreAllocationCount;
+
+		UE_LOG(LogNiagaraJsonSpike, Display,
+			TEXT("VFX audit emitter | %s | Sim=%s | Renderers=%d | PreAllocation=%d"),
+			*Handle.GetUniqueInstanceName(),
+			bGpu ? TEXT("GPU") : TEXT("CPU"),
+			EmitterRenderers, EmitterData->PreAllocationCount);
+	}
+
+	const FString Summary = FString::Printf(
+		TEXT("VFX audit | %s | Emitters=%d (CPU=%d GPU=%d) | Renderers=%d | PreAllocation=%d"),
+		*AssetPath, EnabledEmitters, CpuEmitters, GpuEmitters, RendererCount,
+		PreAllocationTotal);
+	UE_LOG(LogNiagaraJsonSpike, Display, TEXT("%s"), *Summary);
+
+	if (EnabledEmitters > 4 || RendererCount > 6 || PreAllocationTotal > 2000)
+	{
+		LogWarning(TEXT("P101: High static complexity - review Niagara scalability, cull distance, and burst counts before shipping."));
+	}
+	if (GpuEmitters > 0)
+	{
+		LogWarning(TEXT("P102: GPU emitter detected - confirm it is appropriate for this gameplay effect and target hardware."));
+	}
+	return true;
 }
 
 bool FNiagaraJsonSpikeImporter::DumpUserParams(const FString& AssetPath)
@@ -481,9 +1136,17 @@ bool FNiagaraJsonSpikeImporter::DumpUserParams(const FString& AssetPath)
 			{
 				ValueText = reinterpret_cast<const FVector3f*>(Data)->ToString();
 			}
+			else if (Type == FNiagaraTypeDefinition::GetVec2Def())
+			{
+				ValueText = reinterpret_cast<const FVector2f*>(Data)->ToString();
+			}
+			else if (Type == FNiagaraTypeDefinition::GetVec4Def())
+			{
+				ValueText = reinterpret_cast<const FVector4f*>(Data)->ToString();
+			}
 			else
 			{
-				ValueText = TEXT("(type not dumped by spike)");
+				ValueText = TEXT("(type not supported by parameter dump)");
 			}
 		}
 
@@ -509,7 +1172,7 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 	if (!TypeDef)
 	{
 		LogWarning(FString::Printf(
-			TEXT("W106: Param \"%s\": unsupported type \"%s\" (allowed: float, int, bool, color, vector3) — skipped"),
+			TEXT("W106: Param \"%s\": unsupported type \"%s\" (allowed: float, int, bool, color, vector2, vector3, vector4) — skipped"),
 			*ParamName, *TypeName), &Stats);
 		return false;
 	}
@@ -608,6 +1271,32 @@ bool FNiagaraJsonSpikeImporter::ApplyParam(UNiagaraSystem* System, const FString
 			static_cast<float>(Values[0]),
 			static_cast<float>(Values[1]),
 			static_cast<float>(Values[2]));
+		bSetOk = Store.SetParameterValue(Vec, Var, bAdd);
+	}
+	else if (*TypeDef == FNiagaraTypeDefinition::GetVec2Def())
+	{
+		TArray<double> Values;
+		if (!ReadNumberArray(ParamObj, 2, Values))
+		{
+			LogWarning(FString::Printf(
+				TEXT("W107: Param \"%s\": \"value\" must be an array [x,y] - skipped"), *ParamName), &Stats);
+			return false;
+		}
+		const FVector2f Vec(static_cast<float>(Values[0]), static_cast<float>(Values[1]));
+		bSetOk = Store.SetParameterValue(Vec, Var, bAdd);
+	}
+	else if (*TypeDef == FNiagaraTypeDefinition::GetVec4Def())
+	{
+		TArray<double> Values;
+		if (!ReadNumberArray(ParamObj, 4, Values))
+		{
+			LogWarning(FString::Printf(
+				TEXT("W107: Param \"%s\": \"value\" must be an array [x,y,z,w] - skipped"), *ParamName), &Stats);
+			return false;
+		}
+		const FVector4f Vec(
+			static_cast<float>(Values[0]), static_cast<float>(Values[1]),
+			static_cast<float>(Values[2]), static_cast<float>(Values[3]));
 		bSetOk = Store.SetParameterValue(Vec, Var, bAdd);
 	}
 

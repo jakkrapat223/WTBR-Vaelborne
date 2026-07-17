@@ -41,6 +41,10 @@ else:
     _cmd("WTBR.Niagara.ImportJson " + _examples + "NS_Test_Burst_FromJson_Round2.json")
     _cmd("WTBR.Niagara.DumpUserParams " + OUTPUT)
 
+    unreal.log("--- V1: read-only validation and batch validation ---")
+    _cmd("WTBR.Niagara.ValidateJson " + _examples + "NS_Test_Burst_FromJson_Round2.json")
+    _cmd("WTBR.Niagara.ImportBatch " + _examples + "NS_Test_Burst.validation.batch.json")
+
     unreal.log("--- NEGATIVE: unknown param must warn+skip, not be created ---")
     _cmd("WTBR.Niagara.ImportJson " + _examples + "Invalid/NS_Invalid_MissingParam.json")
     _cmd("WTBR.Niagara.DumpUserParams " + OUTPUT)
@@ -66,5 +70,9 @@ else:
     unreal.log("PHASEA unknown_field output_exists = {}".format(unknown_exists))
     if unknown_exists:
         unreal.EditorAssetLibrary.delete_asset(unknown_output)  # test artifact cleanup
+
+    if unreal.EditorAssetLibrary.does_asset_exist(OUTPUT):
+        unreal.log("Cleaning generated validation asset: " + OUTPUT)
+        unreal.EditorAssetLibrary.delete_asset(OUTPUT)
 
     unreal.log("=== NiagaraJson production validation: end ===")

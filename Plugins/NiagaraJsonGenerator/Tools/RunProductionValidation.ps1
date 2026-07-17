@@ -91,6 +91,10 @@ $Checks = [ordered]@{
         ($Round2Log -match "User\.Size.*= 60");
     "Round 2: SpawnCount changed to 128" =
         ($Round2Log -match "User\.SpawnCount.*= 128");
+    "V1: read-only validation passed" =
+        ($Round2Log -match [regex]::Escape("Validation PASSED:"));
+    "V1: batch validation passed for both specs" =
+        ($Round2Log -match [regex]::Escape("Batch validation complete | succeeded: 2, failed: 0"));
     "Negative: unknown param warned + skipped" =
         ($Round2Log -match "User\.DoesNotExist.*not exposed on template");
     "Negative: unknown param NOT added to asset" =
@@ -116,8 +120,7 @@ foreach ($Name in $Checks.Keys) {
 Write-Host ""
 if ($Failed -eq 0) {
     Write-Host "ALL AUTOMATED CHECKS PASSED.  (evidence log: $LogFile)"
-    Write-Host "Remaining manual step: open /Game/VFX/Generated/NS_Test_Burst_FromJson in the"
-    Write-Host "editor / drag into a level and confirm the visual actually changed (README checklist)."
+    Write-Host "Generated validation assets were cleaned up by the test script."
     exit 0
 } else {
     Write-Host "$Failed check(s) FAILED - inspect $LogFile (filter: LogNiagaraJsonSpike)."
