@@ -1,0 +1,15 @@
+{
+  "template": "/Game/VFX/Templates/NS_Template_SniperTrail",
+  "outputPath": "/Game/VFX/Sniper/NS_Fulgris_Trail",
+  "addMissingParams": false,
+  "params": {
+    "User.Color": {
+      "type": "color",
+      "value": [1.0, 0.95, 0.85, 1.0]
+    },
+    "User.Width": {
+      "type": "float",
+      "value": 18.0
+    }
+  }
+}

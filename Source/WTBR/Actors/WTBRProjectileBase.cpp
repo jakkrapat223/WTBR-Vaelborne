@@ -11,6 +11,47 @@
 #include "WTBRCharacter.h"
 #include "Actors/WTBRAegornWallActor.h"
 #include "Components/WTBRHealthComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Data/WTBRCoreStatsDataAsset.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraComponent.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
+#include "GameFramework/PlayerController.h"
+
+namespace
+{
+    FVector WTBRResolveProjectileImpactNormal(const FHitResult& Hit,
+        const FVector& ImpactPoint, const AActor* HitActor, const FVector& FallbackNormal)
+    {
+        if (!Hit.ImpactNormal.IsNearlyZero())
+        {
+            return Hit.ImpactNormal.GetSafeNormal();
+        }
+        if (!Hit.Normal.IsNearlyZero())
+        {
+            return Hit.Normal.GetSafeNormal();
+        }
+        if (IsValid(HitActor))
+        {
+            const FVector FromActor = (ImpactPoint - HitActor->GetActorLocation()).GetSafeNormal();
+            if (!FromActor.IsNearlyZero())
+            {
+                return FromActor;
+            }
+        }
+        if (!FallbackNormal.IsNearlyZero())
+        {
+            return FallbackNormal.GetSafeNormal();
+        }
+        return FVector::UpVector;
+    }
+
+    uint8 WTBRResolveProjectileImpactSurface(const FHitResult& Hit)
+    {
+        const UPhysicalMaterial* PhysicalMaterial = Hit.PhysMaterial.Get();
+        return static_cast<uint8>(UPhysicalMaterial::DetermineSurfaceType(PhysicalMaterial));
+    }
+}
 
 AWTBRProjectileBase::AWTBRProjectileBase()
 {
@@ -78,6 +119,29 @@ void AWTBRProjectileBase::BeginPlay()
         BoxCollision->OnComponentHit.AddDynamic(
             this, &AWTBRProjectileBase::OnProjectileHit);
     }
+
+    // Purely cosmetic — runs on every machine the actor exists on (server and
+    // every client it replicates to), not just the authority.
+    // TEMP_DEBUG_ — root-causing why the Sniper trail VFX doesn't appear
+    // despite TrailEffect being correctly set on the BP subclasses. Remove
+    // once resolved.
+    WTBR_VALIDATION_LOG(Warning, TEXT("[TrailDebug] Class=%s | TrailEffectValid=%s | TrailEffectName=%s | RootValid=%s"),
+        *GetNameSafe(GetClass()),
+        IsValid(TrailEffect) ? TEXT("true") : TEXT("false"),
+        *GetNameSafe(TrailEffect),
+        IsValid(RootComponent) ? TEXT("true") : TEXT("false"));
+    if (IsValid(TrailEffect) && IsValid(RootComponent))
+    {
+        UNiagaraComponent* TrailComp = UNiagaraFunctionLibrary::SpawnSystemAttached(
+            TrailEffect, RootComponent, NAME_None,
+            FVector::ZeroVector, FRotator::ZeroRotator,
+            EAttachLocation::KeepRelativeOffset,
+            /*bAutoDestroy=*/true);
+        WTBR_VALIDATION_LOG(Warning, TEXT("[TrailDebug] Class=%s | SpawnSystemAttached returned %s | IsActive=%s"),
+            *GetNameSafe(GetClass()),
+            IsValid(TrailComp) ? TEXT("valid component") : TEXT("NULL"),
+            (IsValid(TrailComp) && TrailComp->IsActive()) ? TEXT("true") : TEXT("false"));
+    }
 }
 
 void AWTBRProjectileBase::GetLifetimeReplicatedProps(
@@ -88,6 +152,77 @@ void AWTBRProjectileBase::GetLifetimeReplicatedProps(
 }
 
 // ─── Core Interface ───────────────────────────────────────────────────────────
+
+void AWTBRProjectileBase::ApplyVFXConfig(const FWTBRProjectileVFXConfig& Config)
+{
+    TrailEffect = Config.TrailEffect;
+    DefaultImpactEffect = Config.DefaultImpactEffect;
+    SurfaceImpactOverrides = Config.SurfaceImpactOverrides;
+    bUseBuiltInImpactVFX = Config.bUseBuiltInImpactVFX;
+    MaxImpactVFXDistance = Config.MaxImpactVFXDistance;
+}
+
+UNiagaraSystem* AWTBRProjectileBase::ResolveImpactEffect(uint8 SurfaceType) const
+{
+    for (const FWTBRSurfaceImpactVFX& Override : SurfaceImpactOverrides)
+    {
+        if (static_cast<uint8>(Override.SurfaceType.GetValue()) == SurfaceType
+            && IsValid(Override.Effect))
+        {
+            return Override.Effect;
+        }
+    }
+    return DefaultImpactEffect;
+}
+
+bool AWTBRProjectileBase::IsImpactVFXWithinLocalViewDistance(const FVector& ImpactPoint) const
+{
+    if (MaxImpactVFXDistance <= 0.0f)
+    {
+        return true;
+    }
+
+    const UWorld* World = GetWorld();
+    const APlayerController* LocalController = World ? World->GetFirstPlayerController() : nullptr;
+    const APawn* ViewPawn = LocalController ? LocalController->GetPawnOrSpectator() : nullptr;
+    return !IsValid(ViewPawn)
+        || FVector::DistSquared(ViewPawn->GetActorLocation(), ImpactPoint)
+            <= FMath::Square(MaxImpactVFXDistance);
+}
+
+void AWTBRProjectileBase::SpawnBuiltInImpactVFX(
+    FVector ImpactPoint, FVector ImpactNormal, uint8 SurfaceType) const
+{
+    UNiagaraSystem* Effect = ResolveImpactEffect(SurfaceType);
+    if (!IsValid(Effect) || !IsImpactVFXWithinLocalViewDistance(ImpactPoint))
+    {
+        return;
+    }
+
+    const FVector SafeNormal = ImpactNormal.IsNearlyZero()
+        ? FVector::UpVector : ImpactNormal.GetSafeNormal();
+    UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+        GetWorld(), Effect, ImpactPoint + (SafeNormal * 1.5f),
+        FRotationMatrix::MakeFromZ(SafeNormal).Rotator(), FVector::OneVector,
+        true, true, ENCPoolMethod::AutoRelease, true);
+}
+
+void AWTBRProjectileBase::Multicast_ProjectileHitVFX_Implementation(
+    FVector ImpactPoint, FVector ImpactNormal, uint8 SurfaceType)
+{
+    const FVector SafeNormal = ImpactNormal.IsNearlyZero()
+        ? FVector::UpVector : ImpactNormal.GetSafeNormal();
+
+    if (bUseBuiltInImpactVFX)
+    {
+        SpawnBuiltInImpactVFX(ImpactPoint, SafeNormal, SurfaceType);
+    }
+    else
+    {
+        OnProjectileHitVFX(ImpactPoint, SafeNormal);
+    }
+    OnProjectileSurfaceHitVFX(ImpactPoint, SafeNormal, SurfaceType);
+}
 
 void AWTBRProjectileBase::InitializeProjectile(
     float InDamage, float InSpeed,
@@ -331,8 +466,23 @@ void AWTBRProjectileBase::OnOverlapBegin(
     // Direct hit on character
     if (AWTBRCharacter* HitChar = Cast<AWTBRCharacter>(OtherActor))
     {
-        const FVector ImpactPoint = SweepResult.bBlockingHit
-            ? SweepResult.ImpactPoint : GetActorLocation();
+        // Character contact is deliberately an overlap, not a blocking hit.
+        // bBlockingHit is therefore false even when ProjectileMovement swept
+        // into a target and supplied the true contact point. bFromSweep is
+        // the valid signal that SweepResult carries overlap contact data.
+        const FVector ImpactPoint = ResolveHitZoneImpactPoint(
+            bFromSweep, SweepResult, GetActorLocation());
+        FVector FallbackImpactNormal = FVector::ZeroVector;
+        if (IsValid(ProjectileMovement) && !ProjectileMovement->Velocity.IsNearlyZero())
+        {
+            FallbackImpactNormal = -ProjectileMovement->Velocity.GetSafeNormal();
+        }
+        if (FallbackImpactNormal.IsNearlyZero())
+        {
+            FallbackImpactNormal = -GetActorForwardVector().GetSafeNormal();
+        }
+        const FVector ImpactNormal = WTBRResolveProjectileImpactNormal(
+            SweepResult, ImpactPoint, HitChar, FallbackImpactNormal);
 
         if (OwnerCategory == ETriggerCategory::Gunner)
         {
@@ -343,19 +493,43 @@ void AWTBRProjectileBase::OnOverlapBegin(
                 BaseDamage);
         }
 
-        OnProjectileHitVFX(ImpactPoint);
+        Multicast_ProjectileHitVFX(
+            ImpactPoint, ImpactNormal, WTBRResolveProjectileImpactSurface(SweepResult));
         DamagedActors.Add(OtherActor); // track before applying so re-entry is blocked
 
         if (IsValid(HitChar->HealthComponent))
         {
+            // Headshot-style damage multiplier (owner-requested 2026-07-17,
+            // applies to every projectile weapon — Gunner/Sniper/Composite —
+            // via this shared hit path). See ClassifyHitZone's own comment for
+            // why this is a capsule-geometry approximation, not a real
+            // per-bone hitbox lookup.
+            const UWTBRCoreStatsDataAsset* Stats = HitChar->HealthComponent->CoreStatsAsset.LoadSynchronous();
+            const UCapsuleComponent* TargetCapsule = HitChar->GetCapsuleComponent();
+            const EWTBRHitZone Zone = IsValid(TargetCapsule)
+                ? ClassifyHitZone(TargetCapsule->GetComponentLocation(),
+                    TargetCapsule->GetScaledCapsuleHalfHeight(), TargetCapsule->GetScaledCapsuleRadius(),
+                    ImpactPoint,
+                    Stats ? Stats->HeadZoneHeightThreshold : 0.85f,
+                    Stats ? Stats->LegZoneHeightThreshold  : 0.35f,
+                    Stats ? Stats->ArmLateralRadiusRatio   : 0.75f)
+                : EWTBRHitZone::Torso;
+            const float ZoneMultiplier = GetHitZoneDamageMultiplier(Zone, Stats);
+            const float FinalDamage = BaseDamage * ZoneMultiplier;
+
             const float OldHP = HitChar->HealthComponent->GetCurrentHP();
-            WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileDamageApply | Projectile=%s | Attacker=%s | Target=%s | OldHP=%.1f | Damage=%.1f | ApplyDamageCalled=true"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileDamageApply | Projectile=%s | Attacker=%s | Target=%s | OldHP=%.1f | BaseDamage=%.1f | HitZone=%d | ZoneMultiplier=%.2f | FinalDamage=%.1f | ImpactPoint=%s | FromSweep=%s | ApplyDamageCalled=true"),
                 *GetNameSafe(this),
                 *GetNameSafe(OwnerInstigator.Get()),
                 *GetNameSafe(HitChar),
                 OldHP,
-                BaseDamage);
-            HitChar->HealthComponent->ApplyDamage(BaseDamage, OwnerInstigator.Get());
+                BaseDamage,
+                static_cast<int32>(Zone),
+                ZoneMultiplier,
+                FinalDamage,
+                *ImpactPoint.ToString(),
+                bFromSweep ? TEXT("true") : TEXT("false"));
+            HitChar->HealthComponent->ApplyDamage(FinalDamage, OwnerInstigator.Get());
             HitChar->HealthComponent->ApplyBleed(BleedDamagePerTick, BleedDuration, OwnerInstigator.Get());
             const float NewHP = HitChar->HealthComponent->GetCurrentHP();
             WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ProjectileDamageResult | Projectile=%s | Attacker=%s | Target=%s | OldHP=%.1f | Damage=%.1f | NewHP=%.1f"),
@@ -363,14 +537,14 @@ void AWTBRProjectileBase::OnOverlapBegin(
                 *GetNameSafe(OwnerInstigator.Get()),
                 *GetNameSafe(HitChar),
                 OldHP,
-                BaseDamage,
+                FinalDamage,
                 NewHP);
             if (OwnerCategory == ETriggerCategory::Gunner)
             {
                 WTBR_VALIDATION_LOG(Verbose, TEXT("[Acervyn Retest] DamageApplied | Projectile=%s | Target=%s | Damage=%.1f | OldHP=%.1f | NewHP=%.1f | DamagedActors=%d"),
                     *GetNameSafe(this),
                     *GetNameSafe(HitChar),
-                    BaseDamage,
+                    FinalDamage,
                     OldHP,
                     NewHP,
                     DamagedActors.Num());
@@ -379,7 +553,7 @@ void AWTBRProjectileBase::OnOverlapBegin(
             {
                 WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] DamageApplied | Target=%s | Damage=%.1f | OldHP=%.1f | NewHP=%.1f"),
                     *GetNameSafe(HitChar),
-                    BaseDamage,
+                    FinalDamage,
                     OldHP,
                     NewHP);
             }
@@ -408,6 +582,19 @@ void AWTBRProjectileBase::OnOverlapBegin(
 
     // Environment hit (not character, not projectile):
     // All bullets stop at geometry — even penetrating snipers cannot pass through walls
+    FVector EnvironmentFallbackImpactNormal = FVector::ZeroVector;
+    if (IsValid(ProjectileMovement) && !ProjectileMovement->Velocity.IsNearlyZero())
+    {
+        EnvironmentFallbackImpactNormal = -ProjectileMovement->Velocity.GetSafeNormal();
+    }
+    if (EnvironmentFallbackImpactNormal.IsNearlyZero())
+    {
+        EnvironmentFallbackImpactNormal = -GetActorForwardVector().GetSafeNormal();
+    }
+    Multicast_ProjectileHitVFX(
+        GetActorLocation(), EnvironmentFallbackImpactNormal,
+        WTBRResolveProjectileImpactSurface(SweepResult));
+
     ProjectileState = EProjectileState::Destroyed;
     Destroy();
 }
@@ -484,6 +671,23 @@ void AWTBRProjectileBase::OnProjectileHit(
         TriggerExplosion();
         return;
     }
+
+    const FVector ImpactPoint = !Hit.ImpactPoint.IsNearlyZero()
+        ? Hit.ImpactPoint
+        : (!Hit.Location.IsNearlyZero() ? Hit.Location : GetActorLocation());
+    FVector FallbackImpactNormal = FVector::ZeroVector;
+    if (IsValid(ProjectileMovement) && !ProjectileMovement->Velocity.IsNearlyZero())
+    {
+        FallbackImpactNormal = -ProjectileMovement->Velocity.GetSafeNormal();
+    }
+    if (FallbackImpactNormal.IsNearlyZero())
+    {
+        FallbackImpactNormal = -GetActorForwardVector().GetSafeNormal();
+    }
+    const FVector ImpactNormal = WTBRResolveProjectileImpactNormal(
+        Hit, ImpactPoint, OtherActor, FallbackImpactNormal);
+    Multicast_ProjectileHitVFX(
+        ImpactPoint, ImpactNormal, WTBRResolveProjectileImpactSurface(Hit));
 
     ProjectileState = EProjectileState::Destroyed;
     Destroy();
@@ -567,6 +771,71 @@ bool AWTBRProjectileBase::IsLocationWithinShapedChargeCone(const FVector& Target
     const float ConeDotThreshold = FMath::Cos(FMath::DegreesToRadians(
         FMath::Clamp(ShapedChargeConeHalfAngleDegrees, 0.0f, 180.0f)));
     return FVector::DotProduct(GetActorForwardVector(), ToTarget.GetSafeNormal()) >= ConeDotThreshold;
+}
+
+EWTBRHitZone AWTBRProjectileBase::ClassifyHitZone(const FVector& CapsuleCenter, float CapsuleHalfHeight,
+    float CapsuleRadius, const FVector& ImpactPoint, float HeadHeightThreshold,
+    float LegHeightThreshold, float ArmLateralRadiusRatio)
+{
+    if (CapsuleHalfHeight <= 0.0f) return EWTBRHitZone::Torso;
+
+    const float BottomZ = CapsuleCenter.Z - CapsuleHalfHeight;
+    const float RelativeHeight = FMath::Clamp(
+        (ImpactPoint.Z - BottomZ) / (CapsuleHalfHeight * 2.0f), 0.0f, 1.0f);
+
+    if (RelativeHeight >= HeadHeightThreshold) return EWTBRHitZone::Head;
+    if (RelativeHeight < LegHeightThreshold)   return EWTBRHitZone::Leg;
+
+    // Torso height band — lateral distance from the central vertical axis
+    // approximates an outstretched-arm hit (no separate arm geometry exists
+    // to test against directly).
+    const float LateralDistSq = FVector::DistSquared2D(ImpactPoint, CapsuleCenter);
+    // Capsule collisions never exceed the capsule radius. Convert legacy
+    // values above 1.0 to the reachable default so arm hits do not silently
+    // turn into torso hits.
+    constexpr float DefaultArmRadiusRatio = 0.75f;
+    const float ArmRadiusRatio = ArmLateralRadiusRatio > 1.0f
+        ? DefaultArmRadiusRatio
+        : FMath::Clamp(ArmLateralRadiusRatio, 0.0f, 1.0f);
+    const float ArmThresholdDist = CapsuleRadius * ArmRadiusRatio;
+    if (LateralDistSq >= FMath::Square(ArmThresholdDist)) return EWTBRHitZone::Arm;
+
+    return EWTBRHitZone::Torso;
+}
+
+FVector AWTBRProjectileBase::ResolveHitZoneImpactPoint(bool bFromSweep,
+    const FHitResult& SweepResult, const FVector& FallbackLocation)
+{
+    if (!bFromSweep)
+    {
+        return FallbackLocation;
+    }
+
+    // Overlap sweeps can report bFromSweep=true while leaving ImpactPoint at
+    // its default zero vector. That point is not a real impact (a character
+    // capsule centre is above ground) and would classify every hit as a leg.
+    // Location is the next-best swept position; only fall back to the
+    // projectile's current location when neither sweep field is populated.
+    if (!SweepResult.ImpactPoint.IsNearlyZero())
+    {
+        return SweepResult.ImpactPoint;
+    }
+    if (!SweepResult.Location.IsNearlyZero())
+    {
+        return SweepResult.Location;
+    }
+    return FallbackLocation;
+}
+
+float AWTBRProjectileBase::GetHitZoneDamageMultiplier(EWTBRHitZone Zone, const UWTBRCoreStatsDataAsset* Stats)
+{
+    switch (Zone)
+    {
+    case EWTBRHitZone::Head: return Stats ? Stats->HeadDamageMultiplier : 2.0f;
+    case EWTBRHitZone::Arm:  return Stats ? Stats->ArmDamageMultiplier  : 0.85f;
+    case EWTBRHitZone::Leg:  return Stats ? Stats->LegDamageMultiplier  : 0.85f;
+    default:                 return Stats ? Stats->TorsoDamageMultiplier : 1.0f;
+    }
 }
 
 // ─── Bullet Clash ────────────────────────────────────────────────────────────

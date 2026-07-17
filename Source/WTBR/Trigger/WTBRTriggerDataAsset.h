@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "Trigger/WTBRPathPresetTypes.h"
+#include "VFX/WTBRProjectileVFXTypes.h"
 
 class USkeletalMesh;
 class UAnimMontage;
@@ -653,6 +654,9 @@ struct FWTBRTelornParams
         Category = "Telorn | Zoom",
         meta = (ClampMin = "5.0", ClampMax = "90.0"))
     float TelornZoomFOV = 25.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Telorn | VFX")
+    FWTBRProjectileVFXConfig VFX;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -691,6 +695,9 @@ struct FWTBRPiercexParams
         Category = "Piercex | Zoom",
         meta = (ClampMin = "5.0", ClampMax = "90.0"))
     float PiercexZoomFOV = 35.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | VFX")
+    FWTBRProjectileVFXConfig VFX;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -734,6 +741,9 @@ struct FWTBRFulgrisParams
         Category = "Fulgris | Zoom",
         meta = (ClampMin = "5.0", ClampMax = "90.0"))
     float FulgrisZoomFOV = 45.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgris | VFX")
+    FWTBRProjectileVFXConfig VFX;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

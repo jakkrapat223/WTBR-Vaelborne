@@ -41,7 +41,8 @@ bool UWTBRFulgrisTrigger::ExecuteFire()
         Vael->GetCurrentVael(),
         VaelCost);
 
-    if (!FireSniper(ProjClass, Damage, Speed, Range, false, CubeSplit))
+    if (!FireSniper(ProjClass, Damage, Speed, Range, false, CubeSplit,
+        &DataAsset->FulgrisParams.VFX))
     {
         WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] Fail | Reason=SpawnFailed"));
         return false;

@@ -17,7 +17,7 @@ bool UWTBRTelornTrigger::ExecuteFire()
 
     const FWTBRTelornParams& Params = DataAsset->TelornParams;
     FireSniper(Params.TelornProjectileClass, Params.TelornDamage, Params.TelornSpeed,
-        Params.TelornRange, false, Params.TelornCubeSplitCount);
+        Params.TelornRange, false, Params.TelornCubeSplitCount, &Params.VFX);
     return true;
 }
 

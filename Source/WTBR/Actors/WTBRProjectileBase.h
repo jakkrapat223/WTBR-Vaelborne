@@ -4,12 +4,16 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
+#include "VFX/WTBRProjectileVFXTypes.h"
+#include "Components/WTBRHealthComponent.h"
 #include "WTBRProjectileBase.generated.h"
 
 class UBoxComponent;
 class UProjectileMovementComponent;
 class UInterpToMovementComponent;
 class USceneComponent;
+class UNiagaraSystem;
+class UWTBRCoreStatsDataAsset;
 
 UENUM(BlueprintType)
 enum class EProjectileState : uint8
@@ -146,17 +150,58 @@ public:
     void InitializePathMovement(const TArray<FVector>& Points, float Speed, AActor* InInstigator);
 
     // ── VFX Hooks ──────────────────────────────────────────────────────────────
+    // Optional in-flight trail (e.g. Egret/Ibis/Lightning's visible bullet-light
+    // counterplay — owner's replacement for the GDD's original "Glint"
+    // pre-warning-the-target concept, dropped 2026-07-17 as too intrusive; see
+    // wtbr-project-state memory for the design discussion). Null by default =
+    // no trail, zero visual change for every existing projectile. Spawned in
+    // BeginPlay (not gated on HasAuthority) so it renders on every machine the
+    // actor replicates to, not just the server. Per-weapon BP subclasses (e.g.
+    // BP_Telorn_Projectile) set
+    // their own asset as a class default; there is deliberately no DataAsset
+    // plumbing for this — it is a visual choice tied to the projectile class,
+    // not a balance value.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
+    TObjectPtr<UNiagaraSystem> TrailEffect;
+
+    // Data Asset-driven VFX. Kept opt-in so existing Blueprint event graphs
+    // continue to work until a weapon is explicitly migrated.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
+    TObjectPtr<UNiagaraSystem> DefaultImpactEffect;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
+    TArray<FWTBRSurfaceImpactVFX> SurfaceImpactOverrides;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
+    bool bUseBuiltInImpactVFX = false;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX | Performance",
+        meta = (ClampMin = "0.0"))
+    float MaxImpactVFXDistance = 20000.0f;
+
+    void ApplyVFXConfig(const FWTBRProjectileVFXConfig& Config);
+
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Projectile | VFX")
     void OnProjectileLaunched();
 
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Projectile | VFX")
-    void OnProjectileHitVFX(FVector ImpactPoint);
+    void OnProjectileHitVFX(FVector ImpactPoint, FVector ImpactNormal);
+
+    // Optional Blueprint hook for surface-aware effects. The existing two-pin
+    // hit event remains intact for backwards compatibility.
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Projectile | VFX")
+    void OnProjectileSurfaceHitVFX(FVector ImpactPoint, FVector ImpactNormal,
+        uint8 SurfaceType);
 
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Projectile | VFX")
     void OnExplosionVFX(FVector Center, float Radius);
 
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Projectile | VFX")
     void OnCubeSplitVFX();
+
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_ProjectileHitVFX(FVector ImpactPoint, FVector ImpactNormal,
+        uint8 SurfaceType);
 
     // Spawn sub-bullets for a cube-split burst; called immediately by Labyrn FireComposite.
     UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
@@ -171,6 +216,27 @@ public:
     }
 
     bool IsLocationWithinShapedChargeCone(const FVector& TargetLocation) const;
+
+    // Headshot-style damage classification. Pure geometry approximation —
+    // this codebase has no per-bone hit detection (target collision is a
+    // single capsule, no physics asset with separate head/torso/arm/leg
+    // shapes), so it derives a zone purely from where ImpactPoint falls
+    // relative to the target's own capsule: height splits Head/Torso/Leg
+    // bands, and within the torso band, lateral distance from the capsule's
+    // central vertical axis further splits out Arm hits. Deliberately takes
+    // plain values (not a live UCapsuleComponent*) so it's testable with no
+    // world/physics/registration at all.
+    static EWTBRHitZone ClassifyHitZone(const FVector& CapsuleCenter, float CapsuleHalfHeight,
+        float CapsuleRadius, const FVector& ImpactPoint, float HeadHeightThreshold,
+        float LegHeightThreshold, float ArmLateralRadiusRatio);
+
+    // Select the contact point used by hit-zone classification. Overlap events
+    // use bFromSweep rather than FHitResult::bBlockingHit; unset sweep fields
+    // safely fall back to the projectile location.
+    static FVector ResolveHitZoneImpactPoint(bool bFromSweep, const FHitResult& SweepResult,
+        const FVector& FallbackLocation);
+
+    static float GetHitZoneDamageMultiplier(EWTBRHitZone Zone, const UWTBRCoreStatsDataAsset* Stats);
 
 protected:
     virtual void BeginPlay() override;
@@ -203,4 +269,7 @@ private:
     void TriggerSecondExplosion();
     void ApplyRadialDamage(float Radius, float Damage);
     void OnBulletClash(AWTBRProjectileBase* OtherBullet);
+    UNiagaraSystem* ResolveImpactEffect(uint8 SurfaceType) const;
+    bool IsImpactVFXWithinLocalViewDistance(const FVector& ImpactPoint) const;
+    void SpawnBuiltInImpactVFX(FVector ImpactPoint, FVector ImpactNormal, uint8 SurfaceType) const;
 };

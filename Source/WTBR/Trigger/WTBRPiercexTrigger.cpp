@@ -21,7 +21,8 @@ bool UWTBRPiercexTrigger::ExecuteFire()
     const float Range     = DataAsset->PiercexParams.PiercexRange;
     const int32 CubeSplit = DataAsset->PiercexParams.PiercexCubeSplitCount;
 
-    FireSniper(ProjClass, Damage, Speed, Range, true, CubeSplit);
+    FireSniper(ProjClass, Damage, Speed, Range, true, CubeSplit,
+        &DataAsset->PiercexParams.VFX);
     return true;
 }
 

@@ -11,6 +11,7 @@ public class WTBR : ModuleRules
         PublicDependencyModuleNames.AddRange(new string[]
         {
             "Core", "CoreUObject", "Engine", "InputCore",
+            "PhysicsCore",
             "EnhancedInput",
             "AIModule",
             "NavigationSystem",
@@ -22,6 +23,7 @@ public class WTBR : ModuleRules
         {
             "Slate", "SlateCore",
             "AssetRegistry",
+            "Niagara",
         });
 
         // Add module root so subdirectory-prefixed includes resolve correctly:

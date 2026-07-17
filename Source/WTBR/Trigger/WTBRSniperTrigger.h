@@ -6,6 +6,7 @@
 #include "WTBRSniperTrigger.generated.h"
 
 class AWTBRProjectileBase;
+struct FWTBRProjectileVFXConfig;
 
 // Aim-then-fire: press starts aiming (zoom-in is a separate client-cosmetic
 // concern, see AWTBRCharacter::UpdateSniperZoom) but does NOT fire; release
@@ -21,6 +22,13 @@ class WTBR_API UWTBRSniperTrigger : public UWTBRTriggerBase
 public:
     UFUNCTION(BlueprintPure, Category = "WTBR | Sniper | State")
     bool IsOnCooldown() const { return bIsOnCooldown; }
+
+    // Public wrapper so client-side code (AWTBRCharacter's cooldown-
+    // prediction gate on UpdateSniperZoom) can read the per-weapon cooldown
+    // length without needing the real (server-only, replicates nowhere)
+    // bIsOnCooldown state.
+    UFUNCTION(BlueprintPure, Category = "WTBR | Sniper | State")
+    float GetCooldownDurationForHUD() const { return GetCooldownDuration(); }
 
     UFUNCTION(BlueprintPure, Category = "WTBR | Sniper | State")
     bool IsAiming() const { return bIsAiming; }
@@ -43,7 +51,8 @@ protected:
         TSubclassOf<AWTBRProjectileBase> ProjClass,
         float Damage, float Speed, float Range,
         bool bCanPenetrate = false,
-        int32 CubeSplitCount = 1);
+        int32 CubeSplitCount = 1,
+        const FWTBRProjectileVFXConfig* VFXConfig = nullptr);
 
     FVector GetFireDirection() const;
     FVector GetMuzzleLocation(const FVector& AimDirection) const;

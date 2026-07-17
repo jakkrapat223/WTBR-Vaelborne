@@ -6,6 +6,7 @@
 #include "Actors/WTBRProjectileBase.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
+#include "GameFramework/SpringArmComponent.h"
 
 bool UWTBRSniperTrigger::Activate_Implementation(
     const FInputActionValue& InputValue, bool bIsDualWield)
@@ -47,6 +48,21 @@ FVector UWTBRSniperTrigger::GetFireDirection() const
 
 FVector UWTBRSniperTrigger::GetMuzzleLocation(const FVector& AimDirection) const
 {
+    // Fire from the exact point the scope camera collapses to while aiming
+    // (AWTBRCharacter::SetSniperScopeView sets TargetArmLength=0, so the
+    // camera sits at CameraBoom's own world location) rather than the
+    // generic GetActorEyesViewPoint() height, which can sit at a visibly
+    // different point than what the crosshair shows once actually zoomed —
+    // at Egret's 25 deg FOV a small origin mismatch reads as a clean miss on
+    // a precise target like the head. CameraBoom's own relative offset is a
+    // static Class Default (never touched by SetSniperScopeView, only
+    // ArmLength/collision/lag are), so this is server/client consistent for
+    // every player, not just the locally-controlled one.
+    if (USpringArmComponent* Boom = OwnerCharacter->GetCameraBoom())
+    {
+        return Boom->GetComponentLocation() + (AimDirection * 100.0f);
+    }
+
     FVector EyeLoc;
     FRotator EyeRot;
     OwnerCharacter->GetActorEyesViewPoint(EyeLoc, EyeRot);
@@ -56,7 +72,8 @@ FVector UWTBRSniperTrigger::GetMuzzleLocation(const FVector& AimDirection) const
 AWTBRProjectileBase* UWTBRSniperTrigger::FireSniper(
     TSubclassOf<AWTBRProjectileBase> ProjClass,
     float Damage, float Speed, float Range,
-    bool bCanPenetrate, int32 CubeSplitCount)
+    bool bCanPenetrate, int32 CubeSplitCount,
+    const FWTBRProjectileVFXConfig* VFXConfig)
 {
     if (!OwnerCharacter.IsValid())
     {
@@ -110,6 +127,10 @@ AWTBRProjectileBase* UWTBRSniperTrigger::FireSniper(
         false,   // bExplode = false
         0.0f);
     Proj->bCanPenetrate = bCanPenetrate;
+    if (VFXConfig)
+    {
+        Proj->ApplyVFXConfig(*VFXConfig);
+    }
     UGameplayStatics::FinishSpawningActor(Proj, FTransform(SpawnRot, Loc));
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Fulgris Test] ProjectileSpawnSuccess | Projectile=%s"),
         *GetNameSafe(Proj));

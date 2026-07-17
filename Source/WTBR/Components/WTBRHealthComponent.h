@@ -22,6 +22,21 @@ enum class EWTBRLimbType : uint8
     RightLeg UMETA(DisplayName="Right Leg"),
 };
 
+// Damage-multiplier classification only (headshot-style bonus/penalty) — a
+// separate concept from EWTBRLimbType above, which drives the (currently
+// dormant, no mode enables it) Limb Destruction disable-function/HP-drain
+// system. This codebase has no per-bone hit detection (character collision
+// is a single capsule, no physics asset), so classification is a pure
+// geometry approximation — see AWTBRProjectileBase::ClassifyHitZone.
+UENUM(BlueprintType)
+enum class EWTBRHitZone : uint8
+{
+    Torso UMETA(DisplayName="Torso"),
+    Head  UMETA(DisplayName="Head"),
+    Arm   UMETA(DisplayName="Arm"),
+    Leg   UMETA(DisplayName="Leg"),
+};
+
 UENUM(BlueprintType)
 enum class EWTBRCombatState : uint8
 {

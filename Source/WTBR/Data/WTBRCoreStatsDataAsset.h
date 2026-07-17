@@ -107,6 +107,38 @@ public:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vael | Desperation", meta = (ClampMin = "0"))
     float DesperationCostMultiplier = 0.5f;
 
+    // ─── Combat | Hit Zones (headshot-style damage multipliers) ────────────
+    // ⚠ PLAYTEST PENDING — industry-standard BR/FPS placeholder values, never
+    // playtested against this game's TTK/300 MaxHP specifically.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat | Hit Zones")
+    float HeadDamageMultiplier = 2.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat | Hit Zones")
+    float TorsoDamageMultiplier = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat | Hit Zones")
+    float ArmDamageMultiplier = 0.85f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat | Hit Zones")
+    float LegDamageMultiplier = 0.85f;
+
+    // Fraction of capsule height (0 = feet, 1 = top of head) at/above which an
+    // impact point counts as a Head hit.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat | Hit Zones", meta=(ClampMin="0.0", ClampMax="1.0"))
+    float HeadZoneHeightThreshold = 0.85f;
+
+    // Below this height fraction, an impact counts as a Leg hit.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat | Hit Zones", meta=(ClampMin="0.0", ClampMax="1.0"))
+    float LegZoneHeightThreshold = 0.35f;
+
+    // Within the torso height band, an impact whose lateral distance from the
+    // capsule's central vertical axis exceeds (capsule radius * this ratio)
+    // counts as an Arm hit instead of Torso — there's no separate arm
+    // geometry to test against, this is an approximation of "outstretched
+    // limb" via how far off-center the hit landed.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Combat | Hit Zones", meta=(ClampMin="0.0", ClampMax="1.0"))
+    float ArmLateralRadiusRatio = 0.75f;
+
     // ─── Movement ───────────────────────────────────────────────────────────
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Movement")
     float BaseWalkSpeed         = 600.f;   // cm/s (UE5 unit = 1 cm)

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "validateOnly": false,
+  "stopOnError": true,
+  "files": [
+    "NS_Telorn_Impact.json",
+    "NS_Piercex_Impact.json",
+    "NS_Fulgris_Impact.json"
+  ]
+}
