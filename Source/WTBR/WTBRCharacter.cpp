@@ -52,6 +52,7 @@
 #include "Trigger/WTBRVenyxTrigger.h"
 #include "Trigger/WTBRVexornTrigger.h"
 #include "UI/WTBRRadarWidget.h"
+#include "UI/WTBRSniperScopeWidget.h"
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
 #include "UI/WTBRInputBindingDisplayLibrary.h"
 
@@ -461,8 +462,25 @@ void AWTBRCharacter::Look(const FInputActionValue& Value)
 {
     const FVector2D Axis = Value.Get<FVector2D>();
     if (!Controller) return;
-    AddControllerYawInput(Axis.X);
-    AddControllerPitchInput(Axis.Y);
+
+    // While a Sniper zoom has narrowed FollowCamera's FOV, scale turn input
+    // down by the same ratio so degrees-turned-per-mouse-inch stays roughly
+    // constant regardless of zoom depth. Without this, a heavily zoomed shot
+    // (e.g. Egret's 25 deg vs a ~90 deg default) would swing the camera
+    // across a much larger fraction of the narrow view for the same mouse
+    // movement, making precision aiming harder instead of easier — this is
+    // the standard ADS-sensitivity convention used across the genre. Reuses
+    // the existing DefaultCameraFOV/FollowCamera state from the cosmetic
+    // Sniper zoom (AWTBRCharacter::UpdateSniperZoom); no new state needed,
+    // and this is a no-op (scale = 1.0) whenever FOV isn't zoomed.
+    float SensitivityScale = 1.0f;
+    if (FollowCamera && !FMath::IsNearlyZero(DefaultCameraFOV))
+    {
+        SensitivityScale = FollowCamera->FieldOfView / DefaultCameraFOV;
+    }
+
+    AddControllerYawInput(Axis.X * SensitivityScale);
+    AddControllerPitchInput(Axis.Y * SensitivityScale);
 }
 
 void AWTBRCharacter::FireMain(const FInputActionValue& Value)
@@ -521,15 +539,70 @@ void AWTBRCharacter::UpdateSniperZoom(bool bIsMain, bool bZoomIn)
 {
     if (!IsLocallyControlled() || !FollowCamera || !TriggerSetComponent) return;
 
-    if (bIsMain) bMainWantsSniperZoom = bZoomIn;
-    else         bSubWantsSniperZoom  = bZoomIn;
+    // Whatever Sniper is actually equipped in each slot right now,
+    // independent of whether this press/release wants to zoom with it —
+    // needed below to record a cooldown prediction on release even though
+    // bMainWantsSniperZoom/bSubWantsSniperZoom just went false.
+    UWTBRSniperTrigger* ActiveMainSniper = Cast<UWTBRSniperTrigger>(TriggerSetComponent->GetActiveMainTrigger());
+    UWTBRSniperTrigger* ActiveSubSniper  = Cast<UWTBRSniperTrigger>(TriggerSetComponent->GetActiveSubTrigger());
+    const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
 
-    // Only a real Sniper in the slot actually counts as "wants zoom" —
-    // grab both up front so the rest of this function can just read them.
-    UWTBRSniperTrigger* MainSniper = bMainWantsSniperZoom
-        ? Cast<UWTBRSniperTrigger>(TriggerSetComponent->GetActiveMainTrigger()) : nullptr;
-    UWTBRSniperTrigger* SubSniper = bSubWantsSniperZoom
-        ? Cast<UWTBRSniperTrigger>(TriggerSetComponent->GetActiveSubTrigger()) : nullptr;
+    if (bZoomIn)
+    {
+        const UWTBRSniperTrigger* SniperForSlot = bIsMain ? ActiveMainSniper : ActiveSubSniper;
+        const float CooldownPredictedUntil = bIsMain
+            ? MainSniperCooldownPredictedUntil
+            : SubSniperCooldownPredictedUntil;
+        // Scope is a promise that releasing Fire can make this shot. Mirror
+        // the HUD's per-trigger effective-cost calculation here, so an
+        // unaffordable Sniper (for example 10 Vael for a 20-Vael shot) never
+        // enters scope in the first place.
+        const bool bCanAffordSniper = bIsMain
+            ? CanAffordActiveMainTriggerForHUD()
+            : CanAffordActiveSubTriggerForHUD();
+        const bool bPressAccepted = SniperForSlot
+            && bCanAffordSniper
+            && Now >= CooldownPredictedUntil;
+
+        if (bIsMain)
+        {
+            bMainSniperZoomPressAccepted = bPressAccepted;
+            bMainWantsSniperZoom = bPressAccepted;
+        }
+        else
+        {
+            bSubSniperZoomPressAccepted = bPressAccepted;
+            bSubWantsSniperZoom = bPressAccepted;
+        }
+    }
+    else if (bIsMain)
+    {
+        // Only an accepted scope press may project the active Sniper's
+        // weapon-specific cooldown. A rejected tap must never extend it.
+        if (bMainSniperZoomPressAccepted && ActiveMainSniper)
+        {
+            MainSniperCooldownPredictedUntil = Now + ActiveMainSniper->GetCooldownDurationForHUD();
+        }
+        bMainSniperZoomPressAccepted = false;
+        bMainWantsSniperZoom = false;
+    }
+    else
+    {
+        if (bSubSniperZoomPressAccepted && ActiveSubSniper)
+        {
+            SubSniperCooldownPredictedUntil = Now + ActiveSubSniper->GetCooldownDurationForHUD();
+        }
+        bSubSniperZoomPressAccepted = false;
+        bSubWantsSniperZoom = false;
+    }
+
+    // Only a real Sniper in the slot, wanted right now, AND not predicted to
+    // still be on cooldown counts as "wants zoom" — grab both up front so
+    // the rest of this function can just read them.
+    UWTBRSniperTrigger* MainSniper = (bMainWantsSniperZoom && Now >= MainSniperCooldownPredictedUntil)
+        ? ActiveMainSniper : nullptr;
+    UWTBRSniperTrigger* SubSniper = (bSubWantsSniperZoom && Now >= SubSniperCooldownPredictedUntil)
+        ? ActiveSubSniper : nullptr;
 
     const bool bWasZoomed = SniperZoomLerpTimer.IsValid()
         || !FMath::IsNearlyEqual(FollowCamera->FieldOfView, DefaultCameraFOV, 0.1f);
@@ -543,10 +616,64 @@ void AWTBRCharacter::UpdateSniperZoom(bool bIsMain, bool bZoomIn)
         : SubSniper ? SubSniper->GetZoomFOV()
         : DefaultCameraFOV;
 
+    // Camera position switches instantly (standard ADS convention); only the
+    // FOV itself lerps via the timer below.
+    SetSniperScopeView(MainSniper != nullptr || SubSniper != nullptr);
+
     GetWorldTimerManager().SetTimer(
         SniperZoomLerpTimer,
         this, &AWTBRCharacter::TickSniperZoomLerp,
         SNIPER_ZOOM_TICK_INTERVAL, true);
+}
+
+void AWTBRCharacter::SetSniperScopeView(bool bActive)
+{
+    if (bActive == bSniperScopeViewActive) return;
+    if (!CameraBoom) return;
+
+    if (bActive)
+    {
+        // Save whatever the Character BP actually authored so release
+        // restores the player's real third-person framing, not C++ defaults.
+        ScopeSavedArmLength               = CameraBoom->TargetArmLength;
+        ScopeSavedSocketOffset            = CameraBoom->SocketOffset;
+        ScopeSavedDoCollisionTest         = CameraBoom->bDoCollisionTest;
+        ScopeSavedEnableCameraLag         = CameraBoom->bEnableCameraLag;
+        ScopeSavedEnableCameraRotationLag = CameraBoom->bEnableCameraRotationLag;
+
+        // Collapse to the existing pivot instead of moving it — the boom's
+        // relative location is left exactly as the Character BP authored it,
+        // only the arm length goes to zero. Collision test + lag are turned
+        // off: a non-zero-length collision probe starting from inside the
+        // character's own capsule was the likely cause of the camera ending
+        // up facing the wrong way on the first attempt.
+        CameraBoom->TargetArmLength          = 0.0f;
+        CameraBoom->SocketOffset             = FVector::ZeroVector;
+        CameraBoom->bDoCollisionTest         = false;
+        CameraBoom->bEnableCameraLag         = false;
+        CameraBoom->bEnableCameraRotationLag = false;
+
+        // Hide only for the owning viewer — everyone else still sees the
+        // character standing there aiming.
+        if (USkeletalMeshComponent* CharMesh = GetMesh())
+        {
+            CharMesh->SetOwnerNoSee(true);
+        }
+    }
+    else
+    {
+        CameraBoom->TargetArmLength          = ScopeSavedArmLength;
+        CameraBoom->SocketOffset             = ScopeSavedSocketOffset;
+        CameraBoom->bDoCollisionTest         = ScopeSavedDoCollisionTest;
+        CameraBoom->bEnableCameraLag         = ScopeSavedEnableCameraLag;
+        CameraBoom->bEnableCameraRotationLag = ScopeSavedEnableCameraRotationLag;
+
+        if (USkeletalMeshComponent* CharMesh = GetMesh())
+        {
+            CharMesh->SetOwnerNoSee(false);
+        }
+    }
+    bSniperScopeViewActive = bActive;
 }
 
 void AWTBRCharacter::TickSniperZoomLerp()
@@ -2869,6 +2996,27 @@ float AWTBRCharacter::GetActiveSubTriggerEffectiveVaelCostForHUD() const
     return GetActiveSubTriggerVaelAffordabilityForHUD().EffectiveVaelCost;
 }
 
+float AWTBRCharacter::GetSniperZoomAlphaForHUD() const
+{
+    if (!FollowCamera) return 0.0f;
+
+    const float Range = DefaultCameraFOV - SniperZoomTargetFOV;
+    if (FMath::IsNearlyZero(Range)) return 0.0f;
+
+    const float Alpha = (DefaultCameraFOV - FollowCamera->FieldOfView) / Range;
+    return FMath::Clamp(Alpha, 0.0f, 1.0f);
+}
+
+float AWTBRCharacter::TEMP_DEBUG_GetCameraBoomArmLength() const
+{
+    return CameraBoom ? CameraBoom->TargetArmLength : -1.0f;
+}
+
+bool AWTBRCharacter::TEMP_DEBUG_IsMeshOwnerHidden() const
+{
+    return GetMesh() && GetMesh()->bOwnerNoSee;
+}
+
 FWTBRHUDTriggerVaelAffordability AWTBRCharacter::GetActiveTriggerVaelAffordabilityForHUD(bool bIsMain) const
 {
     FWTBRHUDTriggerVaelAffordability Result;
@@ -3098,7 +3246,37 @@ void AWTBRCharacter::CreateLocalPlayerUI()
             RadarWidgetInstance->AddToViewport(1);
             RadarWidgetInstance->SetAnchorsInViewport(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
             RadarWidgetInstance->SetAlignmentInViewport(FVector2D::ZeroVector);
-            RadarWidgetInstance->SetPositionInViewport(FVector2D::ZeroVector);
+            // Deliberately NOT calling SetPositionInViewport here: UGameViewportSubsystem::
+            // SetWidgetSlotPosition (which it calls into) unconditionally resets Anchors to
+            // FAnchors(0,0) — a single-point, non-stretched anchor — discarding the full-stretch
+            // anchors just set above. For a full-stretch widget with zero offsets, the anchors +
+            // alignment already fully define "fill the screen"; Position has no meaning here and
+            // calling it collapses the widget to its own (zero, for an empty SBox) desired size.
+            // Found 2026-07-17 while root-causing why WTBRSniperScopeWidget's NativePaint always
+            // saw a 0x0 AllottedGeometry — this widget had the exact same latent bug, just masked
+            // because its NativePaint draws fixed-size boxes unconditionally instead of gating on
+            // AllottedGeometry's size.
+        }
+    }
+
+    if (!IsValid(ScopeWidgetInstance))
+    {
+        ScopeWidgetInstance = CreateWidget<UWTBRSniperScopeWidget>(PC, UWTBRSniperScopeWidget::StaticClass());
+        if (IsValid(ScopeWidgetInstance))
+        {
+            // Above the Radar (1) but below the modal BagLoot layer (10) —
+            // purely a fullscreen cosmetic overlay, draws nothing while not
+            // aiming a Sniper (see UWTBRSniperScopeWidget::NativePaint).
+            ScopeWidgetInstance->AddToViewport(2);
+            ScopeWidgetInstance->SetAnchorsInViewport(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+            ScopeWidgetInstance->SetAlignmentInViewport(FVector2D::ZeroVector);
+            // Deliberately NOT calling SetPositionInViewport — see the matching comment on
+            // RadarWidgetInstance above. This was the actual root cause of the Scope overlay
+            // never rendering: SetPositionInViewport unconditionally resets Anchors to a
+            // non-stretched FAnchors(0,0) inside UGameViewportSubsystem::SetWidgetSlotPosition,
+            // which combined with this widget's empty SBox (zero desired size) collapsed
+            // AllottedGeometry to 0x0 in NativePaint every frame — confirmed against the UE 5.1
+            // engine source, not just inferred from symptoms.
         }
     }
 }
@@ -3122,6 +3300,12 @@ void AWTBRCharacter::DestroyLocalPlayerUI()
         RadarWidgetInstance->RemoveFromParent();
     }
     RadarWidgetInstance = nullptr;
+
+    if (IsValid(ScopeWidgetInstance))
+    {
+        ScopeWidgetInstance->RemoveFromParent();
+    }
+    ScopeWidgetInstance = nullptr;
 }
 
 void AWTBRCharacter::ShowBagLootLayer()

@@ -22,6 +22,7 @@ class UWTBRInventoryComponent;
 class UWTBRHUDViewModelComponent;
 class UWTBRBagLootViewModelComponent;
 class UWTBRRadarWidget;
+class UWTBRSniperScopeWidget;
 class UTexture2D;
 class AWTBRDroppedTriggerActor;
 class AWTBRCorpseLootContainerActor;
@@ -187,6 +188,9 @@ public:
     UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
     TObjectPtr<UWTBRRadarWidget> RadarWidgetInstance;
 
+    UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
+    TObjectPtr<UWTBRSniperScopeWidget> ScopeWidgetInstance;
+
     FORCEINLINE TObjectPtr<USpringArmComponent> GetCameraBoom()    const { return CameraBoom; }
     FORCEINLINE TObjectPtr<UCameraComponent>    GetFollowCamera()  const { return FollowCamera; }
 
@@ -242,6 +246,21 @@ public:
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     float GetActiveSubTriggerEffectiveVaelCostForHUD() const;
+
+    // 0 at resting FOV, 1 at the current Sniper's fully-zoomed target FOV —
+    // tracks AWTBRCharacter::UpdateSniperZoom's live lerp so scope UI (reticle
+    // tighten, vignette) can fade smoothly with it rather than snapping on
+    // press/release.
+    UFUNCTION(BlueprintPure, Category="WTBR | HUD")
+    float GetSniperZoomAlphaForHUD() const;
+
+    // TEMP_DEBUG_ — root-causing why the Scope Reticle/Vignette overlay isn't
+    // visible in PIE despite the camera visibly zooming. Remove once resolved.
+    float TEMP_DEBUG_GetDefaultCameraFOV() const { return DefaultCameraFOV; }
+    float TEMP_DEBUG_GetSniperZoomTargetFOV() const { return SniperZoomTargetFOV; }
+    float TEMP_DEBUG_GetCameraBoomArmLength() const;
+    bool TEMP_DEBUG_IsScopeViewActive() const { return bSniperScopeViewActive; }
+    bool TEMP_DEBUG_IsMeshOwnerHidden() const;
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
     UInputMappingContext* GetDefaultMappingContext() const { return DefaultMappingContext; }
@@ -707,6 +726,50 @@ private:
     bool bMainWantsSniperZoom = false;
     bool bSubWantsSniperZoom = false;
     FTimerHandle SniperZoomLerpTimer;
+
+    // Client-predicted Sniper cooldown gate (owner-requested 2026-07-17):
+    // UWTBRSniperTrigger::bIsOnCooldown is server-only state (Activate/
+    // OnReleased both early-return on !HasAuthority(), so the client's own
+    // local Trigger instance never learns it), so without this a player
+    // could hold Fire again immediately after a shot, see the zoom/scope
+    // cosmetic play out as if aiming, then release and get no shot at all
+    // (server's Activate silently rejects the still-cooling-down trigger).
+    // Predicted from GetCooldownDuration() (a pure DA read, safe
+    // client-side) when a gate-accepted Fire press is released — an
+    // approximation, not
+    // exact server truth (a Vael-starved miss still starts this timer even
+    // though the server never actually set cooldown), but that only ever
+    // makes the client slightly more conservative, never desyncs it into
+    // showing a scope that won't fire. GetWorld()->GetTimeSeconds() compared
+    // against these; tracked per-slot like the zoom-want flags above.
+    float MainSniperCooldownPredictedUntil = 0.0f;
+    float SubSniperCooldownPredictedUntil = 0.0f;
+
+    // True only from a scope press that passed its slot's predicted cooldown
+    // gate until the matching release. This prevents a rejected press from
+    // extending the cosmetic lockout beyond the real Sniper cooldown.
+    bool bMainSniperZoomPressAccepted = false;
+    bool bSubSniperZoomPressAccepted = false;
+
+    // BR/FPS-style scope view (owner request 2026-07-17, supersedes the plain
+    // third-person zoom): while a Sniper is aimed, the boom collapses to
+    // TargetArmLength=0 (camera sits at the existing boom pivot instead of
+    // behind it) and the local player's own mesh is hidden so the view reads
+    // as looking THROUGH a scope; the circular lens overlay is
+    // UWTBRSniperScopeWidget's job. Client-side cosmetic only — restores the
+    // exact saved boom settings on release, so whatever the Character BP
+    // authored (not the C++ defaults) comes back. Collision test + camera lag
+    // are disabled while scoped (2026-07-17 fix — the first attempt left them
+    // on and the resulting view faced the wrong way, most likely the spring
+    // arm's collision probe reacting to being started inside the character's
+    // own capsule at zero arm length).
+    void SetSniperScopeView(bool bActive);
+    bool bSniperScopeViewActive = false;
+    float ScopeSavedArmLength = 400.0f;
+    FVector ScopeSavedSocketOffset = FVector::ZeroVector;
+    bool ScopeSavedDoCollisionTest = true;
+    bool ScopeSavedEnableCameraLag = false;
+    bool ScopeSavedEnableCameraRotationLag = false;
 
     static constexpr float SNIPER_ZOOM_LERP_SPEED = 8.0f;
     static constexpr float SNIPER_ZOOM_TICK_INTERVAL = 0.016f;
