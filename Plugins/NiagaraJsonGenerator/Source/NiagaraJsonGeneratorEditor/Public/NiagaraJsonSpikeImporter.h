@@ -30,6 +30,10 @@ public:
 	// is intentionally separate from effect generation: validate/generate first,
 	// then bind the resulting Niagara assets to gameplay in one explicit step.
 	static bool AutoBindSniperFromFile(const FString& FilePath);
+	// Applies the same data-driven impact/trail configuration directly to any
+	// Blueprint derived from AWTBRProjectileBase. This covers projectile
+	// families that do not own a dedicated Trigger Data Asset VFX slot yet.
+	static bool AutoBindProjectileBlueprintsFromFile(const FString& FilePath);
 	// Logs a static Niagara complexity report (emitters, renderers, simulation
 	// targets and allocation caps) without modifying the asset.
 	static bool AuditSystemPerformance(const FString& AssetPath);

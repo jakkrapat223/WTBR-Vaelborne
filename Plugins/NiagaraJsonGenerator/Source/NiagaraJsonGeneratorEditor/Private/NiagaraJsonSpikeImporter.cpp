@@ -5,6 +5,7 @@
 #include "Dom/JsonObject.h"
 #include "EditorAssetLibrary.h"
 #include "Editor.h"
+#include "Engine/Blueprint.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "Misc/FileHelper.h"
@@ -17,6 +18,7 @@
 #include "NiagaraTypes.h"
 #include "NiagaraUserRedirectionParameterStore.h"
 #include "Trigger/WTBRTriggerDataAsset.h"
+#include "Actors/WTBRProjectileBase.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Widgets/Notifications/SNotificationList.h"
@@ -783,6 +785,7 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::GeneratePreset(
             AssetEditor->OpenEditorForAsset(GeneratedSystem);
         }
     }
+
     return GeneratedSystem;
 }
 
@@ -1014,6 +1017,185 @@ bool FNiagaraJsonSpikeImporter::AutoBindSniperFromFile(const FString& FilePath)
 
 	const FString Summary = FString::Printf(
 		TEXT("Sniper VFX auto-bind complete | bound: %d, failed: %d, manifest: %s"),
+		Bound, Failed, *FilePath);
+	UE_LOG(LogNiagaraJsonSpike, Display, TEXT("%s"), *Summary);
+	Notify(Summary, Failed == 0);
+	return Failed == 0;
+}
+
+bool FNiagaraJsonSpikeImporter::AutoBindProjectileBlueprintsFromFile(const FString& FilePath)
+{
+	FString JsonText;
+	if (!FFileHelper::LoadFileToString(JsonText, *FilePath))
+	{
+		LogError(FString::Printf(TEXT("PB001: Cannot read projectile binding manifest: %s"), *FilePath));
+		return false;
+	}
+
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		LogError(FString::Printf(TEXT("PB002: Invalid projectile binding JSON: %s"), *FilePath));
+		return false;
+	}
+
+	double SchemaVersion = 0.0;
+	const TArray<TSharedPtr<FJsonValue>>* Bindings = nullptr;
+	if (!Root->TryGetNumberField(TEXT("schemaVersion"), SchemaVersion) || SchemaVersion != 1.0
+		|| !Root->TryGetArrayField(TEXT("bindings"), Bindings) || !Bindings || Bindings->Num() == 0)
+	{
+		LogError(TEXT("PB003: Manifest requires schemaVersion 1 and a non-empty bindings array"));
+		return false;
+	}
+
+	int32 Bound = 0;
+	int32 Failed = 0;
+	for (const TSharedPtr<FJsonValue>& BindingValue : *Bindings)
+	{
+		const TSharedPtr<FJsonObject>* Binding = nullptr;
+		FString BlueprintPath;
+		FString ImpactPath;
+		FString TrailPath;
+		if (!BindingValue.IsValid() || !BindingValue->TryGetObject(Binding) || !Binding->IsValid()
+			|| !(*Binding)->TryGetStringField(TEXT("projectileBlueprint"), BlueprintPath)
+			|| !(*Binding)->TryGetStringField(TEXT("impact"), ImpactPath))
+		{
+			UE_LOG(LogNiagaraJsonSpike, Error,
+				TEXT("PB004: Each binding requires projectileBlueprint and impact paths"));
+			Failed++;
+			continue;
+		}
+		(*Binding)->TryGetStringField(TEXT("trail"), TrailPath);
+
+		UBlueprint* Blueprint = Cast<UBlueprint>(UEditorAssetLibrary::LoadAsset(BlueprintPath));
+		UNiagaraSystem* Impact = Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(ImpactPath));
+		UNiagaraSystem* Trail = TrailPath.IsEmpty()
+			? nullptr : Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(TrailPath));
+		AWTBRProjectileBase* ProjectileCDO = Blueprint && Blueprint->GeneratedClass
+			? Cast<AWTBRProjectileBase>(Blueprint->GeneratedClass->GetDefaultObject()) : nullptr;
+		if (!Blueprint || !ProjectileCDO || !Impact || (!TrailPath.IsEmpty() && !Trail))
+		{
+			UE_LOG(LogNiagaraJsonSpike, Error,
+				TEXT("PB005: Blueprint must derive from AWTBRProjectileBase and all Niagara paths must be valid: %s"),
+				*BlueprintPath);
+			Failed++;
+			continue;
+		}
+
+		float MaxDistance = 20000.0f;
+		double MaxDistanceJson = 0.0;
+		if ((*Binding)->TryGetNumberField(TEXT("maxImpactVFXDistance"), MaxDistanceJson)
+			&& MaxDistanceJson >= 0.0)
+		{
+			MaxDistance = static_cast<float>(MaxDistanceJson);
+		}
+
+		TArray<FWTBRSurfaceImpactVFX> SurfaceOverrides;
+		const TArray<TSharedPtr<FJsonValue>>* Overrides = nullptr;
+		if ((*Binding)->TryGetArrayField(TEXT("surfaceOverrides"), Overrides) && Overrides)
+		{
+			bool bValid = true;
+			for (const TSharedPtr<FJsonValue>& OverrideValue : *Overrides)
+			{
+				const TSharedPtr<FJsonObject>* Override = nullptr;
+				double SurfaceNumber = 0.0;
+				FString EffectPath;
+				if (!OverrideValue.IsValid() || !OverrideValue->TryGetObject(Override)
+					|| !Override->IsValid()
+					|| !(*Override)->TryGetNumberField(TEXT("surfaceType"), SurfaceNumber)
+					|| !(*Override)->TryGetStringField(TEXT("effect"), EffectPath)
+					|| SurfaceNumber < 0.0 || SurfaceNumber >= static_cast<double>(SurfaceType_Max))
+				{
+					bValid = false;
+					break;
+				}
+				UNiagaraSystem* Effect = Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(EffectPath));
+				if (!Effect)
+				{
+					bValid = false;
+					break;
+				}
+				FWTBRSurfaceImpactVFX& NewOverride = SurfaceOverrides.AddDefaulted_GetRef();
+				NewOverride.SurfaceType = static_cast<EPhysicalSurface>(static_cast<uint8>(SurfaceNumber));
+				NewOverride.Effect = Effect;
+			}
+			if (!bValid)
+			{
+				UE_LOG(LogNiagaraJsonSpike, Error, TEXT("PB006: Invalid surfaceOverrides for %s"), *BlueprintPath);
+				Failed++;
+				continue;
+			}
+		}
+
+		TArray<FWTBRNiagaraAssetParameter> AssetOverrides;
+		const TArray<TSharedPtr<FJsonValue>>* AssetOverrideValues = nullptr;
+		if ((*Binding)->TryGetArrayField(TEXT("assetOverrides"), AssetOverrideValues)
+			&& AssetOverrideValues)
+		{
+			bool bValid = true;
+			for (const TSharedPtr<FJsonValue>& OverrideValue : *AssetOverrideValues)
+			{
+				const TSharedPtr<FJsonObject>* Override = nullptr;
+				FString ParameterName;
+				FString AssetPath;
+				if (!OverrideValue.IsValid() || !OverrideValue->TryGetObject(Override)
+					|| !Override->IsValid()
+					|| !(*Override)->TryGetStringField(TEXT("parameter"), ParameterName)
+					|| !(*Override)->TryGetStringField(TEXT("asset"), AssetPath)
+					|| ParameterName.IsEmpty())
+				{
+					bValid = false;
+					break;
+				}
+				UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
+				if (!IsValid(Asset))
+				{
+					bValid = false;
+					break;
+				}
+				FWTBRNiagaraAssetParameter& NewOverride = AssetOverrides.AddDefaulted_GetRef();
+				NewOverride.ParameterName = FName(*ParameterName);
+				NewOverride.Asset = Asset;
+			}
+			if (!bValid)
+			{
+				UE_LOG(LogNiagaraJsonSpike, Error, TEXT("PB007: Invalid assetOverrides for %s"), *BlueprintPath);
+				Failed++;
+				continue;
+			}
+		}
+
+		ProjectileCDO->Modify();
+		ProjectileCDO->TrailEffect = Trail;
+		ProjectileCDO->DefaultImpactEffect = Impact;
+		ProjectileCDO->SurfaceImpactOverrides = MoveTemp(SurfaceOverrides);
+		ProjectileCDO->ImpactAssetParameters = MoveTemp(AssetOverrides);
+		ProjectileCDO->bUseBuiltInImpactVFX = true;
+		ProjectileCDO->MaxImpactVFXDistance = MaxDistance;
+		Blueprint->Modify();
+		Blueprint->MarkPackageDirty();
+		if (!UEditorAssetLibrary::SaveLoadedAsset(Blueprint, false))
+		{
+			UE_LOG(LogNiagaraJsonSpike, Error, TEXT("PB008: Failed to save Blueprint: %s"), *BlueprintPath);
+			Failed++;
+			continue;
+		}
+
+		UE_LOG(LogNiagaraJsonSpike, Display,
+			TEXT("Auto-bound projectile Blueprint | Blueprint=%s | Trail=%s | Impact=%s | SurfaceOverrides=%d | AssetOverrides=%d"),
+			*BlueprintPath, *GetNameSafe(Trail), *GetNameSafe(Impact),
+			ProjectileCDO->SurfaceImpactOverrides.Num(), ProjectileCDO->ImpactAssetParameters.Num());
+		AuditSystemPerformance(ImpactPath);
+		if (!TrailPath.IsEmpty())
+		{
+			AuditSystemPerformance(TrailPath);
+		}
+		Bound++;
+	}
+
+	const FString Summary = FString::Printf(
+		TEXT("Projectile Blueprint VFX auto-bind complete | bound: %d, failed: %d, manifest: %s"),
 		Bound, Failed, *FilePath);
 	UE_LOG(LogNiagaraJsonSpike, Display, TEXT("%s"), *Summary);
 	Notify(Summary, Failed == 0);

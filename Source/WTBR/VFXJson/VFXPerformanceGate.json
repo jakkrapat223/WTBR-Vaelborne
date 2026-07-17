@@ -1,0 +1,20 @@
+{
+  "budget": {
+    "maxEmitters": 4,
+    "maxRenderers": 6,
+    "maxGpuEmitters": 0,
+    "maxPreAllocation": 2000
+  },
+  "assets": [
+    "/Game/VFX/Sniper/NS_Telorn_Trail",
+    "/Game/VFX/Sniper/NS_Telorn_Impact",
+    "/Game/VFX/Sniper/NS_Piercex_Trail",
+    "/Game/VFX/Sniper/NS_Piercex_Impact",
+    "/Game/VFX/Sniper/NS_Fulgris_Trail",
+    "/Game/VFX/Sniper/NS_Fulgris_Impact",
+    "/Game/VFX/Surfaces/NS_Impact_Metal",
+    "/Game/VFX/Surfaces/NS_Impact_Stone",
+    "/Game/VFX/Surfaces/NS_Impact_Flesh",
+    "/Game/VFX/Surfaces/NS_Impact_Shield"
+  ]
+}

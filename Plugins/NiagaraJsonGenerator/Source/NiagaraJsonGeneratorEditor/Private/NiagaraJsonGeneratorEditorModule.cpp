@@ -80,6 +80,21 @@ static FAutoConsoleCommand GAutoBindSniperVFXCommand(
 		FNiagaraJsonSpikeImporter::AutoBindSniperFromFile(FilePath.TrimQuotes());
 	}));
 
+static FAutoConsoleCommand GAutoBindProjectileVFXCommand(
+	TEXT("WTBR.Niagara.AutoBindProjectileBlueprints"),
+	TEXT("Bind generated VFX to any WTBR projectile Blueprint. Usage: WTBR.Niagara.AutoBindProjectileBlueprints <AbsolutePathToJson>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogNiagaraJsonGenerator, Error,
+				TEXT("Usage: WTBR.Niagara.AutoBindProjectileBlueprints <AbsolutePathToJson>"));
+			return;
+		}
+		FString FilePath = FString::Join(Args, TEXT(" "));
+		FNiagaraJsonSpikeImporter::AutoBindProjectileBlueprintsFromFile(FilePath.TrimQuotes());
+	}));
+
 static FAutoConsoleCommand GAuditNiagaraSystemCommand(
 	TEXT("WTBR.Niagara.AuditSystem"),
 	TEXT("Report static Niagara complexity without modifying the asset. Usage: WTBR.Niagara.AuditSystem <ContentPath>"),
@@ -169,6 +184,14 @@ private:
 				this, &FNiagaraJsonGeneratorEditorModule::OnAutoBindSniperClicked)));
 
 		Section.AddMenuEntry(
+			TEXT("AutoBindProjectileBlueprintVFX"),
+			FText::FromString(TEXT("Auto-Bind Projectile Blueprint VFX...")),
+			FText::FromString(TEXT("Bind trail, impact, surface, and asset parameters to any WTBR projectile Blueprint.")),
+			FSlateIcon(),
+			FUIAction(FExecuteAction::CreateRaw(
+				this, &FNiagaraJsonGeneratorEditorModule::OnAutoBindProjectileBlueprintsClicked)));
+
+		Section.AddMenuEntry(
 			TEXT("GenerateNiagaraPreset"),
 			FText::FromString(TEXT("Generate VFX Preset...")),
 			FText::FromString(TEXT("Create a strict Niagara variant from Color, Energy, Speed, and Spark Count without editing JSON.")),
@@ -240,6 +263,15 @@ private:
 		if (OpenJsonDialog(TEXT("Select WTBR Sniper VFX Binding Manifest"), FilePath))
 		{
 			FNiagaraJsonSpikeImporter::AutoBindSniperFromFile(FilePath);
+		}
+	}
+
+	void OnAutoBindProjectileBlueprintsClicked()
+	{
+		FString FilePath;
+		if (OpenJsonDialog(TEXT("Select WTBR Projectile Blueprint VFX Binding Manifest"), FilePath))
+		{
+			FNiagaraJsonSpikeImporter::AutoBindProjectileBlueprintsFromFile(FilePath);
 		}
 	}
 

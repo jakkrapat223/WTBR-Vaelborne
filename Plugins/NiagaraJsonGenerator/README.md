@@ -159,6 +159,18 @@ compatible exposed Niagara `User.*` UObject parameter at spawn time. Use it for
 Material, Texture, Curve, Static Mesh, or Ribbon-profile inputs; the template is
 responsible for exposing and wiring the matching parameter type.
 
+**Bind any projectile Blueprint:**
+
+```text
+WTBR.Niagara.AutoBindProjectileBlueprints E:\Path\To\ProjectileVFX.bind.json
+```
+
+This writes the same configuration directly to the Class Defaults of any
+Blueprint derived from `AWTBRProjectileBase`. Use this for projectile families
+without a dedicated Trigger Data Asset VFX struct. Start with
+`Source/WTBR/VFXJson/ProjectileVFX.bind.example.json` and replace every example
+content path with a real asset.
+
 ## No-JSON Preset Editor
 
 Open **Tools → Generate VFX Preset...**, select a template/output path, choose a

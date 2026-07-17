@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "bindings": [
+    {
+      "projectileBlueprint": "/Game/Blueprints/Projectiles/BP_ExampleProjectile",
+      "trail": "/Game/VFX/Example/NS_Example_Trail",
+      "impact": "/Game/VFX/Example/NS_Example_Impact",
+      "maxImpactVFXDistance": 20000,
+      "surfaceOverrides": [
+        {
+          "surfaceType": 1,
+          "effect": "/Game/VFX/Example/NS_Example_Impact_Metal"
+        }
+      ],
+      "assetOverrides": [
+        {
+          "parameter": "User.ImpactMaterial",
+          "asset": "/Game/VFX/Materials/M_Impact_Metal"
+        }
+      ]
+    }
+  ]
+}
