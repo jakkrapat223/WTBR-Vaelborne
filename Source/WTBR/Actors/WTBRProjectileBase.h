@@ -11,8 +11,11 @@
 class UBoxComponent;
 class UProjectileMovementComponent;
 class UInterpToMovementComponent;
+class UMaterialInterface;
 class USceneComponent;
 class UNiagaraSystem;
+class USoundBase;
+class UCameraShakeBase;
 class UWTBRCoreStatsDataAsset;
 
 UENUM(BlueprintType)
@@ -173,11 +176,32 @@ public:
     TArray<FWTBRSurfaceImpactVFX> SurfaceImpactOverrides;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
+    TArray<FWTBRNiagaraAssetParameter> ImpactAssetParameters;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
     bool bUseBuiltInImpactVFX = false;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX | Performance",
         meta = (ClampMin = "0.0"))
     float MaxImpactVFXDistance = 20000.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
+    TObjectPtr<USoundBase> ImpactSound = nullptr;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
+    TObjectPtr<UMaterialInterface> ImpactDecalMaterial = nullptr;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
+    FVector ImpactDecalSize = FVector(12.0f, 12.0f, 12.0f);
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
+    float ImpactDecalLifeSpan = 8.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX")
+    TSubclassOf<UCameraShakeBase> ImpactCameraShake;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Projectile | VFX | Debug")
+    bool bDrawImpactDebug = false;
 
     void ApplyVFXConfig(const FWTBRProjectileVFXConfig& Config);
 
@@ -270,6 +294,5 @@ private:
     void ApplyRadialDamage(float Radius, float Damage);
     void OnBulletClash(AWTBRProjectileBase* OtherBullet);
     UNiagaraSystem* ResolveImpactEffect(uint8 SurfaceType) const;
-    bool IsImpactVFXWithinLocalViewDistance(const FVector& ImpactPoint) const;
     void SpawnBuiltInImpactVFX(FVector ImpactPoint, FVector ImpactNormal, uint8 SurfaceType) const;
 };

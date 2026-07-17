@@ -13,6 +13,7 @@
 #include "Components/WTBRHealthComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Data/WTBRCoreStatsDataAsset.h"
+#include "VFX/WTBRVFXManagerSubsystem.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraComponent.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
@@ -158,8 +159,15 @@ void AWTBRProjectileBase::ApplyVFXConfig(const FWTBRProjectileVFXConfig& Config)
     TrailEffect = Config.TrailEffect;
     DefaultImpactEffect = Config.DefaultImpactEffect;
     SurfaceImpactOverrides = Config.SurfaceImpactOverrides;
+    ImpactAssetParameters = Config.ImpactAssetParameters;
     bUseBuiltInImpactVFX = Config.bUseBuiltInImpactVFX;
     MaxImpactVFXDistance = Config.MaxImpactVFXDistance;
+    ImpactSound = Config.ImpactSound;
+    ImpactDecalMaterial = Config.ImpactDecalMaterial;
+    ImpactDecalSize = Config.ImpactDecalSize;
+    ImpactDecalLifeSpan = Config.ImpactDecalLifeSpan;
+    ImpactCameraShake = Config.ImpactCameraShake;
+    bDrawImpactDebug = Config.bDrawImpactDebug;
 }
 
 UNiagaraSystem* AWTBRProjectileBase::ResolveImpactEffect(uint8 SurfaceType) const
@@ -175,36 +183,32 @@ UNiagaraSystem* AWTBRProjectileBase::ResolveImpactEffect(uint8 SurfaceType) cons
     return DefaultImpactEffect;
 }
 
-bool AWTBRProjectileBase::IsImpactVFXWithinLocalViewDistance(const FVector& ImpactPoint) const
-{
-    if (MaxImpactVFXDistance <= 0.0f)
-    {
-        return true;
-    }
-
-    const UWorld* World = GetWorld();
-    const APlayerController* LocalController = World ? World->GetFirstPlayerController() : nullptr;
-    const APawn* ViewPawn = LocalController ? LocalController->GetPawnOrSpectator() : nullptr;
-    return !IsValid(ViewPawn)
-        || FVector::DistSquared(ViewPawn->GetActorLocation(), ImpactPoint)
-            <= FMath::Square(MaxImpactVFXDistance);
-}
-
 void AWTBRProjectileBase::SpawnBuiltInImpactVFX(
     FVector ImpactPoint, FVector ImpactNormal, uint8 SurfaceType) const
 {
     UNiagaraSystem* Effect = ResolveImpactEffect(SurfaceType);
-    if (!IsValid(Effect) || !IsImpactVFXWithinLocalViewDistance(ImpactPoint))
+    UWorld* World = GetWorld();
+    UWTBRVFXManagerSubsystem* VFXManager = World
+        ? World->GetSubsystem<UWTBRVFXManagerSubsystem>() : nullptr;
+    if (!IsValid(Effect) || !VFXManager)
     {
         return;
     }
 
-    const FVector SafeNormal = ImpactNormal.IsNearlyZero()
-        ? FVector::UpVector : ImpactNormal.GetSafeNormal();
-    UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-        GetWorld(), Effect, ImpactPoint + (SafeNormal * 1.5f),
-        FRotationMatrix::MakeFromZ(SafeNormal).Rotator(), FVector::OneVector,
-        true, true, ENCPoolMethod::AutoRelease, true);
+    FWTBRImpactVFXRequest Request;
+    Request.Effect = Effect;
+    Request.Sound = ImpactSound;
+    Request.DecalMaterial = ImpactDecalMaterial;
+    Request.AssetParameters = ImpactAssetParameters;
+    Request.CameraShake = ImpactCameraShake;
+    Request.Location = ImpactPoint;
+    Request.Normal = ImpactNormal;
+    Request.DecalSize = ImpactDecalSize;
+    Request.DecalLifeSpan = ImpactDecalLifeSpan;
+    Request.MaxDistance = MaxImpactVFXDistance;
+    Request.SurfaceType = SurfaceType;
+    Request.bDrawDebug = bDrawImpactDebug;
+    VFXManager->SpawnImpact(Request);
 }
 
 void AWTBRProjectileBase::Multicast_ProjectileHitVFX_Implementation(
