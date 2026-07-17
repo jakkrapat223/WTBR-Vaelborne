@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "template": "/Game/VFX/Templates/NS_Template_SniperImpact",
+  "outputPath": "/Game/VFX/Surfaces/NS_Impact_Flesh",
+  "strict": true,
+  "params": {
+    "User.Color": { "type": "color", "value": [1.0, 0.12, 0.08, 1.0] },
+    "User.CoreCount": { "type": "int", "value": 1 },
+    "User.CoreLifetime": { "type": "float", "value": 0.06 },
+    "User.CoreSize": { "type": "float", "value": 10.0 },
+    "User.SparkCount": { "type": "int", "value": 10 },
+    "User.SparkLifetime": { "type": "float", "value": 0.18 },
+    "User.SparkSpeed": { "type": "float", "value": 480.0 },
+    "User.SparkWidth": { "type": "float", "value": 3.2 },
+    "User.SparkLength": { "type": "float", "value": 12.0 },
+    "User.SparkConeAngle": { "type": "float", "value": 120.0 },
+    "User.SparkDistribution": { "type": "float", "value": 1.0 },
+    "User.SparkDrag": { "type": "float", "value": 2.0 }
+  }
+}

@@ -94,3 +94,10 @@ struct FWTBRProjectileVFXConfig
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "VFX | Debug")
     bool bDrawImpactDebug = false;
 };
+
+// Shared by runtime projectiles and automation tests so surface routing has a
+// single, testable implementation.
+WTBR_API UNiagaraSystem* WTBRResolveSurfaceImpactEffect(
+    UNiagaraSystem* DefaultEffect,
+    const TArray<FWTBRSurfaceImpactVFX>& SurfaceOverrides,
+    uint8 SurfaceType);

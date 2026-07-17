@@ -172,15 +172,8 @@ void AWTBRProjectileBase::ApplyVFXConfig(const FWTBRProjectileVFXConfig& Config)
 
 UNiagaraSystem* AWTBRProjectileBase::ResolveImpactEffect(uint8 SurfaceType) const
 {
-    for (const FWTBRSurfaceImpactVFX& Override : SurfaceImpactOverrides)
-    {
-        if (static_cast<uint8>(Override.SurfaceType.GetValue()) == SurfaceType
-            && IsValid(Override.Effect))
-        {
-            return Override.Effect;
-        }
-    }
-    return DefaultImpactEffect;
+    return WTBRResolveSurfaceImpactEffect(
+        DefaultImpactEffect, SurfaceImpactOverrides, SurfaceType);
 }
 
 void AWTBRProjectileBase::SpawnBuiltInImpactVFX(

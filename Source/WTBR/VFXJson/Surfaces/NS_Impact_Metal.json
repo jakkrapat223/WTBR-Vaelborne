@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "template": "/Game/VFX/Templates/NS_Template_SniperImpact",
+  "outputPath": "/Game/VFX/Surfaces/NS_Impact_Metal",
+  "strict": true,
+  "params": {
+    "User.Color": { "type": "color", "value": [0.68, 0.84, 1.0, 1.0] },
+    "User.CoreCount": { "type": "int", "value": 1 },
+    "User.CoreLifetime": { "type": "float", "value": 0.05 },
+    "User.CoreSize": { "type": "float", "value": 9.0 },
+    "User.SparkCount": { "type": "int", "value": 16 },
+    "User.SparkLifetime": { "type": "float", "value": 0.14 },
+    "User.SparkSpeed": { "type": "float", "value": 1100.0 },
+    "User.SparkWidth": { "type": "float", "value": 1.6 },
+    "User.SparkLength": { "type": "float", "value": 18.0 },
+    "User.SparkConeAngle": { "type": "float", "value": 60.0 },
+    "User.SparkDistribution": { "type": "float", "value": 1.0 },
+    "User.SparkDrag": { "type": "float", "value": 1.8 }
+  }
+}

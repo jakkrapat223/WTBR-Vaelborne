@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "template": "/Game/VFX/Templates/NS_Template_SniperImpact",
+  "outputPath": "/Game/VFX/Surfaces/NS_Impact_Shield",
+  "strict": true,
+  "params": {
+    "User.Color": { "type": "color", "value": [0.10, 0.92, 1.0, 1.0] },
+    "User.CoreCount": { "type": "int", "value": 1 },
+    "User.CoreLifetime": { "type": "float", "value": 0.09 },
+    "User.CoreSize": { "type": "float", "value": 14.0 },
+    "User.SparkCount": { "type": "int", "value": 20 },
+    "User.SparkLifetime": { "type": "float", "value": 0.22 },
+    "User.SparkSpeed": { "type": "float", "value": 880.0 },
+    "User.SparkWidth": { "type": "float", "value": 2.0 },
+    "User.SparkLength": { "type": "float", "value": 24.0 },
+    "User.SparkConeAngle": { "type": "float", "value": 80.0 },
+    "User.SparkDistribution": { "type": "float", "value": 1.0 },
+    "User.SparkDrag": { "type": "float", "value": 1.0 }
+  }
+}
