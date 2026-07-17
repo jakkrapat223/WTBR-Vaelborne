@@ -3,6 +3,7 @@
 #include "WTBRValidationLog.h"
 #include "Trigger/WTBRNexilTrigger.h"
 #include "WTBRCharacter.h"
+#include "Actors/WTBRProjectileBase.h"
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Net/UnrealNetwork.h"
@@ -25,6 +26,10 @@ AWTBRNexilWireActor::AWTBRNexilWireActor()
     WireOverlap->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
     WireOverlap->SetCollisionResponseToAllChannels(ECR_Ignore);
     WireOverlap->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+    // Projectiles use ECC_WorldDynamic (see AWTBRProjectileBase's BoxCollision) —
+    // Overlap (not Block) so gunfire can cut the wire without the wire acting
+    // like a physical wall that stops bullets in flight.
+    WireOverlap->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
     WireOverlap->SetGenerateOverlapEvents(true);
 }
 
@@ -50,24 +55,30 @@ void AWTBRNexilWireActor::GetLifetimeReplicatedProps(
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(AWTBRNexilWireActor, bIsTriggered);
+    DOREPLIFETIME(AWTBRNexilWireActor, WireHP);
+    DOREPLIFETIME(AWTBRNexilWireActor, MaxWireHP);
 }
 
 void AWTBRNexilWireActor::InitializeWire(
     float InLifetime,
     float InStaggerDuration,
     float InWireLength,
+    int32 InWireHP,
     UWTBRNexilTrigger* InOwnerTrigger)
 {
     ensure(HasAuthority());
     StaggerDuration = InStaggerDuration;
     OwnerTrigger    = InOwnerTrigger;
+    MaxWireHP       = FMath::Max(1, InWireHP);
+    WireHP          = MaxWireHP;
     WireOverlap->SetBoxExtent(
         FVector(10.0f, InWireLength * 0.5f, 30.0f));
-    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Wire Initialized | Wire=%s | Lifetime=%.1f | Stagger=%.2f | Length=%.1f | Extent=%s | OwnerTrigger=%s"),
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Wire Initialized | Wire=%s | Lifetime=%.1f | Stagger=%.2f | Length=%.1f | WireHP=%d | Extent=%s | OwnerTrigger=%s"),
         *GetNameSafe(this),
         InLifetime,
         InStaggerDuration,
         InWireLength,
+        WireHP,
         *WireOverlap->GetScaledBoxExtent().ToString(),
         *GetNameSafe(InOwnerTrigger));
     if (InLifetime > 0.0f)
@@ -115,16 +126,30 @@ void AWTBRNexilWireActor::OnWireOverlapBegin(
             *GetNameSafe(OtherActor));
         return;
     }
-    if (bIsTriggered)
+    if (!IsValid(OtherActor))
     {
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilRejected | Wire=%s | OverlapActor=%s | Reason=AlreadyTriggered"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilRejected | Wire=%s | OverlapActor=%s | Reason=InvalidActor"),
             *GetNameSafe(this),
             *GetNameSafe(OtherActor));
         return;
     }
-    if (!IsValid(OtherActor))
+
+    // Gunfire/explosion contact cuts the wire (GDD: "ฟันหรือยิงขาดได้") regardless
+    // of team or trip-state — checked before bIsTriggered/instigator/team gates
+    // below, which are trip-mechanic-only concerns.
+    if (AWTBRProjectileBase* Projectile = Cast<AWTBRProjectileBase>(OtherActor))
     {
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilRejected | Wire=%s | OverlapActor=%s | Reason=InvalidActor"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] WireHitByProjectile | Wire=%s | Projectile=%s | WireHPBefore=%d"),
+            *GetNameSafe(this),
+            *GetNameSafe(Projectile),
+            WireHP);
+        TakeHit();
+        return;
+    }
+
+    if (bIsTriggered)
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilRejected | Wire=%s | OverlapActor=%s | Reason=AlreadyTriggered"),
             *GetNameSafe(this),
             *GetNameSafe(OtherActor));
         return;
@@ -150,7 +175,46 @@ void AWTBRNexilWireActor::OnWireOverlapBegin(
         return;
     }
 
+    // Friendly-fire fix: teammates of the wire's owner must not trip it.
+    AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetInstigator());
+    if (IsValid(OwnerChar) && OwnerChar->IsSameTeamAs(HitChar))
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] NexilRejected | Wire=%s | OverlapActor=%s | Reason=SameTeam"),
+            *GetNameSafe(this),
+            *GetNameSafe(OtherActor));
+        return;
+    }
+
     TriggerAndDestroy(OtherActor);
+}
+
+void AWTBRNexilWireActor::TakeHit()
+{
+    if (!HasAuthority()) return;
+    if (bIsTriggered) return; // already gone via trip path
+    if (WireHP <= 0) return;
+
+    const int32 OldHP = WireHP;
+    WireHP = FMath::Max(0, WireHP - 1);
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] WireHPDamage | Wire=%s | OldHP=%d | NewHP=%d"),
+        *GetNameSafe(this),
+        OldHP,
+        WireHP);
+
+    if (WireHP <= 0)
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] WireDestroyedByDamage | Wire=%s"),
+            *GetNameSafe(this));
+        OnWireDestroyedByDamageVFX();
+        GetWorld()->GetTimerManager().ClearTimer(LifetimeTimer);
+        Destroy();
+    }
+}
+
+float AWTBRNexilWireActor::GetWireHPPercent() const
+{
+    if (MaxWireHP <= 0) return 0.0f;
+    return static_cast<float>(WireHP) / static_cast<float>(MaxWireHP);
 }
 
 void AWTBRNexilWireActor::TriggerAndDestroy(AActor* TriggeredBy)
@@ -201,4 +265,12 @@ void AWTBRNexilWireActor::OnRep_bIsTriggered()
         bIsTriggered ? TEXT("true") : TEXT("false"));
     if (bIsTriggered)
         OnWireTriggeredVFX();
+}
+
+void AWTBRNexilWireActor::OnRep_WireHP()
+{
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] OnRep_WireHP | Wire=%s | WireHP=%d | MaxWireHP=%d"),
+        *GetNameSafe(this),
+        WireHP,
+        MaxWireHP);
 }

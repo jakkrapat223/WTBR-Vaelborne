@@ -591,10 +591,12 @@ struct FWTBRNexilParams
         meta = (ClampMin = "1.0"))
     float WireDuration = 30.0f;
 
-    // HP ของเส้น (GDD: 1 — ฟันหรือยิงขาดได้)
-    // ⚠ NOT YET WIRED — WireActor has no health/TakeDamage; destructible-wire is a
-    // deferred Nexil pass (see wtbr-project-state Nexil notes). Field kept so the
-    // DA value is ready when that pass lands.
+    // HP ของเส้น (GDD: 1 — ฟันหรือยิงขาดได้). Hit-count, not a damage-amount pool:
+    // any qualifying hit removes exactly 1, regardless of the weapon's own damage
+    // number. Wired to gunfire/explosion contact in AWTBRNexilWireActor as of this
+    // pass; melee-destroys-wire is GDD-intended but not yet implemented (melee
+    // triggers don't sweep-check for Nexil wires along their hit path).
+    // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Nexil | Wire",
         meta = (ClampMin = "1"))
@@ -625,8 +627,11 @@ struct FWTBRTelornParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Telorn | Projectile", meta = (ClampMin = "100.0"))
     float TelornSpeed = 6000.0f;
 
+    // GDD Sub-18.1 states Egret's Max Range as a flat 8,000u with no falloff
+    // (not flagged playtest-pending in that doc, unlike its charge-damage/Glint
+    // Cone numbers) — synced to that value 2026-07-17, was drifted to 10000.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Telorn | Projectile", meta = (ClampMin = "100.0"))
-    float TelornRange = 10000.0f;
+    float TelornRange = 8000.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Telorn | Projectile")
     TSubclassOf<AWTBRProjectileBase> TelornProjectileClass;
@@ -662,9 +667,11 @@ struct FWTBRPiercexParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | Combat", meta = (ClampMin = "0.0"))
     float PiercexDamage = 100.0f;
 
-    // ⚠ PLAYTEST PENDING
+    // GDD Sub-18.2 states Ibis's projectile speed as a flat 3,000u/s ("slower
+    // than Egret — dodgeable"), not flagged playtest-pending in that doc —
+    // synced to that value 2026-07-17, was drifted to 5000.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | Projectile", meta = (ClampMin = "100.0"))
-    float PiercexSpeed = 5000.0f;
+    float PiercexSpeed = 3000.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Piercex | Projectile", meta = (ClampMin = "100.0"))
     float PiercexRange = 12000.0f;
@@ -695,9 +702,13 @@ struct FWTBRFulgrisParams
 {
     GENERATED_BODY()
 
-    // Lowest damage among snipers — compensated by highest speed (GDD)
+    // Lowest damage among snipers — compensated by highest speed (GDD). GDD
+    // Sub-18.3 states Lightning's damage as a flat 30 (tap and hold equal, it
+    // never had charge tiers even before aim-then-fire superseded the other
+    // two snipers' charge concept) — synced to that value 2026-07-17, was
+    // drifted to 40.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgris | Combat", meta = (ClampMin = "0.0"))
-    float FulgrisDamage = 40.0f;
+    float FulgrisDamage = 30.0f;
 
     // Fastest projectile in game (GDD)
     // ⚠ PLAYTEST PENDING

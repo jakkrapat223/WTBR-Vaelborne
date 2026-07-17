@@ -144,6 +144,7 @@ void UWTBRNexilTrigger::PlaceWire()
         DataAsset->NexilParams.WireDuration,
         DataAsset->NexilParams.StaggerDuration,
         DataAsset->NexilParams.WireLength,
+        DataAsset->NexilParams.WireHP,
         this);
 
     // TD Fix 1: bind OnDestroyed to cleanup ActiveWires automatically
