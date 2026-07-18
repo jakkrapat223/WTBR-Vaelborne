@@ -10,6 +10,9 @@ class UMGJSONGENERATOREDITOR_API FUMGJsonImporter
 {
 public:
 	static UWidgetBlueprint* ImportFromFile(const FString& FilePath);
+	// Non-interactive in-place update used by the console command.  This keeps
+	// the normal convenience-backup behavior while avoiding the overwrite dialog.
+	static UWidgetBlueprint* ImportUpdateInPlaceFromFile(const FString& FilePath);
 
 	// Runs the real in-place rebuild against a temporary duplicate, reports the
 	// structural before/after diff, then deletes the duplicate. The source asset

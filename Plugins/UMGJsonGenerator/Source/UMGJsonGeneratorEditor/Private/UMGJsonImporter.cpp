@@ -263,6 +263,15 @@ UWidgetBlueprint* FUMGJsonImporter::ImportFromFile(const FString& FilePath)
 		/*bNotifyResult=*/true);
 }
 
+UWidgetBlueprint* FUMGJsonImporter::ImportUpdateInPlaceFromFile(const FString& FilePath)
+{
+	return ImportFromFileInternal(FilePath,
+		/*bForceUpdateInPlace=*/true,
+		/*bCreateBackup=*/true,
+		/*bOpenEditor=*/false,
+		/*bNotifyResult=*/true);
+}
+
 UWidgetBlueprint* FUMGJsonImporter::ImportFromFileInternal(const FString& FilePath,
 	bool bForceUpdateInPlace, bool bCreateBackup, bool bOpenEditor, bool bNotifyResult)
 {

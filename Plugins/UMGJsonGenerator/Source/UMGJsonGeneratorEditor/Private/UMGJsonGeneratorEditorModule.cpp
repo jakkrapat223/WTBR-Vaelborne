@@ -5,6 +5,9 @@
 #include "IDesktopPlatform.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/IConsoleManager.h"
+#include "WidgetBlueprint.h"
+#include "Blueprint/WidgetTree.h"
+#include "Components/Widget.h"
 #include "UMGJsonImporter.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogUMGJsonGenerator, Log, All);
@@ -31,6 +34,78 @@ static FAutoConsoleCommand GReimportUMGProbeCommand(
 		}
 		const FString JsonFilePath = FString::Join(JsonPathParts, TEXT(" ")).TrimQuotes();
 		FUMGJsonImporter::RunReimportProbe(SourceAssetPath, JsonFilePath);
+	}));
+
+// Non-interactive production import.  The importer performs its normal
+// convenience backup before rebuilding the existing asset in place.
+static FAutoConsoleCommand GImportUMGJsonCommand(
+	TEXT("WTBR.UMG.ImportJson"),
+	TEXT("Rebuild an existing UMG JSON asset in place with a convenience backup. Usage: WTBR.UMG.ImportJson <PathToJson>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogUMGJsonGenerator, Error,
+				TEXT("Usage: WTBR.UMG.ImportJson <PathToJson>"));
+			return;
+		}
+
+		FString JsonFilePath = FString::Join(Args, TEXT(" ")).TrimQuotes();
+		if (FPaths::IsRelative(JsonFilePath))
+		{
+			JsonFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), JsonFilePath);
+		}
+		FPaths::NormalizeFilename(JsonFilePath);
+		if (!FUMGJsonImporter::ImportUpdateInPlaceFromFile(JsonFilePath))
+		{
+			UE_LOG(LogUMGJsonGenerator, Error,
+				TEXT("UMG JSON import failed: %s"), *JsonFilePath);
+		}
+	}));
+
+// Read-only post-import verification for commandlet workflows.
+static FAutoConsoleCommand GReportUMGJsonImportCommand(
+	TEXT("WTBR.UMG.ReportImport"),
+	TEXT("Report Blueprint compile state and widget counts. Usage: WTBR.UMG.ReportImport <WBPContentPath>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() != 1)
+		{
+			UE_LOG(LogUMGJsonGenerator, Error,
+				TEXT("Usage: WTBR.UMG.ReportImport <WBPContentPath>"));
+			return;
+		}
+
+		FString PackageName = Args[0].TrimQuotes();
+		if (PackageName.Contains(TEXT(".")))
+		{
+			PackageName = FPackageName::ObjectPathToPackageName(PackageName);
+		}
+		const FString AssetName = FPackageName::GetLongPackageAssetName(PackageName);
+		UWidgetBlueprint* WBP = LoadObject<UWidgetBlueprint>(
+			nullptr, *(PackageName + TEXT(".") + AssetName));
+		if (!WBP || !WBP->WidgetTree)
+		{
+			UE_LOG(LogUMGJsonGenerator, Error,
+				TEXT("UMG JSON import report failed to load: %s"), *PackageName);
+			return;
+		}
+
+		TArray<UWidget*> Widgets;
+		WBP->WidgetTree->GetAllWidgets(Widgets);
+		int32 VariableWidgetCount = 0;
+		for (const UWidget* Widget : Widgets)
+		{
+			VariableWidgetCount += Widget && Widget->bIsVariable ? 1 : 0;
+		}
+
+		const TCHAR* CompileStatus = WBP->Status == BS_Error ? TEXT("Error")
+			: (WBP->Status == BS_UpToDateWithWarnings ? TEXT("Warning")
+				: (WBP->Status == BS_UpToDate ? TEXT("Success") : TEXT("Dirty")));
+		UE_LOG(LogUMGJsonGenerator, Log,
+			TEXT("UMG JSON Import Verification: Asset=%s CompileStatus=%s BlueprintStatus=%d TotalWidgets=%d VariableWidgets=%d"),
+			*WBP->GetPathName(), CompileStatus, static_cast<int32>(WBP->Status),
+			Widgets.Num(), VariableWidgetCount);
 	}));
 
 class FUMGJsonGeneratorEditorModule : public IModuleInterface
