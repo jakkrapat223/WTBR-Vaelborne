@@ -13,12 +13,17 @@
 #include "Blueprint/WidgetTree.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
+#include "Components/Widget.h"
+#include "EdGraph/EdGraph.h"
+#include "Engine/Blueprint.h"
 
 // Asset tools
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Misc/PackageName.h"
+#include "Misc/Paths.h"
+#include "Misc/ScopeExit.h"
 #include "UObject/SavePackage.h"
 #include "ObjectTools.h"
 
@@ -27,6 +32,7 @@
 
 // Editor open
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "Subsystems/EditorAssetSubsystem.h"
 #include "Editor.h"
 
 // Notifications
@@ -38,7 +44,11 @@
 
 // Kismet compile
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/CompilerResultsLog.h"
 #include "Kismet2/KismetEditorUtilities.h"
+
+// Compiler report formatting
+#include "Logging/TokenizedMessage.h"
 
 // UMG widgets
 #include "Components/CanvasPanel.h"
@@ -56,11 +66,205 @@ static const TArray<FString> GSupportedTypes = {
 	TEXT("SizeBox"), TEXT("Spacer")
 };
 
+namespace
+{
+	struct FUMGReimportProbeSnapshot
+	{
+		FString ParentClass;
+		TArray<FString> EventGraphs;
+		TArray<FString> FunctionGraphs;
+		int32 BindingCount = 0;
+		int32 AnimationCount = 0;
+		TMap<FString, FString> VariableWidgets;
+	};
+
+	static void SortStrings(TArray<FString>& Values)
+	{
+		Values.Sort([](const FString& A, const FString& B)
+		{
+			return A.Compare(B, ESearchCase::IgnoreCase) < 0;
+		});
+	}
+
+	static FUMGReimportProbeSnapshot CaptureProbeSnapshot(const UWidgetBlueprint* WBP)
+	{
+		FUMGReimportProbeSnapshot Snapshot;
+		if (!WBP)
+		{
+			return Snapshot;
+		}
+
+		Snapshot.ParentClass = WBP->ParentClass
+			? WBP->ParentClass->GetPathName()
+			: TEXT("<null>");
+		Snapshot.BindingCount = WBP->Bindings.Num();
+		Snapshot.AnimationCount = WBP->Animations.Num();
+
+		for (const UEdGraph* Graph : WBP->UbergraphPages)
+		{
+			if (Graph)
+			{
+				Snapshot.EventGraphs.Add(Graph->GetName());
+			}
+		}
+		for (const UEdGraph* Graph : WBP->FunctionGraphs)
+		{
+			if (Graph)
+			{
+				Snapshot.FunctionGraphs.Add(Graph->GetName());
+			}
+		}
+		SortStrings(Snapshot.EventGraphs);
+		SortStrings(Snapshot.FunctionGraphs);
+
+		if (WBP->WidgetTree)
+		{
+			WBP->WidgetTree->ForEachWidget([&Snapshot](UWidget* Widget)
+			{
+				if (Widget && Widget->bIsVariable)
+				{
+					Snapshot.VariableWidgets.Add(
+						Widget->GetName(), Widget->GetClass()->GetPathName());
+				}
+			});
+		}
+
+		return Snapshot;
+	}
+
+	static FString BlueprintStatusToString(EBlueprintStatus Status)
+	{
+		switch (Status)
+		{
+		case BS_Unknown:              return TEXT("Unknown");
+		case BS_Dirty:                return TEXT("Dirty");
+		case BS_Error:                return TEXT("Error");
+		case BS_UpToDate:             return TEXT("UpToDate");
+		case BS_BeingCreated:         return TEXT("BeingCreated");
+		case BS_UpToDateWithWarnings: return TEXT("UpToDateWithWarnings");
+		default:                      return TEXT("Invalid");
+		}
+	}
+
+	static const TCHAR* MessageSeverityToString(EMessageSeverity::Type Severity)
+	{
+		switch (Severity)
+		{
+		case EMessageSeverity::Error:         return TEXT("Error");
+		case EMessageSeverity::PerformanceWarning:
+		case EMessageSeverity::Warning:       return TEXT("Warning");
+		case EMessageSeverity::Info:          return TEXT("Info");
+		default:                              return TEXT("Log");
+		}
+	}
+
+	static void LogStringList(const TCHAR* Label, const TArray<FString>& Values)
+	{
+		UE_LOG(LogUMGJsonImporter, Log, TEXT("%s (%d):"), Label, Values.Num());
+		if (Values.Num() == 0)
+		{
+			UE_LOG(LogUMGJsonImporter, Log, TEXT("  <none>"));
+			return;
+		}
+		for (const FString& Value : Values)
+		{
+			UE_LOG(LogUMGJsonImporter, Log, TEXT("  %s"), *Value);
+		}
+	}
+
+	static TArray<FString> WidgetMapToStrings(const TMap<FString, FString>& Widgets)
+	{
+		TArray<FString> Values;
+		Values.Reserve(Widgets.Num());
+		for (const TPair<FString, FString>& Pair : Widgets)
+		{
+			Values.Add(FString::Printf(TEXT("%s : %s"), *Pair.Key, *Pair.Value));
+		}
+		SortStrings(Values);
+		return Values;
+	}
+
+	static void DiffStringArrays(const TArray<FString>& Before, const TArray<FString>& After,
+		TArray<FString>& OutCreated, TArray<FString>& OutRemoved)
+	{
+		for (const FString& Value : After)
+		{
+			if (!Before.Contains(Value))
+			{
+				OutCreated.Add(Value);
+			}
+		}
+		for (const FString& Value : Before)
+		{
+			if (!After.Contains(Value))
+			{
+				OutRemoved.Add(Value);
+			}
+		}
+		SortStrings(OutCreated);
+		SortStrings(OutRemoved);
+	}
+
+	static bool CreateProbeJsonClone(const FString& SourceJsonPath, const FString& ProbeWidgetName,
+		FString& OutProbeJsonPath)
+	{
+		FString RawJson;
+		if (!FFileHelper::LoadFileToString(RawJson, *SourceJsonPath))
+		{
+			UE_LOG(LogUMGJsonImporter, Error,
+				TEXT("Reimport Probe: cannot read JSON source: %s"), *SourceJsonPath);
+			return false;
+		}
+
+		TSharedPtr<FJsonObject> RootObject;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RawJson);
+		if (!FJsonSerializer::Deserialize(Reader, RootObject) || !RootObject.IsValid())
+		{
+			UE_LOG(LogUMGJsonImporter, Error,
+				TEXT("Reimport Probe: source JSON is invalid: %s"), *SourceJsonPath);
+			return false;
+		}
+
+		RootObject->SetStringField(TEXT("widgetName"), ProbeWidgetName);
+		FString ClonedJson;
+		const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&ClonedJson);
+		if (!FJsonSerializer::Serialize(RootObject.ToSharedRef(), Writer))
+		{
+			UE_LOG(LogUMGJsonImporter, Error, TEXT("Reimport Probe: failed to serialize cloned JSON."));
+			return false;
+		}
+
+		const FString ProbeJsonDir = FPaths::ProjectIntermediateDir()
+			/ TEXT("UMGJsonGenerator") / TEXT("ReimportProbes");
+		IFileManager::Get().MakeDirectory(*ProbeJsonDir, true);
+		OutProbeJsonPath = ProbeJsonDir / FString::Printf(TEXT("%s_%s.json"),
+			*ProbeWidgetName, *FDateTime::UtcNow().ToString(TEXT("%Y%m%d_%H%M%S")));
+		if (!FFileHelper::SaveStringToFile(ClonedJson, *OutProbeJsonPath))
+		{
+			UE_LOG(LogUMGJsonImporter, Error,
+				TEXT("Reimport Probe: failed to write cloned JSON: %s"), *OutProbeJsonPath);
+			OutProbeJsonPath.Reset();
+			return false;
+		}
+		return true;
+	}
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public entry point
 // ─────────────────────────────────────────────────────────────────────────────
 
 UWidgetBlueprint* FUMGJsonImporter::ImportFromFile(const FString& FilePath)
+{
+	return ImportFromFileInternal(FilePath,
+		/*bForceUpdateInPlace=*/false,
+		/*bCreateBackup=*/true,
+		/*bOpenEditor=*/true,
+		/*bNotifyResult=*/true);
+}
+
+UWidgetBlueprint* FUMGJsonImporter::ImportFromFileInternal(const FString& FilePath,
+	bool bForceUpdateInPlace, bool bCreateBackup, bool bOpenEditor, bool bNotifyResult)
 {
 	UE_LOG(LogUMGJsonImporter, Log, TEXT("=== UMG JSON Import START: %s ==="), *FilePath);
 
@@ -73,19 +277,269 @@ UWidgetBlueprint* FUMGJsonImporter::ImportFromFile(const FString& FilePath)
 	}
 
 	bool bIsNewAsset = true;
-	UWidgetBlueprint* WBP = CreateWidgetBlueprintAsset(Layout, Stats, bIsNewAsset);
+	UWidgetBlueprint* WBP = CreateWidgetBlueprintAsset(
+		Layout, Stats, bIsNewAsset, bForceUpdateInPlace, bCreateBackup);
 	if (!WBP)
 	{
 		return nullptr;
 	}
 
 	BuildWidgetTree(WBP, Layout, Stats);
-	SaveAndOpen(WBP, bIsNewAsset);
+	SaveAndOpen(WBP, bIsNewAsset, bOpenEditor);
 
 	const FString AssetPath = FString::Printf(TEXT("/Game/UI/Generated/%s"), *Layout.WidgetName);
 	UE_LOG(LogUMGJsonImporter, Log, TEXT("=== UMG JSON Import DONE: %s ==="), *AssetPath);
-	NotifySummary(AssetPath, Stats);
+	if (bNotifyResult)
+	{
+		NotifySummary(AssetPath, Stats);
+	}
 	return WBP;
+}
+
+bool FUMGJsonImporter::RunReimportProbe(const FString& SourceAssetPath,
+	const FString& JsonFilePath)
+{
+	FString SourcePackageName = SourceAssetPath.TrimStartAndEnd();
+	SourcePackageName = SourcePackageName.TrimQuotes();
+	if (SourcePackageName.Contains(TEXT(".")))
+	{
+		SourcePackageName = FPackageName::ObjectPathToPackageName(SourcePackageName);
+	}
+	if (!FPackageName::IsValidLongPackageName(SourcePackageName))
+	{
+		UE_LOG(LogUMGJsonImporter, Error,
+			TEXT("Reimport Probe: invalid source WBP path: %s"), *SourceAssetPath);
+		return false;
+	}
+
+	const FString SourceAssetName = FPackageName::GetLongPackageAssetName(SourcePackageName);
+	const FString SourceObjectPath = SourcePackageName + TEXT(".") + SourceAssetName;
+	UWidgetBlueprint* SourceWBP = LoadObject<UWidgetBlueprint>(nullptr, *SourceObjectPath);
+	if (!SourceWBP)
+	{
+		UE_LOG(LogUMGJsonImporter, Error,
+			TEXT("Reimport Probe: source is not a loadable Widget Blueprint: %s"), *SourceObjectPath);
+		return false;
+	}
+	FString ResolvedJsonFilePath = JsonFilePath.TrimStartAndEnd();
+	ResolvedJsonFilePath = ResolvedJsonFilePath.TrimQuotes();
+	if (FPaths::IsRelative(ResolvedJsonFilePath))
+	{
+		ResolvedJsonFilePath = FPaths::ConvertRelativePathToFull(
+			FPaths::ProjectDir(), ResolvedJsonFilePath);
+	}
+	FPaths::NormalizeFilename(ResolvedJsonFilePath);
+	if (!IFileManager::Get().FileExists(*ResolvedJsonFilePath))
+	{
+		UE_LOG(LogUMGJsonImporter, Error,
+			TEXT("Reimport Probe: JSON file does not exist: %s"), *ResolvedJsonFilePath);
+		return false;
+	}
+
+	const FString ProbePackagePath = TEXT("/Game/UI/Generated");
+	FString ProbeBaseName = SourceAssetName;
+	if (ProbeBaseName.EndsWith(TEXT("_Generated")))
+	{
+		ProbeBaseName.LeftChopInline(10);
+	}
+	ProbeBaseName += TEXT("_ReimportProbe");
+	const FString ProbeBasePackageName = ProbePackagePath / ProbeBaseName;
+	const FString ProbeAssetName =
+		(!FPackageName::DoesPackageExist(ProbeBasePackageName)
+			&& !FindPackage(nullptr, *ProbeBasePackageName))
+		? ProbeBaseName
+		: FindUniqueName(ProbeBaseName, ProbePackagePath);
+	const FString ProbePackageName = ProbePackagePath / ProbeAssetName;
+	const FString ProbeObjectPath = ProbePackageName + TEXT(".") + ProbeAssetName;
+
+	IAssetTools& AssetTools = FAssetToolsModule::GetModule().Get();
+	UWidgetBlueprint* ProbeWBP = Cast<UWidgetBlueprint>(
+		AssetTools.DuplicateAsset(ProbeAssetName, ProbePackagePath, SourceWBP));
+	if (!ProbeWBP)
+	{
+		UE_LOG(LogUMGJsonImporter, Error,
+			TEXT("Reimport Probe: failed to duplicate source WBP."));
+		return false;
+	}
+
+	FString ProbeJsonPath;
+	bool bProbeAssetCreated = true;
+	ON_SCOPE_EXIT
+	{
+		if (!ProbeJsonPath.IsEmpty())
+		{
+			IFileManager::Get().Delete(*ProbeJsonPath, false, true, true);
+		}
+		if (bProbeAssetCreated)
+		{
+			bool bDeleted = false;
+			if (GEditor)
+			{
+				if (UAssetEditorSubsystem* AssetEditorSubsystem =
+					GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
+				{
+					AssetEditorSubsystem->CloseAllEditorsForAsset(ProbeWBP);
+				}
+				if (UEditorAssetSubsystem* EditorAssetSubsystem =
+					GEditor->GetEditorSubsystem<UEditorAssetSubsystem>())
+				{
+					bDeleted = EditorAssetSubsystem->DeleteLoadedAsset(ProbeWBP);
+				}
+			}
+			if (bDeleted)
+			{
+				UE_LOG(LogUMGJsonImporter, Log,
+					TEXT("Reimport Probe Cleanup: Deleted probe asset: %s"), *ProbeObjectPath);
+			}
+			else
+			{
+				UE_LOG(LogUMGJsonImporter, Error,
+					TEXT("Reimport Probe Cleanup: FAILED to delete probe asset: %s"), *ProbeObjectPath);
+			}
+		}
+	};
+
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("=== UMG REIMPORT PROBE START ==="));
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("Source WBP: %s"), *SourceObjectPath);
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("Source JSON: %s"), *ResolvedJsonFilePath);
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("Created Probe: %s"), *ProbeObjectPath);
+
+	const FUMGReimportProbeSnapshot Before = CaptureProbeSnapshot(ProbeWBP);
+	if (!CreateProbeJsonClone(ResolvedJsonFilePath, ProbeAssetName, ProbeJsonPath))
+	{
+		return false;
+	}
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("Created JSON Clone: %s (widgetName=%s)"),
+		*ProbeJsonPath, *ProbeAssetName);
+
+	ProbeWBP = ImportFromFileInternal(ProbeJsonPath,
+		/*bForceUpdateInPlace=*/true,
+		/*bCreateBackup=*/false,
+		/*bOpenEditor=*/false,
+		/*bNotifyResult=*/false);
+	if (!ProbeWBP)
+	{
+		UE_LOG(LogUMGJsonImporter, Error,
+			TEXT("Reimport Probe: real import pipeline failed for probe asset."));
+		return false;
+	}
+
+	FCompilerResultsLog CompileLog;
+	CompileLog.bSilentMode = true;
+	CompileLog.bLogInfoOnly = false;
+	FKismetEditorUtilities::CompileBlueprint(
+		ProbeWBP, EBlueprintCompileOptions::SkipSave, &CompileLog);
+	const FUMGReimportProbeSnapshot After = CaptureProbeSnapshot(ProbeWBP);
+
+	TArray<FString> CreatedEventGraphs;
+	TArray<FString> RemovedEventGraphs;
+	TArray<FString> CreatedFunctionGraphs;
+	TArray<FString> RemovedFunctionGraphs;
+	DiffStringArrays(Before.EventGraphs, After.EventGraphs,
+		CreatedEventGraphs, RemovedEventGraphs);
+	DiffStringArrays(Before.FunctionGraphs, After.FunctionGraphs,
+		CreatedFunctionGraphs, RemovedFunctionGraphs);
+
+	TArray<FString> CreatedWidgets;
+	TArray<FString> RemovedWidgets;
+	TArray<FString> TypeChangedWidgets;
+	for (const TPair<FString, FString>& Pair : After.VariableWidgets)
+	{
+		const FString* BeforeType = Before.VariableWidgets.Find(Pair.Key);
+		if (!BeforeType)
+		{
+			CreatedWidgets.Add(FString::Printf(TEXT("%s : %s"), *Pair.Key, *Pair.Value));
+		}
+		else if (*BeforeType != Pair.Value)
+		{
+			TypeChangedWidgets.Add(FString::Printf(TEXT("%s : %s -> %s"),
+				*Pair.Key, **BeforeType, *Pair.Value));
+		}
+	}
+	for (const TPair<FString, FString>& Pair : Before.VariableWidgets)
+	{
+		if (!After.VariableWidgets.Contains(Pair.Key))
+		{
+			RemovedWidgets.Add(FString::Printf(TEXT("%s : %s"), *Pair.Key, *Pair.Value));
+		}
+	}
+	SortStrings(CreatedWidgets);
+	SortStrings(RemovedWidgets);
+	SortStrings(TypeChangedWidgets);
+
+	const bool bParentPreserved = Before.ParentClass == After.ParentClass;
+	const bool bGraphsPreserved = CreatedEventGraphs.Num() == 0 && RemovedEventGraphs.Num() == 0
+		&& CreatedFunctionGraphs.Num() == 0 && RemovedFunctionGraphs.Num() == 0;
+	const bool bExistingVariablesPreserved = RemovedWidgets.Num() == 0
+		&& TypeChangedWidgets.Num() == 0;
+	const bool bCompileSucceeded = CompileLog.NumErrors == 0
+		&& (ProbeWBP->Status == BS_UpToDate || ProbeWBP->Status == BS_UpToDateWithWarnings);
+	const bool bStructuralContractPassed = bParentPreserved && bGraphsPreserved
+		&& bExistingVariablesPreserved && bCompileSucceeded;
+
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("=== UMG REIMPORT PROBE REPORT ==="));
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("Parent Class: %s"),
+		bParentPreserved ? TEXT("UNCHANGED") : TEXT("CHANGED"));
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("  Before: %s"), *Before.ParentClass);
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("  After : %s"), *After.ParentClass);
+
+	LogStringList(TEXT("Before Event Graphs"), Before.EventGraphs);
+	LogStringList(TEXT("After Event Graphs"), After.EventGraphs);
+	LogStringList(TEXT("Created Event Graphs"), CreatedEventGraphs);
+	LogStringList(TEXT("Removed Event Graphs"), RemovedEventGraphs);
+	LogStringList(TEXT("Before Function Graphs"), Before.FunctionGraphs);
+	LogStringList(TEXT("After Function Graphs"), After.FunctionGraphs);
+	LogStringList(TEXT("Created Function Graphs"), CreatedFunctionGraphs);
+	LogStringList(TEXT("Removed Function Graphs"), RemovedFunctionGraphs);
+
+	UE_LOG(LogUMGJsonImporter, Log,
+		TEXT("UMG Property Bindings: Before=%d After=%d (clearing is expected)"),
+		Before.BindingCount, After.BindingCount);
+	UE_LOG(LogUMGJsonImporter, Log,
+		TEXT("UMG Animations: Before=%d After=%d (clearing is expected)"),
+		Before.AnimationCount, After.AnimationCount);
+
+	LogStringList(TEXT("Before Variable Widgets"), WidgetMapToStrings(Before.VariableWidgets));
+	LogStringList(TEXT("After Variable Widgets"), WidgetMapToStrings(After.VariableWidgets));
+	UE_LOG(LogUMGJsonImporter, Log,
+		TEXT("Variable Widgets: UPDATED (Before=%d After=%d Created=%d Removed=%d TypeChanged=%d)"),
+		Before.VariableWidgets.Num(), After.VariableWidgets.Num(), CreatedWidgets.Num(),
+		RemovedWidgets.Num(), TypeChangedWidgets.Num());
+	LogStringList(TEXT("Created Variable Widgets"), CreatedWidgets);
+	LogStringList(TEXT("Removed Variable Widgets"), RemovedWidgets);
+	LogStringList(TEXT("Type-Changed Variable Widgets"), TypeChangedWidgets);
+
+	const TCHAR* CompileOutcome = CompileLog.NumErrors > 0 || ProbeWBP->Status == BS_Error
+		? TEXT("Error")
+		: (CompileLog.NumWarnings > 0 || ProbeWBP->Status == BS_UpToDateWithWarnings
+			? TEXT("Warning") : TEXT("Success"));
+	UE_LOG(LogUMGJsonImporter, Log,
+		TEXT("Compile Status: %s (BlueprintStatus=%s Errors=%d Warnings=%d Messages=%d)"),
+		CompileOutcome, *BlueprintStatusToString(ProbeWBP->Status), CompileLog.NumErrors,
+		CompileLog.NumWarnings, CompileLog.Messages.Num());
+	if (CompileLog.Messages.Num() == 0)
+	{
+		UE_LOG(LogUMGJsonImporter, Log, TEXT("  <no compiler messages>"));
+	}
+	else
+	{
+		for (const TSharedRef<FTokenizedMessage>& Message : CompileLog.Messages)
+		{
+			UE_LOG(LogUMGJsonImporter, Log, TEXT("  [%s] %s"),
+				MessageSeverityToString(Message->GetSeverity()), *Message->ToText().ToString());
+		}
+	}
+
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("Blueprint Graph Structure: %s"),
+		bGraphsPreserved ? TEXT("PASS") : TEXT("FAIL"));
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("Native BindWidgetOptional Structural Contract: %s"),
+		(bParentPreserved && bExistingVariablesPreserved && bCompileSucceeded)
+			? TEXT("PASS") : TEXT("FAIL"));
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("Overall Structural Verdict: %s"),
+		bStructuralContractPassed ? TEXT("PASS") : TEXT("FAIL"));
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("=== UMG REIMPORT PROBE END ==="));
+
+	return bStructuralContractPassed;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -586,13 +1040,56 @@ void FUMGJsonImporter::ClearWidgetTree(UWidgetBlueprint* WBP)
 		OldWidgets.Num());
 }
 
+bool FUMGJsonImporter::CreateConvenienceBackup(UWidgetBlueprint* WBP,
+	FString& OutBackupObjectPath)
+{
+	OutBackupObjectPath.Reset();
+	if (!WBP)
+	{
+		return false;
+	}
+
+	const FString SourcePackageName = WBP->GetOutermost()->GetName();
+	const FString SourceAssetName = WBP->GetName();
+	const FString SourcePackagePath = FPackageName::GetLongPackagePath(SourcePackageName);
+	const FString BackupPackagePath = SourcePackagePath / TEXT("Backups");
+	const FString Timestamp = FDateTime::UtcNow().ToString(TEXT("%Y%m%d_%H%M%S"));
+	const FString BackupBaseName = FString::Printf(TEXT("%s_%s"),
+		*SourceAssetName, *Timestamp);
+	const FString BackupAssetName = FindUniqueName(BackupBaseName, BackupPackagePath);
+
+	UWidgetBlueprint* BackupWBP = Cast<UWidgetBlueprint>(
+		FAssetToolsModule::GetModule().Get().DuplicateAsset(
+			BackupAssetName, BackupPackagePath, WBP));
+	if (!BackupWBP)
+	{
+		UE_LOG(LogUMGJsonImporter, Error,
+			TEXT("Backup FAILED: could not duplicate %s."), *WBP->GetPathName());
+		return false;
+	}
+
+	if (!SaveWidgetBlueprint(BackupWBP, /*bIsNewAsset=*/false))
+	{
+		UE_LOG(LogUMGJsonImporter, Error,
+			TEXT("Backup FAILED: duplicate could not be saved: %s."), *BackupWBP->GetPathName());
+		return false;
+	}
+
+	OutBackupObjectPath = BackupWBP->GetPathName();
+	UE_LOG(LogUMGJsonImporter, Log, TEXT("Backup Created: %s (convenience copy; not full rollback)"),
+		*OutBackupObjectPath);
+	return true;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Asset creation
 // ─────────────────────────────────────────────────────────────────────────────
 
 UWidgetBlueprint* FUMGJsonImporter::CreateWidgetBlueprintAsset(FUMGJsonLayoutData& Layout,
                                                                 FUMGJsonImportStats& Stats,
-                                                                bool& bOutIsNewAsset)
+                                                                bool& bOutIsNewAsset,
+	                                                            bool bForceUpdateInPlace,
+	                                                            bool bCreateBackup)
 {
 	const FString PackagePath = TEXT("/Game/UI/Generated");
 	FString AssetName = Layout.WidgetName;
@@ -607,7 +1104,9 @@ UWidgetBlueprint* FUMGJsonImporter::CreateWidgetBlueprintAsset(FUMGJsonLayoutDat
 
 	if (bExistsOnDisk || bExistsInMemory)
 	{
-		EOverwriteAction Action = HandleExistingAsset(AssetName, FullPackageName);
+		EOverwriteAction Action = bForceUpdateInPlace
+			? EOverwriteAction::UpdateInPlace
+			: HandleExistingAsset(AssetName, FullPackageName);
 
 		switch (Action)
 		{
@@ -622,6 +1121,18 @@ UWidgetBlueprint* FUMGJsonImporter::CreateWidgetBlueprintAsset(FUMGJsonLayoutDat
 			UWidgetBlueprint* ExistingWBP = LoadObject<UWidgetBlueprint>(nullptr, *ObjectPath);
 			if (ExistingWBP)
 			{
+				if (bCreateBackup)
+				{
+					FString BackupObjectPath;
+					if (!CreateConvenienceBackup(ExistingWBP, BackupObjectPath))
+					{
+						LogError(FString::Printf(
+							TEXT("Update aborted: convenience backup failed for '%s'."),
+							*ObjectPath));
+						return nullptr;
+					}
+				}
+
 				// Close any open editor so the designer doesn't hold stale tree pointers
 				if (GEditor)
 				{
@@ -818,7 +1329,7 @@ void FUMGJsonImporter::BuildWidgetTree(UWidgetBlueprint* WBP,
 // Save + open
 // ─────────────────────────────────────────────────────────────────────────────
 
-void FUMGJsonImporter::SaveAndOpen(UWidgetBlueprint* WBP, bool bIsNewAsset)
+bool FUMGJsonImporter::SaveWidgetBlueprint(UWidgetBlueprint* WBP, bool bIsNewAsset)
 {
 	UPackage* Package = WBP->GetPackage();
 
@@ -841,15 +1352,21 @@ void FUMGJsonImporter::SaveAndOpen(UWidgetBlueprint* WBP, bool bIsNewAsset)
 			FAssetRegistryModule::AssetCreated(WBP);
 		}
 		UE_LOG(LogUMGJsonImporter, Log, TEXT("Saved: %s"), *PackageFilename);
-	}
-	else
-	{
-		UE_LOG(LogUMGJsonImporter, Warning,
-			TEXT("SavePackage returned failure for %s — asset may still be usable in-editor."),
-			*PackageFilename);
+		return true;
 	}
 
-	if (GEditor)
+	UE_LOG(LogUMGJsonImporter, Warning,
+		TEXT("SavePackage returned failure for %s — asset may still be usable in-editor."),
+		*PackageFilename);
+	return false;
+}
+
+void FUMGJsonImporter::SaveAndOpen(UWidgetBlueprint* WBP, bool bIsNewAsset,
+	bool bOpenEditor)
+{
+	SaveWidgetBlueprint(WBP, bIsNewAsset);
+
+	if (bOpenEditor && GEditor)
 	{
 		GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->OpenEditorForAsset(WBP);
 	}

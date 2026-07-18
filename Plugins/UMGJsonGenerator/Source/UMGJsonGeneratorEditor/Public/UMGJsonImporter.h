@@ -11,6 +11,11 @@ class UMGJSONGENERATOREDITOR_API FUMGJsonImporter
 public:
 	static UWidgetBlueprint* ImportFromFile(const FString& FilePath);
 
+	// Runs the real in-place rebuild against a temporary duplicate, reports the
+	// structural before/after diff, then deletes the duplicate. The source asset
+	// and source JSON are never modified.
+	static bool RunReimportProbe(const FString& SourceAssetPath, const FString& JsonFilePath);
+
 private:
 	enum class EOverwriteAction : uint8
 	{
@@ -39,10 +44,19 @@ private:
 
 	static UWidgetBlueprint* CreateWidgetBlueprintAsset(FUMGJsonLayoutData& Layout,
 	                                                     FUMGJsonImportStats& Stats,
-	                                                     bool& bOutIsNewAsset);
+	                                                     bool& bOutIsNewAsset,
+	                                                     bool bForceUpdateInPlace = false,
+	                                                     bool bCreateBackup = true);
 	static void BuildWidgetTree(UWidgetBlueprint* WBP, const FUMGJsonLayoutData& Layout,
 	                             FUMGJsonImportStats& Stats);
-	static void SaveAndOpen(UWidgetBlueprint* WBP, bool bIsNewAsset);
+	static bool SaveWidgetBlueprint(UWidgetBlueprint* WBP, bool bIsNewAsset);
+	static void SaveAndOpen(UWidgetBlueprint* WBP, bool bIsNewAsset, bool bOpenEditor = true);
+	static bool CreateConvenienceBackup(UWidgetBlueprint* WBP, FString& OutBackupObjectPath);
+	static UWidgetBlueprint* ImportFromFileInternal(const FString& FilePath,
+	                                                bool bForceUpdateInPlace,
+	                                                bool bCreateBackup,
+	                                                bool bOpenEditor,
+	                                                bool bNotifyResult);
 
 	static void LogError(const FString& Msg);
 	static void LogWarning(const FString& Msg, FUMGJsonImportStats* Stats = nullptr);

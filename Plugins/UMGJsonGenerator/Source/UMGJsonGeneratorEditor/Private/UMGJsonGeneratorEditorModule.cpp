@@ -4,9 +4,34 @@
 #include "DesktopPlatformModule.h"
 #include "IDesktopPlatform.h"
 #include "Framework/Application/SlateApplication.h"
+#include "HAL/IConsoleManager.h"
 #include "UMGJsonImporter.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogUMGJsonGenerator, Log, All);
+
+// Sandboxed structural re-import test. The first argument is a content path;
+// all remaining arguments are rejoined so unquoted JSON paths with spaces work.
+static FAutoConsoleCommand GReimportUMGProbeCommand(
+	TEXT("WTBR.UMG.ReimportProbe"),
+	TEXT("Duplicate a WBP, run the real JSON in-place rebuild on the duplicate, report the diff, and delete it. Usage: WTBR.UMG.ReimportProbe <WBPContentPath> <AbsolutePathToJson>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogUMGJsonGenerator, Error,
+				TEXT("Usage: WTBR.UMG.ReimportProbe <WBPContentPath> <AbsolutePathToJson>"));
+			return;
+		}
+
+		const FString SourceAssetPath = Args[0].TrimQuotes();
+		TArray<FString> JsonPathParts;
+		for (int32 Index = 1; Index < Args.Num(); ++Index)
+		{
+			JsonPathParts.Add(Args[Index]);
+		}
+		const FString JsonFilePath = FString::Join(JsonPathParts, TEXT(" ")).TrimQuotes();
+		FUMGJsonImporter::RunReimportProbe(SourceAssetPath, JsonFilePath);
+	}));
 
 class FUMGJsonGeneratorEditorModule : public IModuleInterface
 {
