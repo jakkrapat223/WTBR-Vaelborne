@@ -44,14 +44,25 @@ compile Success with 0 errors/0 warnings/0 messages, `Removed Variable
 Widgets=0`. `WBP_HUD_Generated.uasset` hash verified unchanged throughout
 (still never touched — this was all on a disposable probe duplicate).
 
-**The pipeline is now proven safe for this specific JSON.** The only
-remaining step before the Composite Merge Bar actually appears in the real
-HUD is the real re-import itself (`WTBR.UMG.ImportJson` / the Tools-menu
-import, targeting the real `WBP_HUD_Generated` — no longer the probe) +
-owner PIE-verification that HP/VAEL/Q-E/Match Phase/Winner all still
-update live in an actual match. **Not yet done — this is a production-
-asset change and needs an explicit go-ahead, not something to do
-automatically off the back of a passing probe.**
+**The pipeline is now proven safe for this specific JSON.**
+
+## Real re-import DONE (2026-07-18, commits `2a34b80` + `64897f5`)
+
+`WTBR.UMG.ImportJson` (new headless command, no interactive dialog) ran
+the real update-in-place against the actual `WBP_HUD_Generated`. Claude
+independently verified: automatic backup taken first
+(`Content/UI/Generated/Backups/WBP_HUD_Generated_20260718_071826_1.uasset`,
+committed), import log shows 0 warnings/errors (73 old widgets cleared, 67
+new built, 0 skipped), and `WTBR.UMG.ReportImport` confirms
+`CompileStatus=Success BlueprintStatus=3(UpToDate) TotalWidgets=68
+VariableWidgets=49` — exactly matching the PASS probe run.
+
+**Still open, deliberately not done automatically**: the owner's own PIE
+pass confirming HP/VAEL/Q-E/Match Phase/Winner text all still update live
+in an actual match, and that the Composite Merge Bar looks/behaves right.
+Structural safety is proven; visual/feel correctness needs human eyes —
+this is the one remaining step before calling the Composite Merge HUD
+feature fully shipped.
 
 ## Original decision (2026-07-18, superseded in framing but not substance)
 
