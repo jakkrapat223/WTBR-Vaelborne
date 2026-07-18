@@ -4,6 +4,8 @@
 #include "WTBRValidationLog.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SceneComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -55,6 +57,9 @@
 #include "UI/WTBRSniperScopeWidget.h"
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
 #include "UI/WTBRInputBindingDisplayLibrary.h"
+#include "NiagaraComponent.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
 
 #if !UE_BUILD_SHIPPING
 // B7D client-side validation harness trigger. Detected every ~1 s by
@@ -264,6 +269,11 @@ AWTBRCharacter::AWTBRCharacter()
     HUDViewModelComponent = CreateDefaultSubobject<UWTBRHUDViewModelComponent>(TEXT("HUDViewModelComponent"));
     BagLootViewModelComponent = CreateDefaultSubobject<UWTBRBagLootViewModelComponent>(TEXT("BagLootViewModelComponent"));
 
+    LacernSlashTrailEffect = TSoftObjectPtr<UNiagaraSystem>(
+        FSoftObjectPath(TEXT("/Game/VFX/Generated/Lacern/NS_Lacern_Slash_VaelCyan_01.NS_Lacern_Slash_VaelCyan_01")));
+    LacernHitImpactEffect = TSoftObjectPtr<UNiagaraSystem>(
+        FSoftObjectPath(TEXT("/Game/VFX/Lacern/NS_Lacern_Hit_Impact_01.NS_Lacern_Hit_Impact_01")));
+
     static ConstructorHelpers::FObjectFinder<UInputMappingContext> DefaultMappingContextAsset(
         TEXT("/Game/Input/IMC_WTBR_Default.IMC_WTBR_Default"));
     if (DefaultMappingContextAsset.Succeeded())
@@ -391,6 +401,7 @@ void AWTBRCharacter::BeginPlay()
 
 void AWTBRCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    StopNativeLacernTrail();
     DestroyLocalPlayerUI();
 
     Super::EndPlay(EndPlayReason);
@@ -3548,12 +3559,333 @@ void AWTBRCharacter::SetLacernExtendTelegraphActive(bool bActive, bool bIsDualWi
 
 void AWTBRCharacter::OnRep_LacernExtendTelegraph()
 {
+    NativeHandleLacernExtendTelegraphChanged(bLacernExtendTelegraphActive, bLacernExtendDualWield);
     OnLacernExtendTelegraphChanged(bLacernExtendTelegraphActive, bLacernExtendDualWield);
 }
 
 void AWTBRCharacter::Multicast_LacernHit_Implementation(FVector ImpactPoint, FVector ImpactNormal, bool bDualWieldHit)
 {
+    NativeHandleLacernHitReceived(ImpactPoint, ImpactNormal, bDualWieldHit);
     OnLacernHitReceived(ImpactPoint, ImpactNormal, bDualWieldHit);
+}
+
+float AWTBRCharacter::ComputeNativeLacernBladeTipDistance(
+    float Elapsed,
+    float ExtendLength,
+    float ExtendSpeed,
+    float RetractSpeed)
+{
+    if (ExtendLength <= 0.0f || ExtendSpeed <= 0.0f || RetractSpeed <= 0.0f)
+    {
+        return 0.0f;
+    }
+
+    const float ExtendDuration = ExtendLength / ExtendSpeed;
+    if (Elapsed <= ExtendDuration)
+    {
+        return FMath::Clamp(Elapsed * ExtendSpeed, 0.0f, ExtendLength);
+    }
+
+    const float RetractElapsed = Elapsed - ExtendDuration;
+    return FMath::Clamp(ExtendLength - RetractElapsed * RetractSpeed, 0.0f, ExtendLength);
+}
+
+void AWTBRCharacter::GetNativeLacernMotionParams(
+    float& OutExtendLength,
+    float& OutExtendSpeed,
+    float& OutRetractSpeed,
+    float& OutDualOffset) const
+{
+    OutExtendLength = 400.0f;
+    OutExtendSpeed = 1200.0f;
+    OutRetractSpeed = 1800.0f;
+    OutDualOffset = 40.0f;
+
+    const UWTBRTriggerBase* LacernTrigger = nullptr;
+    if (IsValid(TriggerSetComponent))
+    {
+        if (const UWTBRTriggerBase* MainTrigger = TriggerSetComponent->GetActiveMainTrigger();
+            IsValid(MainTrigger) && MainTrigger->IsA<UWTBRLacernTrigger>())
+        {
+            LacernTrigger = MainTrigger;
+        }
+        else if (const UWTBRTriggerBase* SubTrigger = TriggerSetComponent->GetActiveSubTrigger();
+            IsValid(SubTrigger) && SubTrigger->IsA<UWTBRLacernTrigger>())
+        {
+            LacernTrigger = SubTrigger;
+        }
+    }
+
+    const UWTBRTriggerDataAsset* LacernDataAsset =
+        IsValid(LacernTrigger) ? LacernTrigger->DataAsset.Get() : nullptr;
+    if (!IsValid(LacernDataAsset))
+    {
+        return;
+    }
+
+    OutExtendLength = FMath::Max(1.0f, LacernDataAsset->LacernParams.ExtendLength);
+    OutExtendSpeed = FMath::Max(1.0f, LacernDataAsset->LacernParams.ExtendSpeed);
+    OutRetractSpeed = FMath::Max(1.0f, LacernDataAsset->LacernParams.RetractSpeed);
+    OutDualOffset = FMath::Max(0.0f, LacernDataAsset->MeleeHitbox.DualWieldLateralOffset);
+}
+
+USceneComponent* AWTBRCharacter::ResolveNativeLacernTrailAttachParent(
+    FName& OutAttachSocketName) const
+{
+    OutAttachSocketName = NAME_None;
+
+    TArray<USceneComponent*> SceneComponents;
+    GetComponents<USceneComponent>(SceneComponents);
+    for (USceneComponent* Component : SceneComponents)
+    {
+        if (IsValid(Component) && Component->GetFName() == LacernBladeTipMarkerName)
+        {
+            return Component;
+        }
+    }
+
+    USkeletalMeshComponent* CharacterMesh = GetMesh();
+    if (IsValid(CharacterMesh))
+    {
+        const FName SocketCandidates[] =
+        {
+            LacernBladeTipMarkerName,
+            LacernWeaponSocketName,
+            FName(TEXT("WeaponSocket")),
+            FName(TEXT("hand_r"))
+        };
+
+        for (const FName SocketName : SocketCandidates)
+        {
+            if (!SocketName.IsNone() && CharacterMesh->DoesSocketExist(SocketName))
+            {
+                OutAttachSocketName = SocketName;
+                return CharacterMesh;
+            }
+        }
+    }
+
+    return RootComponent;
+}
+
+USceneComponent* AWTBRCharacter::EnsureNativeLacernBladeTipMarker()
+{
+    FName AttachSocketName = NAME_None;
+    USceneComponent* AttachParent = ResolveNativeLacernTrailAttachParent(AttachSocketName);
+    if (!IsValid(AttachParent))
+    {
+        return nullptr;
+    }
+
+    if (AttachParent->GetFName() == LacernBladeTipMarkerName)
+    {
+        return AttachParent;
+    }
+
+    if (!IsValid(NativeLacernBladeTipMarker))
+    {
+        NativeLacernBladeTipMarker = NewObject<USceneComponent>(this, TEXT("NativeLacernBladeTipMarker"));
+        if (!IsValid(NativeLacernBladeTipMarker))
+        {
+            return nullptr;
+        }
+        NativeLacernBladeTipMarker->RegisterComponent();
+    }
+
+    if (NativeLacernBladeTipMarker->GetAttachParent() != AttachParent
+        || NativeLacernBladeTipMarker->GetAttachSocketName() != AttachSocketName)
+    {
+        NativeLacernBladeTipMarker->AttachToComponent(
+            AttachParent,
+            FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+            AttachSocketName);
+    }
+
+    return NativeLacernBladeTipMarker;
+}
+
+void AWTBRCharacter::ApplyNativeLacernTrailParameters(
+    UNiagaraComponent* NiagaraComponent,
+    float CurrentDist,
+    float MaxDist) const
+{
+    if (!IsValid(NiagaraComponent))
+    {
+        return;
+    }
+
+    const FLinearColor VaelCyan = FLinearColor::FromSRGBColor(FColor::FromHex(TEXT("27D8FF")));
+    const FLinearColor HotWhite = FLinearColor::FromSRGBColor(FColor::FromHex(TEXT("F2F5FF")));
+
+    NiagaraComponent->SetVariableLinearColor(FName(TEXT("User.Color")), VaelCyan);
+    NiagaraComponent->SetVariableLinearColor(FName(TEXT("User.HotCoreColor")), HotWhite);
+    NiagaraComponent->SetVariableFloat(FName(TEXT("User.SlashWidth")), LacernSlashWidth);
+    NiagaraComponent->SetVariableFloat(FName(TEXT("User.TrailLifetime")), LacernTrailLifetime);
+    NiagaraComponent->SetVariableFloat(FName(TEXT("User.CurrentDist")), CurrentDist);
+    NiagaraComponent->SetVariableFloat(FName(TEXT("User.MaxDist")), MaxDist);
+}
+
+void AWTBRCharacter::NativeHandleLacernExtendTelegraphChanged(
+    bool bActive,
+    bool bIsDualWield)
+{
+    UWorld* World = GetWorld();
+    if (!bUseBuiltInLacernVFX || !World || World->GetNetMode() == NM_DedicatedServer)
+    {
+        return;
+    }
+
+    if (!bActive)
+    {
+        StopNativeLacernTrail();
+        return;
+    }
+
+    StopNativeLacernTrail();
+
+    UNiagaraSystem* TrailSystem = LacernSlashTrailEffect.LoadSynchronous();
+    USceneComponent* BladeTipMarker = EnsureNativeLacernBladeTipMarker();
+    if (!IsValid(TrailSystem) || !IsValid(BladeTipMarker))
+    {
+        WTBR_VALIDATION_LOG(Warning,
+            TEXT("[Lacern VFX] SlashTrailSpawnSkipped | Owner=%s | TrailValid=%s | MarkerValid=%s"),
+            *GetNameSafe(this),
+            IsValid(TrailSystem) ? TEXT("true") : TEXT("false"),
+            IsValid(BladeTipMarker) ? TEXT("true") : TEXT("false"));
+        return;
+    }
+
+    float ExtendLength = 400.0f;
+    float ExtendSpeed = 1200.0f;
+    float RetractSpeed = 1800.0f;
+    float DualOffset = 40.0f;
+    GetNativeLacernMotionParams(ExtendLength, ExtendSpeed, RetractSpeed, DualOffset);
+
+    NativeLacernTrailElapsed = 0.0f;
+    bNativeLacernTrailDualWield = bIsDualWield;
+    BladeTipMarker->SetRelativeLocation(FVector::ZeroVector);
+
+    NativeLacernSlashTrail = UNiagaraFunctionLibrary::SpawnSystemAttached(
+        TrailSystem,
+        BladeTipMarker,
+        NAME_None,
+        FVector::ZeroVector,
+        FRotator::ZeroRotator,
+        EAttachLocation::KeepRelativeOffset,
+        false);
+    ApplyNativeLacernTrailParameters(NativeLacernSlashTrail, 0.0f, ExtendLength);
+
+    if (bIsDualWield)
+    {
+        NativeLacernDualSlashTrail = UNiagaraFunctionLibrary::SpawnSystemAttached(
+            TrailSystem,
+            BladeTipMarker,
+            NAME_None,
+            FVector(0.0f, DualOffset, 0.0f),
+            FRotator::ZeroRotator,
+            EAttachLocation::KeepRelativeOffset,
+            false);
+        ApplyNativeLacernTrailParameters(NativeLacernDualSlashTrail, 0.0f, ExtendLength);
+    }
+
+    World->GetTimerManager().SetTimer(
+        NativeLacernTrailTimer,
+        this,
+        &AWTBRCharacter::TickNativeLacernTrail,
+        0.016f,
+        true);
+}
+
+void AWTBRCharacter::TickNativeLacernTrail()
+{
+    UWorld* World = GetWorld();
+    USceneComponent* BladeTipMarker = EnsureNativeLacernBladeTipMarker();
+    if (!World || !IsValid(BladeTipMarker))
+    {
+        StopNativeLacernTrail();
+        return;
+    }
+
+    float ExtendLength = 400.0f;
+    float ExtendSpeed = 1200.0f;
+    float RetractSpeed = 1800.0f;
+    float DualOffset = 40.0f;
+    GetNativeLacernMotionParams(ExtendLength, ExtendSpeed, RetractSpeed, DualOffset);
+
+    NativeLacernTrailElapsed += 0.016f;
+    const float CurrentDist = ComputeNativeLacernBladeTipDistance(
+        NativeLacernTrailElapsed, ExtendLength, ExtendSpeed, RetractSpeed);
+    BladeTipMarker->SetRelativeLocation(FVector(CurrentDist, 0.0f, 0.0f));
+
+    ApplyNativeLacernTrailParameters(NativeLacernSlashTrail, CurrentDist, ExtendLength);
+    ApplyNativeLacernTrailParameters(NativeLacernDualSlashTrail, CurrentDist, ExtendLength);
+
+    const float TotalDuration = ExtendLength / ExtendSpeed + ExtendLength / RetractSpeed;
+    if (NativeLacernTrailElapsed >= TotalDuration)
+    {
+        StopNativeLacernTrail();
+    }
+}
+
+void AWTBRCharacter::StopNativeLacernTrail()
+{
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(NativeLacernTrailTimer);
+    }
+
+    auto StopComponent = [](TObjectPtr<UNiagaraComponent>& Component)
+    {
+        if (IsValid(Component))
+        {
+            Component->Deactivate();
+            Component->SetAutoDestroy(true);
+        }
+        Component = nullptr;
+    };
+
+    StopComponent(NativeLacernSlashTrail);
+    StopComponent(NativeLacernDualSlashTrail);
+
+    if (IsValid(NativeLacernBladeTipMarker))
+    {
+        NativeLacernBladeTipMarker->SetRelativeLocation(FVector::ZeroVector);
+    }
+    NativeLacernTrailElapsed = 0.0f;
+    bNativeLacernTrailDualWield = false;
+}
+
+void AWTBRCharacter::NativeHandleLacernHitReceived(
+    FVector ImpactPoint,
+    FVector ImpactNormal,
+    bool bDualWieldHit)
+{
+    UWorld* World = GetWorld();
+    if (!bUseBuiltInLacernVFX || !World || World->GetNetMode() == NM_DedicatedServer)
+    {
+        return;
+    }
+
+    UNiagaraSystem* ImpactSystem = LacernHitImpactEffect.LoadSynchronous();
+    if (!IsValid(ImpactSystem))
+    {
+        return;
+    }
+
+    const FVector SafeNormal = ImpactNormal.IsNearlyZero()
+        ? FVector::UpVector : ImpactNormal.GetSafeNormal();
+    UNiagaraComponent* ImpactComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+        World,
+        ImpactSystem,
+        ImpactPoint + SafeNormal * 1.5f,
+        FRotationMatrix::MakeFromZ(SafeNormal).Rotator(),
+        bDualWieldHit ? FVector(1.12f) : FVector::OneVector,
+        true,
+        true,
+        ENCPoolMethod::AutoRelease,
+        true);
+
+    ApplyNativeLacernTrailParameters(ImpactComponent, 0.0f, 1.0f);
 }
 
 void AWTBRCharacter::ClearTriggerCosmeticVFXState()

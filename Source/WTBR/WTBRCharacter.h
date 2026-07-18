@@ -24,6 +24,9 @@ class UWTBRBagLootViewModelComponent;
 class UWTBRRadarWidget;
 class UWTBRSniperScopeWidget;
 class UTexture2D;
+class UNiagaraComponent;
+class UNiagaraSystem;
+class USceneComponent;
 class AWTBRDroppedTriggerActor;
 class AWTBRCorpseLootContainerActor;
 class AWTBRGroundItemActor;
@@ -750,6 +753,62 @@ private:
     // extending the cosmetic lockout beyond the real Sniper cooldown.
     bool bMainSniperZoomPressAccepted = false;
     bool bSubSniperZoomPressAccepted = false;
+
+    // Native Lacern VFX fallback for replicated clients. Blueprint events above
+    // still fire, but this keeps the Vaelborne slash trail working even when a
+    // BP has not bound the cosmetic graph yet.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Trigger | VFX | Lacern",
+        meta = (AllowPrivateAccess = "true"))
+    bool bUseBuiltInLacernVFX = true;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Trigger | VFX | Lacern",
+        meta = (AllowPrivateAccess = "true"))
+    TSoftObjectPtr<UNiagaraSystem> LacernSlashTrailEffect;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Trigger | VFX | Lacern",
+        meta = (AllowPrivateAccess = "true"))
+    TSoftObjectPtr<UNiagaraSystem> LacernHitImpactEffect;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Trigger | VFX | Lacern",
+        meta = (AllowPrivateAccess = "true"))
+    FName LacernBladeTipMarkerName = TEXT("BladeTipMarker");
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Trigger | VFX | Lacern",
+        meta = (AllowPrivateAccess = "true"))
+    FName LacernWeaponSocketName = TEXT("weapon_r");
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Trigger | VFX | Lacern",
+        meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
+    float LacernSlashWidth = 26.0f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Trigger | VFX | Lacern",
+        meta = (AllowPrivateAccess = "true", ClampMin = "0.01"))
+    float LacernTrailLifetime = 0.18f;
+
+    UPROPERTY(Transient)
+    TObjectPtr<USceneComponent> NativeLacernBladeTipMarker;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UNiagaraComponent> NativeLacernSlashTrail;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UNiagaraComponent> NativeLacernDualSlashTrail;
+
+    FTimerHandle NativeLacernTrailTimer;
+    float NativeLacernTrailElapsed = 0.0f;
+    bool bNativeLacernTrailDualWield = false;
+
+    void NativeHandleLacernExtendTelegraphChanged(bool bActive, bool bIsDualWield);
+    void NativeHandleLacernHitReceived(FVector ImpactPoint, FVector ImpactNormal, bool bDualWieldHit);
+    void TickNativeLacernTrail();
+    void StopNativeLacernTrail();
+    USceneComponent* ResolveNativeLacernTrailAttachParent(FName& OutAttachSocketName) const;
+    USceneComponent* EnsureNativeLacernBladeTipMarker();
+    void ApplyNativeLacernTrailParameters(UNiagaraComponent* NiagaraComponent, float CurrentDist, float MaxDist) const;
+    void GetNativeLacernMotionParams(float& OutExtendLength, float& OutExtendSpeed,
+        float& OutRetractSpeed, float& OutDualOffset) const;
+    static float ComputeNativeLacernBladeTipDistance(float Elapsed, float ExtendLength,
+        float ExtendSpeed, float RetractSpeed);
 
     // BR/FPS-style scope view (owner request 2026-07-17, supersedes the plain
     // third-person zoom): while a Sniper is aimed, the boom collapses to
