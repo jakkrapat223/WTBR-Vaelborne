@@ -6,12 +6,19 @@
 #include "EditorAssetLibrary.h"
 #include "Editor.h"
 #include "Engine/Blueprint.h"
+#include "Engine/SceneCapture2D.h"
+#include "Engine/TextureRenderTarget2D.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
+#include "ImageUtils.h"
+#include "RenderingThread.h"
+#include "Components/SceneCaptureComponent2D.h"
+#include "NiagaraActor.h"
+#include "NiagaraComponent.h"
 #include "NiagaraSystem.h"
 #include "NiagaraEmitter.h"
 #include "NiagaraEmitterHandle.h"
@@ -50,6 +57,69 @@ namespace
 	// Phase A path whitelists (see memory scope locks / README).
 	const TCHAR* TemplateRoot = TEXT("/Game/VFX/Templates/");
 	const TCHAR* OutputRoot   = TEXT("/Game/VFX/");
+
+	template <typename ValueType>
+	bool SetUserParameterDefault(
+		UNiagaraSystem* System,
+		const TCHAR* ParamName,
+		const FNiagaraTypeDefinition& TypeDef,
+		const ValueType& Value)
+	{
+		if (!IsValid(System))
+		{
+			return false;
+		}
+
+		FNiagaraVariable Variable(TypeDef, FName(ParamName));
+		FNiagaraUserRedirectionParameterStore::MakeUserVariable(Variable);
+		return System->GetExposedParameters().SetParameterValue(Value, Variable, true);
+	}
+
+	bool EnsureSlashTrailUserParameterContract(UNiagaraSystem* System)
+	{
+		if (!IsValid(System))
+		{
+			return false;
+		}
+
+		System->Modify();
+		const bool bColorSet = SetUserParameterDefault(
+			System,
+			TEXT("User.Color"),
+			FNiagaraTypeDefinition::GetColorDef(),
+			FLinearColor::FromSRGBColor(FColor::FromHex(TEXT("27D8FF"))));
+		const bool bHotCoreSet = SetUserParameterDefault(
+			System,
+			TEXT("User.HotCoreColor"),
+			FNiagaraTypeDefinition::GetColorDef(),
+			FLinearColor::FromSRGBColor(FColor::FromHex(TEXT("F2F5FF"))));
+		const bool bWidthSet = SetUserParameterDefault(
+			System,
+			TEXT("User.SlashWidth"),
+			FNiagaraTypeDefinition::GetFloatDef(),
+			26.0f);
+		const bool bLifetimeSet = SetUserParameterDefault(
+			System,
+			TEXT("User.TrailLifetime"),
+			FNiagaraTypeDefinition::GetFloatDef(),
+			0.18f);
+
+		const bool bSucceeded = bColorSet && bHotCoreSet && bWidthSet && bLifetimeSet;
+		if (bSucceeded)
+		{
+			System->MarkPackageDirty();
+			UE_LOG(LogNiagaraJsonSpike, Display,
+				TEXT("Slash Trail parameter contract ready on %s: User.Color, User.HotCoreColor, User.SlashWidth, User.TrailLifetime"),
+				*System->GetPathName());
+		}
+		else
+		{
+			UE_LOG(LogNiagaraJsonSpike, Error,
+				TEXT("MT006: Failed to apply Slash Trail parameter contract on %s"),
+				*System->GetPathName());
+		}
+		return bSucceeded;
+	}
 
 	bool IsNumberValue(const TSharedPtr<FJsonValue>& Value)
 	{
@@ -774,7 +844,7 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::GeneratePreset(
         return nullptr;
     }
     UNiagaraSystem* GeneratedSystem = ImportFromFile(PresetFile);
-    if (GeneratedSystem && GEditor)
+    if (GeneratedSystem && GEditor && !IsRunningCommandlet() && !FApp::IsUnattended())
     {
         // Opens Niagara's built-in preview scene immediately after generation.
         // The Content Browser then renders its normal asset thumbnail from the
@@ -786,7 +856,256 @@ UNiagaraSystem* FNiagaraJsonSpikeImporter::GeneratePreset(
         }
     }
 
+    FString PreviewPath;
+    if (GeneratedSystem && !FApp::IsUnattended())
+    {
+        ExportPreviewPng(GeneratedSystem, PreviewPath);
+    }
+
     return GeneratedSystem;
+}
+
+bool FNiagaraJsonSpikeImporter::InstallMeleeTemplateLibrary()
+{
+    struct FTemplateInstallEntry
+    {
+        const TCHAR* Source;
+        const TCHAR* Destination;
+        const TCHAR* Label;
+    };
+    const FTemplateInstallEntry Entries[] =
+    {
+        { TEXT("/Game/VFX/Lacern/NS_Lacern_Slash"),
+          TEXT("/Game/VFX/Templates/NS_Base_SlashTrail"), TEXT("Slash Trail") },
+        { TEXT("/Game/VFX/Lacern/NS_Lacern_Hit_Impact_01"),
+          TEXT("/Game/VFX/Templates/NS_Base_HitBurst"), TEXT("Hit Burst") },
+        { TEXT("/Game/VFX/Lacern/NS_Lacern_Extend"),
+          TEXT("/Game/VFX/Templates/NS_Base_LacernExtend"), TEXT("Lacern Extend") },
+    };
+
+    bool bSucceeded = true;
+    int32 InstalledCount = 0;
+    for (const FTemplateInstallEntry& Entry : Entries)
+    {
+        if (!UEditorAssetLibrary::DoesAssetExist(Entry.Source))
+        {
+            LogError(FString::Printf(TEXT("MT001: Missing curated melee source for %s: %s"),
+                Entry.Label, Entry.Source));
+            bSucceeded = false;
+            continue;
+        }
+
+        UNiagaraSystem* Template = nullptr;
+        if (UEditorAssetLibrary::DoesAssetExist(Entry.Destination))
+        {
+            Template = Cast<UNiagaraSystem>(UEditorAssetLibrary::LoadAsset(Entry.Destination));
+            if (!Template)
+            {
+                LogError(FString::Printf(TEXT("MT002: Existing melee template has wrong type: %s"),
+                    Entry.Destination));
+                bSucceeded = false;
+                continue;
+            }
+        }
+        else
+        {
+            Template = Cast<UNiagaraSystem>(UEditorAssetLibrary::DuplicateAsset(
+                Entry.Source, Entry.Destination));
+            if (!Template)
+            {
+                LogError(FString::Printf(TEXT("MT003: Failed to install melee template %s -> %s"),
+                    Entry.Source, Entry.Destination));
+                bSucceeded = false;
+                continue;
+            }
+            if (!UEditorAssetLibrary::SaveLoadedAsset(Template, false))
+            {
+                LogError(FString::Printf(TEXT("MT004: Failed to save installed melee template: %s"),
+                    Entry.Destination));
+                bSucceeded = false;
+                continue;
+            }
+            ++InstalledCount;
+        }
+
+        TArray<FNiagaraVariable> Parameters;
+        Template->GetExposedParameters().GetParameters(Parameters);
+        if (FString(Entry.Destination) == TEXT("/Game/VFX/Templates/NS_Base_SlashTrail"))
+        {
+            if (!EnsureSlashTrailUserParameterContract(Template)
+                || !UEditorAssetLibrary::SaveLoadedAsset(Template, false))
+            {
+                LogError(FString::Printf(TEXT("MT007: Failed to save slash trail parameter contract: %s"),
+                    Entry.Destination));
+                bSucceeded = false;
+                continue;
+            }
+        }
+        else if (Parameters.Num() == 0)
+        {
+            LogWarning(FString::Printf(
+                TEXT("MT101: %s installed as a fixed visual template (no exposed User parameters). "
+                     "It can be generated and bound now; expose Color/Width/Lifetime in Niagara to enable preset tuning."),
+                Entry.Label));
+        }
+    }
+
+    Notify(bSucceeded
+        ? FString::Printf(TEXT("Melee VFX Template Library ready (%d new asset(s) installed)."), InstalledCount)
+        : TEXT("Melee VFX Template Library installation completed with errors."), bSucceeded);
+    return bSucceeded;
+}
+
+UNiagaraSystem* FNiagaraJsonSpikeImporter::GenerateLacernSlashVariant(
+    const FString& OutputPath)
+{
+    constexpr const TCHAR* SlashTemplatePath = TEXT("/Game/VFX/Templates/NS_Base_SlashTrail");
+    if (!InstallMeleeTemplateLibrary() || !ValidateOutputTarget(OutputPath))
+    {
+        return nullptr;
+    }
+
+    bool bIsNewAsset = false;
+    UNiagaraSystem* Generated = ResolveOutputAsset(SlashTemplatePath, OutputPath, bIsNewAsset);
+    if (!Generated)
+    {
+        return nullptr;
+    }
+
+    if (!EnsureSlashTrailUserParameterContract(Generated))
+    {
+        return nullptr;
+    }
+
+    if (!UEditorAssetLibrary::SaveLoadedAsset(Generated, false))
+    {
+        LogError(FString::Printf(TEXT("MT005: Failed to save Lacern slash variant: %s"), *OutputPath));
+        return nullptr;
+    }
+    if (GEditor && !IsRunningCommandlet() && !FApp::IsUnattended())
+    {
+        if (UAssetEditorSubsystem* AssetEditor = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
+        {
+            AssetEditor->OpenEditorForAsset(Generated);
+        }
+    }
+    if (!FApp::IsUnattended())
+    {
+        FString PreviewPath;
+        ExportPreviewPng(Generated, PreviewPath);
+    }
+    Notify(FString::Printf(TEXT("Lacern slash variant ready: %s"), *OutputPath), true);
+    return Generated;
+}
+
+bool FNiagaraJsonSpikeImporter::ExportPreviewPng(
+    UNiagaraSystem* System, FString& OutFilePath)
+{
+    OutFilePath.Reset();
+    if (!IsValid(System) || !GEditor)
+    {
+        return false;
+    }
+    UWorld* World = GEditor->GetEditorWorldContext().World();
+    if (!World)
+    {
+        LogWarning(TEXT("PR002: No editor world is available for VFX preview rendering."));
+        return false;
+    }
+
+    constexpr int32 PreviewSize = 512;
+    const FVector PreviewOrigin(0.0f, 0.0f, 200.0f);
+    const FVector CameraLocation = PreviewOrigin + FVector(-350.0f, 0.0f, 80.0f);
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.ObjectFlags = RF_Transient;
+    SpawnParams.bTemporaryEditorActor = true;
+
+    ANiagaraActor* PreviewActor = World->SpawnActor<ANiagaraActor>(
+        PreviewOrigin, FRotator::ZeroRotator, SpawnParams);
+    ASceneCapture2D* CaptureActor = World->SpawnActor<ASceneCapture2D>(
+        CameraLocation, (PreviewOrigin - CameraLocation).Rotation(), SpawnParams);
+    UTextureRenderTarget2D* RenderTarget = NewObject<UTextureRenderTarget2D>(
+        GetTransientPackage(), NAME_None, RF_Transient);
+    if (!PreviewActor || !CaptureActor || !RenderTarget)
+    {
+        if (CaptureActor) { CaptureActor->Destroy(); }
+        if (PreviewActor) { PreviewActor->Destroy(); }
+        LogWarning(TEXT("PR003: Could not allocate temporary VFX preview actors."));
+        return false;
+    }
+
+    RenderTarget->InitAutoFormat(PreviewSize, PreviewSize);
+    RenderTarget->ClearColor = FLinearColor::Transparent;
+    RenderTarget->UpdateResourceImmediate(true);
+    UNiagaraComponent* NiagaraComponent = PreviewActor->GetNiagaraComponent();
+    NiagaraComponent->SetForceSolo(true);
+    NiagaraComponent->SetAsset(System);
+    NiagaraComponent->ReinitializeSystem();
+    NiagaraComponent->TickComponent(1.0f / 60.0f, LEVELTICK_All, nullptr);
+    // Capture near the beginning of the effect.  Impact systems are often
+    // shorter than 0.2 seconds, so a long warm-up would export a blank frame.
+    NiagaraComponent->AdvanceSimulation(2, 1.0f / 60.0f);
+
+    USceneCaptureComponent2D* Capture = CaptureActor->GetCaptureComponent2D();
+    Capture->TextureTarget = RenderTarget;
+    Capture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+    Capture->bCaptureEveryFrame = false;
+    Capture->bCaptureOnMovement = false;
+    Capture->CaptureScene();
+    // CaptureScene submits work asynchronously.  The readback below must wait
+    // for it, especially when invoked by the headless preview command.
+    FlushRenderingCommands();
+
+    TArray<FColor> Pixels;
+    FTextureRenderTargetResource* Resource = RenderTarget->GameThread_GetRenderTargetResource();
+    const bool bReadSucceeded = Resource && Resource->ReadPixels(Pixels);
+    CaptureActor->Destroy();
+    PreviewActor->Destroy();
+    if (!bReadSucceeded || Pixels.Num() != PreviewSize * PreviewSize)
+    {
+        LogWarning(FString::Printf(TEXT("PR004: Failed to read preview pixels for %s"), *System->GetPathName()));
+        return false;
+    }
+
+    TArray64<uint8> PngData;
+    FImageUtils::PNGCompressImageArray(PreviewSize, PreviewSize, Pixels, PngData);
+    const FString PreviewDir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("VFXPreviews"));
+    IFileManager::Get().MakeDirectory(*PreviewDir, true);
+    OutFilePath = FPaths::Combine(PreviewDir, System->GetName() + TEXT(".png"));
+    if (!FFileHelper::SaveArrayToFile(PngData, *OutFilePath))
+    {
+        LogWarning(FString::Printf(TEXT("PR005: Failed to save preview PNG: %s"), *OutFilePath));
+        OutFilePath.Reset();
+        return false;
+    }
+    UE_LOG(LogNiagaraJsonSpike, Display, TEXT("VFX preview exported: %s"), *OutFilePath);
+    return true;
+}
+
+bool FNiagaraJsonSpikeImporter::BindPresetToProjectile(
+    const FString& BlueprintPath, UNiagaraSystem* ImpactSystem,
+    const TArray<FWTBRNiagaraAssetParameter>& AssetParameters)
+{
+    UBlueprint* Blueprint = Cast<UBlueprint>(UEditorAssetLibrary::LoadAsset(BlueprintPath));
+    AWTBRProjectileBase* ProjectileCDO = Blueprint && Blueprint->GeneratedClass
+        ? Cast<AWTBRProjectileBase>(Blueprint->GeneratedClass->GetDefaultObject()) : nullptr;
+    if (!Blueprint || !ProjectileCDO || !IsValid(ImpactSystem))
+    {
+        LogError(FString::Printf(TEXT("PR006: Invalid projectile Blueprint or generated Niagara asset: %s"), *BlueprintPath));
+        return false;
+    }
+    ProjectileCDO->Modify();
+    ProjectileCDO->DefaultImpactEffect = ImpactSystem;
+    ProjectileCDO->ImpactAssetParameters = AssetParameters;
+    ProjectileCDO->bUseBuiltInImpactVFX = true;
+    Blueprint->Modify();
+    Blueprint->MarkPackageDirty();
+    const bool bSaved = UEditorAssetLibrary::SaveLoadedAsset(Blueprint, false);
+    if (!bSaved)
+    {
+        LogError(FString::Printf(TEXT("PR007: Failed to save projectile Blueprint: %s"), *BlueprintPath));
+    }
+    return bSaved;
 }
 
 bool FNiagaraJsonSpikeImporter::AutoBindSniperFromFile(const FString& FilePath)

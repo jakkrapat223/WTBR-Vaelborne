@@ -27,6 +27,8 @@ public class NiagaraJsonGeneratorEditor : ModuleRules
 			"AppFramework",
 			"DesktopPlatform",
 			"AssetRegistry",
+			"PropertyEditor",
+			"RenderCore",
 		});
 	}
 }

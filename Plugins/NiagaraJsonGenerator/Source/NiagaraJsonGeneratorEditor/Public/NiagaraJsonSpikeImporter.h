@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "VFX/WTBRProjectileVFXTypes.h"
 
 class UNiagaraSystem;
 class FJsonObject;
@@ -25,6 +26,18 @@ public:
 	                                     const FString& OutputPath,
 	                                     const FLinearColor& Color,
 	                                     float Energy, float Speed, int32 SparkCount);
+	static bool ExportPreviewPng(UNiagaraSystem* System, FString& OutFilePath);
+	static bool BindPresetToProjectile(const FString& BlueprintPath,
+	                                  UNiagaraSystem* ImpactSystem,
+	                                  const TArray<FWTBRNiagaraAssetParameter>& AssetParameters);
+
+	// Installs the curated Lacern assets into the read-only template namespace.
+	// Existing project VFX are never changed or overwritten.
+	static bool InstallMeleeTemplateLibrary();
+	// Duplicates the installed slash template as a gameplay-ready variant. This
+	// first version preserves the curated Ribbon graph exactly; parametric
+	// color/width tuning becomes available when the source template exposes it.
+	static UNiagaraSystem* GenerateLacernSlashVariant(const FString& OutputPath);
 
 	// Applies trail/impact settings to WTBR's Sniper Trigger Data Assets. This
 	// is intentionally separate from effect generation: validate/generate first,

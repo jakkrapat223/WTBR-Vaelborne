@@ -4,7 +4,11 @@
 #include "IDesktopPlatform.h"
 #include "Framework/Application/SlateApplication.h"
 #include "HAL/IConsoleManager.h"
+#include "EditorAssetLibrary.h"
+#include "Engine/Blueprint.h"
 #include "NiagaraJsonSpikeImporter.h"
+#include "NiagaraSystem.h"
+#include "PropertyCustomizationHelpers.h"
 #include "Widgets/Colors/SColorBlock.h"
 #include "Widgets/Colors/SColorPicker.h"
 #include "Widgets/Input/SButton.h"
@@ -124,6 +128,51 @@ static FAutoConsoleCommand GDumpNiagaraUserParamsCommand(
 		FNiagaraJsonSpikeImporter::DumpUserParams(Args[0].TrimQuotes());
 	}));
 
+// Lets artists and automated editor checks export a preview for an existing
+// Niagara asset without first generating a preset.
+static FAutoConsoleCommand GExportNiagaraPreviewCommand(
+	TEXT("WTBR.Niagara.ExportPreviewPng"),
+	TEXT("Render a 512px PNG preview. Usage: WTBR.Niagara.ExportPreviewPng <NiagaraSystemPath>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogNiagaraJsonGenerator, Error,
+				TEXT("Usage: WTBR.Niagara.ExportPreviewPng <NiagaraSystemPath>"));
+			return;
+		}
+		UNiagaraSystem* System = Cast<UNiagaraSystem>(
+			UEditorAssetLibrary::LoadAsset(Args[0].TrimQuotes()));
+		FString OutputPath;
+		if (!FNiagaraJsonSpikeImporter::ExportPreviewPng(System, OutputPath))
+		{
+			UE_LOG(LogNiagaraJsonGenerator, Error, TEXT("Failed to export Niagara preview PNG."));
+		}
+	}));
+
+static FAutoConsoleCommand GInstallMeleeTemplatesCommand(
+	TEXT("WTBR.Niagara.InstallMeleeTemplates"),
+	TEXT("Install the curated Lacern Slash/Hit/Extend template library without overwriting project VFX."),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		FNiagaraJsonSpikeImporter::InstallMeleeTemplateLibrary();
+	}));
+
+static FAutoConsoleCommand GGenerateLacernSlashCommand(
+	TEXT("WTBR.Niagara.GenerateLacernSlash"),
+	TEXT("Duplicate the curated Lacern Slash template. Usage: WTBR.Niagara.GenerateLacernSlash <OutputPath>"),
+	FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogNiagaraJsonGenerator, Error,
+				TEXT("Usage: WTBR.Niagara.GenerateLacernSlash <OutputPath>"));
+			return;
+		}
+		FNiagaraJsonSpikeImporter::GenerateLacernSlashVariant(
+			FString::Join(Args, TEXT(" ")).TrimQuotes());
+	}));
+
 class FNiagaraJsonGeneratorEditorModule : public IModuleInterface
 {
 public:
@@ -190,6 +239,14 @@ private:
 			FSlateIcon(),
 			FUIAction(FExecuteAction::CreateRaw(
 				this, &FNiagaraJsonGeneratorEditorModule::OnAutoBindProjectileBlueprintsClicked)));
+
+		Section.AddMenuEntry(
+			TEXT("InstallMeleeVFXTemplates"),
+			FText::FromString(TEXT("Install Melee VFX Templates")),
+			FText::FromString(TEXT("Install curated Lacern Slash, Hit, and Extend templates without modifying source VFX.")),
+			FSlateIcon(),
+			FUIAction(FExecuteAction::CreateRaw(
+				this, &FNiagaraJsonGeneratorEditorModule::OnInstallMeleeTemplatesClicked)));
 
 		Section.AddMenuEntry(
 			TEXT("GenerateNiagaraPreset"),
@@ -275,6 +332,11 @@ private:
 		}
 	}
 
+	void OnInstallMeleeTemplatesClicked()
+	{
+		FNiagaraJsonSpikeImporter::InstallMeleeTemplateLibrary();
+	}
+
 	void OnGeneratePresetClicked()
 	{
 		TSharedRef<SEditableTextBox> TemplateInput = SNew(SEditableTextBox)
@@ -289,10 +351,26 @@ private:
 			.Text(FText::FromString(TEXT("32")));
 		TSharedRef<FLinearColor> PresetColor = MakeShared<FLinearColor>(
 			FLinearColor(0.13f, 0.85f, 1.0f, 1.0f));
+		TSharedRef<FString> ProjectilePath = MakeShared<FString>();
+		TSharedRef<FString> MaterialPath = MakeShared<FString>();
+		TSharedRef<FString> TexturePath = MakeShared<FString>();
+		TSharedRef<FString> CurvePath = MakeShared<FString>();
+		TSharedRef<FString> MeshPath = MakeShared<FString>();
+		TSharedRef<FString> RibbonPath = MakeShared<FString>();
+		auto MakeAssetPicker = [](const TSharedRef<FString>& Path, UClass* AllowedClass)
+		{
+			return SNew(SObjectPropertyEntryBox)
+				.AllowedClass(AllowedClass)
+				.ObjectPath_Lambda([Path]() { return *Path; })
+				.OnObjectChanged_Lambda([Path](const FAssetData& AssetData)
+				{
+					*Path = AssetData.GetObjectPathString();
+				});
+		};
 
 		TSharedRef<SWindow> Window = SNew(SWindow)
 			.Title(FText::FromString(TEXT("WTBR VFX Preset Editor")))
-			.ClientSize(FVector2D(560.0f, 340.0f))
+			.ClientSize(FVector2D(620.0f, 650.0f))
 			.SupportsMinimize(false)
 			.SupportsMaximize(false);
 
@@ -364,19 +442,82 @@ private:
 					]
 				]
 			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(12.0f, 8.0f, 12.0f, 2.0f)
+			[
+				SNew(STextBlock).Text(FText::FromString(
+					TEXT("Optional direct runtime binding (choose a Projectile Blueprint and compatible User.* assets)")))
+				.AutoWrapText(true)
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(12.0f, 2.0f)
+			[
+				SNew(STextBlock).Text(FText::FromString(TEXT("Projectile Blueprint (optional)")))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(12.0f, 0.0f, 12.0f, 4.0f)
+			[
+				MakeAssetPicker(ProjectilePath, UBlueprint::StaticClass())
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(12.0f, 2.0f)
+			[
+				SNew(STextBlock).Text(FText::FromString(TEXT("Material → User.Material")))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(12.0f, 0.0f, 12.0f, 4.0f)
+			[
+				MakeAssetPicker(MaterialPath, UObject::StaticClass())
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(12.0f, 2.0f)
+			[
+				SNew(STextBlock).Text(FText::FromString(TEXT("Texture → User.Texture / Curve → User.Curve")))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(12.0f, 0.0f, 12.0f, 4.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 4.0f, 0.0f)[MakeAssetPicker(TexturePath, UObject::StaticClass())]
+				+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(4.0f, 0.0f, 0.0f, 0.0f)[MakeAssetPicker(CurvePath, UObject::StaticClass())]
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(12.0f, 2.0f)
+			[
+				SNew(STextBlock).Text(FText::FromString(TEXT("Mesh → User.Mesh / Ribbon profile → User.RibbonProfile")))
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(12.0f, 0.0f, 12.0f, 4.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 4.0f, 0.0f)[MakeAssetPicker(MeshPath, UObject::StaticClass())]
+				+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(4.0f, 0.0f, 0.0f, 0.0f)[MakeAssetPicker(RibbonPath, UObject::StaticClass())]
+			]
 			+ SVerticalBox::Slot().AutoHeight().Padding(12.0f, 14.0f)
 			[
 				SNew(SButton)
 				.Text(FText::FromString(TEXT("Generate and Open Niagara Asset")))
-				.OnClicked_Lambda([TemplateInput, OutputInput, EnergyInput, SpeedInput, SparkInput, PresetColor, Window]()
+				.OnClicked_Lambda([TemplateInput, OutputInput, EnergyInput, SpeedInput, SparkInput, PresetColor, ProjectilePath, MaterialPath, TexturePath, CurvePath, MeshPath, RibbonPath, Window]()
 				{
-					FNiagaraJsonSpikeImporter::GeneratePreset(
+					UNiagaraSystem* Generated = FNiagaraJsonSpikeImporter::GeneratePreset(
 						TemplateInput->GetText().ToString().TrimQuotes(),
 						OutputInput->GetText().ToString().TrimQuotes(),
 						*PresetColor,
 						FCString::Atof(*EnergyInput->GetText().ToString()),
 						FCString::Atof(*SpeedInput->GetText().ToString()),
 						FCString::Atoi(*SparkInput->GetText().ToString()));
+					if (Generated && !ProjectilePath->IsEmpty())
+					{
+						TArray<FWTBRNiagaraAssetParameter> AssetParameters;
+						auto AddParameter = [&AssetParameters](const TCHAR* Name, const FString& Path)
+						{
+							if (Path.IsEmpty()) { return; }
+							if (UObject* Asset = UEditorAssetLibrary::LoadAsset(Path))
+							{
+								FWTBRNiagaraAssetParameter& Parameter = AssetParameters.AddDefaulted_GetRef();
+								Parameter.ParameterName = FName(Name);
+								Parameter.Asset = Asset;
+							}
+						};
+						AddParameter(TEXT("User.Material"), *MaterialPath);
+						AddParameter(TEXT("User.Texture"), *TexturePath);
+						AddParameter(TEXT("User.Curve"), *CurvePath);
+						AddParameter(TEXT("User.Mesh"), *MeshPath);
+						AddParameter(TEXT("User.RibbonProfile"), *RibbonPath);
+						FNiagaraJsonSpikeImporter::BindPresetToProjectile(
+							*ProjectilePath, Generated, AssetParameters);
+					}
 					Window->RequestDestroyWindow();
 					return FReply::Handled();
 				})
