@@ -11,6 +11,23 @@ class UMaterialInterface;
 class UNiagaraSystem;
 class USoundBase;
 
+// Runtime quality policy derived from the user's Effects scalability setting.
+// The primary impact remains visible; optional feedback is trimmed first.
+USTRUCT(BlueprintType)
+struct FWTBRVFXQualityProfile
+{
+    GENERATED_BODY()
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WTBR | VFX | Quality")
+    float DistanceMultiplier = 1.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WTBR | VFX | Quality")
+    bool bSpawnDecals = true;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "WTBR | VFX | Quality")
+    bool bPlayCameraShake = true;
+};
+
 // A complete cosmetic request emitted by replicated gameplay. It is processed
 // locally on every client, never on a dedicated server.
 USTRUCT(BlueprintType)
@@ -67,6 +84,15 @@ class WTBR_API UWTBRVFXManagerSubsystem : public UWorldSubsystem
     GENERATED_BODY()
 
 public:
+
+    // Maps Unreal's sg.EffectsQuality (0..3) to the project's cosmetic policy.
+    // This overload is deterministic so it can be used by automation and UI.
+    UFUNCTION(BlueprintPure, Category = "WTBR | VFX | Quality")
+    static FWTBRVFXQualityProfile GetQualityProfileForEffectsQuality(int32 EffectsQuality);
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | VFX | Quality")
+    static FWTBRVFXQualityProfile GetActiveQualityProfile();
+
     UFUNCTION(BlueprintCallable, Category = "WTBR | VFX")
     bool SpawnImpact(const FWTBRImpactVFXRequest& Request);
 
