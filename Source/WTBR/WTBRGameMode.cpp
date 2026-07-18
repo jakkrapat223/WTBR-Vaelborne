@@ -72,8 +72,11 @@ AWTBRGameMode::AWTBRGameMode()
 		RandomSpawnConfig = RandomSpawnConfigAsset.Object;
 	}
 
-	// set default pawn class to our Blueprinted character
-	static ConstructorHelpers::FClassFinder<APawn> PlayerPawnBPClass(TEXT("/Game/ThirdPerson/Blueprints/BP_ThirdPersonCharacter"));
+	// BP_WTBRCharacter is the project's player pawn.  Keep the native class as
+	// a safe fallback so commandlets and maps cannot fail to construct the
+	// GameMode if the Blueprint is temporarily unavailable.
+	DefaultPawnClass = AWTBRCharacter::StaticClass();
+	static ConstructorHelpers::FClassFinder<APawn> PlayerPawnBPClass(TEXT("/Game/Blueprints/BP_WTBRCharacter"));
 	if (PlayerPawnBPClass.Class != NULL)
 	{
 		DefaultPawnClass = PlayerPawnBPClass.Class;
