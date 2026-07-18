@@ -30,10 +30,28 @@ delivery report):
 
 **Conclusion**: the core fear (native bindings/Graph destroyed by an
 in-place rebuild) did **not** materialize — Parent Class, Graphs, and
-Bindings/Animations all came through clean. The only thing standing between
-here and a safe real re-import is fixing the JSON to include the 2 missing
-widgets, then re-running the probe to confirm PASS. **Still no evidence P4
+Bindings/Animations all came through clean. **No evidence P4
 (non-destructive diff/merge) is needed for this case.**
+
+## Re-run result (2026-07-18, after fixing the JSON)
+
+`Txt_MatchPhaseValue`/`Txt_WinnerValue` added back to
+`WBP_HUD_Generated.json` with their real position/size/font read from the
+live asset (commit `eb3ea8e`). Re-ran the probe:
+`Overall Structural Verdict: PASS` — Parent Class unchanged, Blueprint
+Graph Structure PASS, Native BindWidgetOptional Structural Contract PASS,
+compile Success with 0 errors/0 warnings/0 messages, `Removed Variable
+Widgets=0`. `WBP_HUD_Generated.uasset` hash verified unchanged throughout
+(still never touched — this was all on a disposable probe duplicate).
+
+**The pipeline is now proven safe for this specific JSON.** The only
+remaining step before the Composite Merge Bar actually appears in the real
+HUD is the real re-import itself (`WTBR.UMG.ImportJson` / the Tools-menu
+import, targeting the real `WBP_HUD_Generated` — no longer the probe) +
+owner PIE-verification that HP/VAEL/Q-E/Match Phase/Winner all still
+update live in an actual match. **Not yet done — this is a production-
+asset change and needs an explicit go-ahead, not something to do
+automatically off the back of a passing probe.**
 
 ## Original decision (2026-07-18, superseded in framing but not substance)
 
