@@ -257,14 +257,6 @@ public:
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     float GetSniperZoomAlphaForHUD() const;
 
-    // TEMP_DEBUG_ — root-causing why the Scope Reticle/Vignette overlay isn't
-    // visible in PIE despite the camera visibly zooming. Remove once resolved.
-    float TEMP_DEBUG_GetDefaultCameraFOV() const { return DefaultCameraFOV; }
-    float TEMP_DEBUG_GetSniperZoomTargetFOV() const { return SniperZoomTargetFOV; }
-    float TEMP_DEBUG_GetCameraBoomArmLength() const;
-    bool TEMP_DEBUG_IsScopeViewActive() const { return bSniperScopeViewActive; }
-    bool TEMP_DEBUG_IsMeshOwnerHidden() const;
-
     UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
     UInputMappingContext* GetDefaultMappingContext() const { return DefaultMappingContext; }
 

@@ -38,8 +38,4 @@ protected:
     virtual int32 NativePaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry,
         const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements,
         int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const override;
-
-    // TEMP_DEBUG_ — root-causing why the overlay wasn't visible in PIE. Remove
-    // once resolved.
-    virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 };

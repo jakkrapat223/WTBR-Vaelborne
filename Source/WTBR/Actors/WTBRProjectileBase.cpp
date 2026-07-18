@@ -123,25 +123,13 @@ void AWTBRProjectileBase::BeginPlay()
 
     // Purely cosmetic — runs on every machine the actor exists on (server and
     // every client it replicates to), not just the authority.
-    // TEMP_DEBUG_ — root-causing why the Sniper trail VFX doesn't appear
-    // despite TrailEffect being correctly set on the BP subclasses. Remove
-    // once resolved.
-    WTBR_VALIDATION_LOG(Warning, TEXT("[TrailDebug] Class=%s | TrailEffectValid=%s | TrailEffectName=%s | RootValid=%s"),
-        *GetNameSafe(GetClass()),
-        IsValid(TrailEffect) ? TEXT("true") : TEXT("false"),
-        *GetNameSafe(TrailEffect),
-        IsValid(RootComponent) ? TEXT("true") : TEXT("false"));
     if (IsValid(TrailEffect) && IsValid(RootComponent))
     {
-        UNiagaraComponent* TrailComp = UNiagaraFunctionLibrary::SpawnSystemAttached(
+        UNiagaraFunctionLibrary::SpawnSystemAttached(
             TrailEffect, RootComponent, NAME_None,
             FVector::ZeroVector, FRotator::ZeroRotator,
             EAttachLocation::KeepRelativeOffset,
             /*bAutoDestroy=*/true);
-        WTBR_VALIDATION_LOG(Warning, TEXT("[TrailDebug] Class=%s | SpawnSystemAttached returned %s | IsActive=%s"),
-            *GetNameSafe(GetClass()),
-            IsValid(TrailComp) ? TEXT("valid component") : TEXT("NULL"),
-            (IsValid(TrailComp) && TrailComp->IsActive()) ? TEXT("true") : TEXT("false"));
     }
 }
 

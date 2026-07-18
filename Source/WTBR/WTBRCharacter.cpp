@@ -3018,16 +3018,6 @@ float AWTBRCharacter::GetSniperZoomAlphaForHUD() const
     return FMath::Clamp(Alpha, 0.0f, 1.0f);
 }
 
-float AWTBRCharacter::TEMP_DEBUG_GetCameraBoomArmLength() const
-{
-    return CameraBoom ? CameraBoom->TargetArmLength : -1.0f;
-}
-
-bool AWTBRCharacter::TEMP_DEBUG_IsMeshOwnerHidden() const
-{
-    return GetMesh() && GetMesh()->bOwnerNoSee;
-}
-
 FWTBRHUDTriggerVaelAffordability AWTBRCharacter::GetActiveTriggerVaelAffordabilityForHUD(bool bIsMain) const
 {
     FWTBRHUDTriggerVaelAffordability Result;

@@ -1,8 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "UI/WTBRSniperScopeWidget.h"
 #include "WTBRCharacter.h"
-#include "Camera/CameraComponent.h"
-#include "Engine/Engine.h"
 #include "Framework/Application/SlateApplication.h"
 #include "GameFramework/PlayerController.h"
 #include "Rendering/DrawElements.h"
@@ -15,52 +13,10 @@ TSharedRef<SWidget> UWTBRSniperScopeWidget::RebuildWidget()
     return SNew(SBox);
 }
 
-// TEMP_DEBUG_ — root-causing why the overlay isn't visible in PIE. Remove
-// once resolved.
-void UWTBRSniperScopeWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
-{
-    Super::NativeTick(MyGeometry, InDeltaTime);
-
-    if (!GEngine) return;
-
-    const APlayerController* PC = GetOwningPlayer();
-    const AWTBRCharacter* LocalCharacter = PC ? Cast<AWTBRCharacter>(PC->GetPawn()) : nullptr;
-    if (!IsValid(LocalCharacter))
-    {
-        GEngine->AddOnScreenDebugMessage(6001, 0.0f, FColor::Red, TEXT("[ScopeDebug] No valid LocalCharacter"));
-        return;
-    }
-
-    const float Alpha = LocalCharacter->GetSniperZoomAlphaForHUD();
-    const float CurrentFOV = LocalCharacter->GetFollowCamera() ? LocalCharacter->GetFollowCamera()->FieldOfView : -1.0f;
-    const float DefaultFOV = LocalCharacter->TEMP_DEBUG_GetDefaultCameraFOV();
-    const float TargetFOV = LocalCharacter->TEMP_DEBUG_GetSniperZoomTargetFOV();
-    const float ArmLength = LocalCharacter->TEMP_DEBUG_GetCameraBoomArmLength();
-    const bool bScopeActive = LocalCharacter->TEMP_DEBUG_IsScopeViewActive();
-    const bool bMeshHidden = LocalCharacter->TEMP_DEBUG_IsMeshOwnerHidden();
-
-    GEngine->AddOnScreenDebugMessage(6001, 0.0f, FColor::Yellow,
-        FString::Printf(TEXT("[ScopeDebug] Frame=%llu TickInstance=%u Alpha=%.3f CurrentFOV=%.2f DefaultFOV=%.2f TargetFOV=%.2f"),
-            GFrameCounter, GetUniqueID(), Alpha, CurrentFOV, DefaultFOV, TargetFOV));
-    GEngine->AddOnScreenDebugMessage(6002, 0.0f, FColor::Cyan,
-        FString::Printf(TEXT("[ScopeDebug] ArmLength=%.1f ScopeActive=%s MeshHidden=%s"),
-            ArmLength, bScopeActive ? TEXT("true") : TEXT("false"), bMeshHidden ? TEXT("true") : TEXT("false")));
-}
-
 int32 UWTBRSniperScopeWidget::NativePaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry,
     const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements,
     int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
 {
-    // TEMP_DEBUG_ — proves whether NativePaint runs at all, independent of
-    // NativeTick (a separate Slate callback — NativeTick running does NOT
-    // prove NativePaint does). Remove once resolved.
-    if (GEngine)
-    {
-        GEngine->AddOnScreenDebugMessage(6003, 0.0f, FColor::Green,
-            FString::Printf(TEXT("[ScopeDebug] Frame=%llu PaintInstance=%u NativePaint entered"),
-                GFrameCounter, GetUniqueID()));
-    }
-
     LayerId = Super::NativePaint(Args, AllottedGeometry, MyCullingRect, OutDrawElements,
         LayerId, InWidgetStyle, bParentEnabled);
 
@@ -68,7 +24,6 @@ int32 UWTBRSniperScopeWidget::NativePaint(const FPaintArgs& Args, const FGeometr
     const AWTBRCharacter* LocalCharacter = PC ? Cast<AWTBRCharacter>(PC->GetPawn()) : nullptr;
     if (!IsValid(LocalCharacter))
     {
-        if (GEngine) GEngine->AddOnScreenDebugMessage(6004, 0.0f, FColor::Red, TEXT("[ScopeDebug] NativePaint: no LocalCharacter"));
         return LayerId;
     }
 
@@ -77,32 +32,13 @@ int32 UWTBRSniperScopeWidget::NativePaint(const FPaintArgs& Args, const FGeometr
     const float Alpha = LocalCharacter->GetSniperZoomAlphaForHUD();
     if (Alpha <= KINDA_SMALL_NUMBER)
     {
-        if (GEngine) GEngine->AddOnScreenDebugMessage(6004, 0.0f, FColor::Orange,
-            FString::Printf(TEXT("[ScopeDebug] NativePaint: Alpha too low (%.3f)"), Alpha));
         return LayerId;
     }
 
     const FVector2D ScreenSize = AllottedGeometry.GetLocalSize();
-    if (GEngine)
-    {
-        GEngine->AddOnScreenDebugMessage(6005, 0.0f, FColor::Green,
-            FString::Printf(TEXT("[ScopeDebug] Frame=%llu PaintInstance=%u ScreenSize=%.0fx%.0f LayerIdIn=%d"),
-                GFrameCounter, GetUniqueID(), ScreenSize.X, ScreenSize.Y, LayerId));
-    }
     if (ScreenSize.X <= 1.0f || ScreenSize.Y <= 1.0f) return LayerId;
     const FVector2D Center = ScreenSize * 0.5f;
     const float LensRadius = FMath::Min(ScreenSize.X, ScreenSize.Y) * ScopeRadiusFraction;
-
-    // TEMP_DEBUG_ — isolation probe: a plain MakeBox call (the exact primitive
-    // WTBRRadarWidget already proves works) to confirm NativePaint's own draw
-    // calls reach the screen at all, separate from the MakeCustomVerts mask
-    // below which is the untested/riskier API. Remove once resolved.
-    {
-        const FSlateBrush* WhiteBrush = FAppStyle::Get().GetBrush("WhiteBrush");
-        FSlateDrawElement::MakeBox(OutDrawElements, ++LayerId,
-            AllottedGeometry.ToPaintGeometry(FVector2D(40.0f, 120.0f), FVector2D(200.0f, 200.0f)),
-            WhiteBrush, ESlateDrawEffect::None, FLinearColor(1.0f, 0.0f, 1.0f, 1.0f));
-    }
 
     // ── Black mask covering everything OUTSIDE the circular lens ──────────────
     // Slate has no circle/stencil primitive, so the mask is a triangulated
