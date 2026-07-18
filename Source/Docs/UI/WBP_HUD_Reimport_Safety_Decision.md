@@ -1,8 +1,41 @@
 # WBP_HUD_Generated re-import safety — decision record
 
-**Status:** decided 2026-07-18 (Claude + Codex, owner-approved). Supersedes the
-"paused, unverified" framing in the 2026-07-17 session notes. Read this before
-touching `WBP_HUD_Generated` or its `UMGJsonGenerator` import pipeline again.
+**Status:** Reimport Probe tool built and run (2026-07-18, Codex implemented,
+Claude independently verified). **Result: structural verdict FAIL — but not
+for the feared reason.** Read this before touching `WBP_HUD_Generated` or its
+`UMGJsonGenerator` import pipeline again.
+
+## Probe result (2026-07-18)
+
+Ran `WTBR.UMG.ReimportProbe /Game/UI/Generated/WBP_HUD_Generated <Composite
+Merge Bar JSON>`. Verified independently against the raw log (not just the
+delivery report):
+- Parent class: unchanged (`WTBRGeneratedHUDWidget`).
+- Event/Function Graphs: unchanged, 0 created/removed.
+- UMG Property Bindings / Animations: 0 before, 0 after (this asset has none
+  today — the original "might lose hand-added bindings" fear doesn't apply,
+  there's nothing there to lose).
+- Compile: Success, 0 errors, 0 warnings.
+- **FAIL cause**: 2 pre-existing native `BindWidgetOptional` widgets
+  (`Txt_MatchPhaseValue`, `Txt_WinnerValue` — real properties on
+  `WTBRGeneratedHUDWidget.h:94-99`) are **absent from the current Composite
+  Merge Bar JSON** (`Plugins/UMGJsonGenerator/Examples/GameUI/
+  WBP_HUD_Generated.json` — confirmed 0 occurrences of either name via
+  direct grep). This is a **JSON content gap**, not a pipeline defect — the
+  JSON simply never included these two widgets when it was built.
+- `WBP_HUD_Generated.uasset` itself: confirmed byte-identical before/after
+  (sha256 `898d50d1...c35323e01`, size 140758, mtime unchanged) — the probe
+  never touched the production asset, only a disposable duplicate.
+- No leftover probe assets or temp JSON clones after the run.
+
+**Conclusion**: the core fear (native bindings/Graph destroyed by an
+in-place rebuild) did **not** materialize — Parent Class, Graphs, and
+Bindings/Animations all came through clean. The only thing standing between
+here and a safe real re-import is fixing the JSON to include the 2 missing
+widgets, then re-running the probe to confirm PASS. **Still no evidence P4
+(non-destructive diff/merge) is needed for this case.**
+
+## Original decision (2026-07-18, superseded in framing but not substance)
 
 ## Problem
 
@@ -73,18 +106,31 @@ below).
 
 ## Agreed order (supersedes the earlier "P1 first" framing)
 
-1. Build the Reimport Probe workflow + before/after report.
-2. Add a package backup step for the real re-import (duplicate the asset
-   before touching it).
-3. Run the Composite Merge Bar JSON through the probe; PIE-verify HP/VAEL +
-   Q/E survive.
-4. **If bindings/Graph survive**: proceed with the real in-place rebuild using
-   the now-proven-safe pipeline. No need to build P4's non-destructive
-   diff/merge — it would be solving a problem that doesn't exist here.
-5. **If bindings/Graph do NOT survive**: only then invest in P4's
-   non-destructive diff/merge (edit only the widgets that actually changed,
-   leave everything else untouched) — that is the real fix for that failure
-   mode, not a bigger backup/rollback story.
+1. ✅ **DONE 2026-07-18** — Build the Reimport Probe workflow + before/after
+   report (`WTBR.UMG.ReimportProbe`, commit `4be9556`).
+2. ✅ **DONE 2026-07-18** — Add a package backup step for the real re-import
+   (`CreateConvenienceBackup`, wired into `ImportFromFile`'s default path,
+   same commit).
+3. ✅ **DONE 2026-07-18** — Ran the Composite Merge Bar JSON through the
+   probe. Result: structural verdict FAIL, but only because the JSON is
+   missing 2 pre-existing widgets (`Txt_MatchPhaseValue`, `Txt_WinnerValue`)
+   — see "Probe result" above. **PIE-verification of HP/VAEL + Q/E is now
+   moot for this run** since the probe never got to a state worth PIE
+   testing (fix the JSON gap first).
+3b. **NEXT STEP, not yet done**: add `Txt_MatchPhaseValue`/`Txt_WinnerValue`
+   back into `Plugins/UMGJsonGenerator/Examples/GameUI/
+   WBP_HUD_Generated.json` (matching their existing TextBlock type/position
+   in the current asset — check the current WBP in Designer for their
+   real layout before guessing), then re-run
+   `WTBR.UMG.ReimportProbe` and confirm `Overall Structural Verdict: PASS`.
+4. **If step 3b comes back PASS**: proceed with the real in-place rebuild
+   (`bCreateBackup=true` by default now) and PIE-verify HP/VAEL + Q/E +
+   Match Phase/Winner text all still update live. No need to build P4's
+   non-destructive diff/merge — it would be solving a problem that doesn't
+   exist here.
+5. **If step 3b somehow still fails structurally** (would be a genuinely new
+   finding, not expected given the current result): only then invest in
+   P4's non-destructive diff/merge.
 6. Everything else in the original P1–P4 proposal (schema versioning, strict
    validation, richer widget types/layout, batch import, CI commandlet,
    WBP→JSON export, etc.) is good hygiene but does not block this task —
