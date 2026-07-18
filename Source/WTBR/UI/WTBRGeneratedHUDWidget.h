@@ -77,7 +77,7 @@ public:
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UProgressBar> PB_SubTriggerCooldown;
 
-    // â”€â”€ Composite Merge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Composite Merge ─────────────────────────────────────────────────────
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UBorder> Border_CompositeMergeBar;
 
@@ -89,9 +89,19 @@ public:
 
     // ── Zone / Match ─────────────────────────────────────────────────────────
     // NOTE: no shrink-zone / phase-number system exists yet (see BindingPlan §4).
-    // These render a "-" placeholder until that backend exists.
+    // Whole panel is hidden by HideUnsupportedOverlayWidgets() until that
+    // backend exists (see the same reasoning as Kill Feed/Minimap below).
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UBorder> Border_ZoneStrip;
+
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UTextBlock> Txt_ZoneLabel;
+
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UTextBlock> Txt_ZoneValue;
+
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UTextBlock> Txt_PhaseLabel;
 
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UTextBlock> Txt_PhaseValue;

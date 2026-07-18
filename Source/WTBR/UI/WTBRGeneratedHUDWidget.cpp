@@ -80,6 +80,17 @@ void UWTBRGeneratedHUDWidget::HideUnsupportedOverlayWidgets()
     Collapse(Border_Minimap);
     Collapse(Img_MinimapPlaceholder);
     Collapse(Txt_MinimapTitle);
+
+    // TODO(Phase4C): no shrink-zone/safe-zone manager exists yet (see
+    // BindingPlan §4) — Txt_ZoneValue/Txt_PhaseValue/Txt_ZoneTimer would only
+    // ever show the "-" placeholder from ApplySnapshot. Hide the whole strip
+    // rather than display an always-empty panel.
+    Collapse(Border_ZoneStrip);
+    Collapse(Txt_ZoneLabel);
+    Collapse(Txt_ZoneValue);
+    Collapse(Txt_PhaseLabel);
+    Collapse(Txt_PhaseValue);
+    Collapse(Txt_ZoneTimer);
 }
 
 FString UWTBRGeneratedHUDWidget::CompositeTypeName(EWTBRCompositeBulletType CompositeType)
