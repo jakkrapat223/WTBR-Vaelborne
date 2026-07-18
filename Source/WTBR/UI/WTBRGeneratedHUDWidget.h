@@ -9,7 +9,11 @@
 
 class UTextBlock;
 class UProgressBar;
+class UBorder;
+class UImage;
 class UWTBRHUDViewModelComponent;
+class UWTBRTriggerSetComponent;
+enum class EWTBRCompositeBulletType : uint8;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UWTBRGeneratedHUDWidget — thin native parent class for WBP_HUD_Generated
@@ -73,6 +77,16 @@ public:
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UProgressBar> PB_SubTriggerCooldown;
 
+    // â”€â”€ Composite Merge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UBorder> Border_CompositeMergeBar;
+
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UProgressBar> PB_CompositeMergeProgress;
+
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UTextBlock> Txt_CompositeMergeStatus;
+
     // ── Zone / Match ─────────────────────────────────────────────────────────
     // NOTE: no shrink-zone / phase-number system exists yet (see BindingPlan §4).
     // These render a "-" placeholder until that backend exists.
@@ -121,6 +135,12 @@ public:
     TObjectPtr<UTextBlock> Txt_KillValue;
 
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UBorder> Border_KillFeed;
+
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UTextBlock> Txt_KillFeedTitle;
+
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UTextBlock> Txt_KillFeedLine1;
 
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
@@ -128,6 +148,15 @@ public:
 
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UTextBlock> Txt_KillFeedLine3;
+
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UBorder> Border_Minimap;
+
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UImage> Img_MinimapPlaceholder;
+
+    UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
+    TObjectPtr<UTextBlock> Txt_MinimapTitle;
 
     UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional))
     TObjectPtr<UTextBlock> Txt_DamageFeedback;
@@ -157,11 +186,16 @@ public:
 protected:
     virtual void NativeConstruct() override;
     virtual void NativeDestruct() override;
+    virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
 private:
     // Resolves UWTBRHUDViewModelComponent from the owning player pawn. Read-only
     // lookup; does not create or mutate any component.
     UWTBRHUDViewModelComponent* ResolveViewModel() const;
+    UWTBRTriggerSetComponent* ResolveTriggerSet() const;
+    void HideUnsupportedOverlayWidgets();
+    void RefreshCompositeMergePresentation();
+    static FString CompositeTypeName(EWTBRCompositeBulletType CompositeType);
 
     UFUNCTION()
     void OnViewModelSnapshotChanged();
@@ -178,4 +212,14 @@ private:
     static FText FormatSlotIndicatorFromAbsoluteIndex(int32 AbsoluteSlotIndex, bool bIsMain);
 
     TWeakObjectPtr<UWTBRHUDViewModelComponent> BoundViewModel;
+
+    // These clocks intentionally start when replicated state is first observed on
+    // this client. There is no synchronized server clock in the composite system.
+    EWTBRCompositeBulletType ObservedMergeType{};
+    EWTBRCompositeBulletType LastCompositeType{};
+    float MergeStartLocalTime = -1.0f;
+    float CooldownStartLocalTime = -1.0f;
+    float CooldownDurationLocal = 0.0f;
+    bool bWasMerging = false;
+    bool bWasCoolingDown = false;
 };

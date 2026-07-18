@@ -2,14 +2,21 @@
 
 #include "UI/WTBRGeneratedHUDWidget.h"
 
+#include "Components/Border.h"
+#include "Components/Image.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
+#include "Components/Widget.h"
 #include "Components/WTBRHUDViewModelComponent.h"
+#include "Trigger/WTBRCompositeRegistryDataAsset.h"
+#include "Trigger/WTBRTriggerSetComponent.h"
 #include "WTBRCharacter.h"
 
 void UWTBRGeneratedHUDWidget::NativeConstruct()
 {
     Super::NativeConstruct();
+
+    HideUnsupportedOverlayWidgets();
 
     if (UWTBRHUDViewModelComponent* ViewModel = ResolveViewModel())
     {
@@ -31,10 +38,160 @@ void UWTBRGeneratedHUDWidget::NativeDestruct()
     Super::NativeDestruct();
 }
 
+void UWTBRGeneratedHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+    Super::NativeTick(MyGeometry, InDeltaTime);
+    RefreshCompositeMergePresentation();
+}
+
 UWTBRHUDViewModelComponent* UWTBRGeneratedHUDWidget::ResolveViewModel() const
 {
     const AWTBRCharacter* Character = Cast<AWTBRCharacter>(GetOwningPlayerPawn());
     return IsValid(Character) ? Character->GetHUDViewModelComponent() : nullptr;
+}
+
+UWTBRTriggerSetComponent* UWTBRGeneratedHUDWidget::ResolveTriggerSet() const
+{
+    const AWTBRCharacter* Character = Cast<AWTBRCharacter>(GetOwningPlayerPawn());
+    return IsValid(Character) ? Character->TriggerSetComponent : nullptr;
+}
+
+void UWTBRGeneratedHUDWidget::HideUnsupportedOverlayWidgets()
+{
+    const auto Collapse = [](UWidget* Widget)
+    {
+        if (Widget)
+        {
+            Widget->SetVisibility(ESlateVisibility::Collapsed);
+        }
+    };
+
+    // TODO(Phase4C): Kill Feed stays hidden until a real kill-event log exists.
+    // The generated placeholder rows must not imply runtime event data.
+    Collapse(Border_KillFeed);
+    Collapse(Txt_KillFeedTitle);
+    Collapse(Txt_KillFeedLine1);
+    Collapse(Txt_KillFeedLine2);
+    Collapse(Txt_KillFeedLine3);
+
+    // TODO(Phase4C): The native Slate WTBRRadarWidget already owns the upper-right
+    // radar presentation. Hide this JSON minimap placeholder until a distinct
+    // minimap backend/design is intentionally added.
+    Collapse(Border_Minimap);
+    Collapse(Img_MinimapPlaceholder);
+    Collapse(Txt_MinimapTitle);
+}
+
+FString UWTBRGeneratedHUDWidget::CompositeTypeName(EWTBRCompositeBulletType CompositeType)
+{
+    if (const UEnum* CompositeEnum = StaticEnum<EWTBRCompositeBulletType>())
+    {
+        return CompositeEnum->GetNameStringByValue(static_cast<int64>(CompositeType));
+    }
+    return TEXT("COMPOSITE");
+}
+
+void UWTBRGeneratedHUDWidget::RefreshCompositeMergePresentation()
+{
+    UWTBRTriggerSetComponent* TriggerSet = ResolveTriggerSet();
+    if (!IsValid(TriggerSet) || !GetWorld())
+    {
+        if (Border_CompositeMergeBar)
+        {
+            Border_CompositeMergeBar->SetVisibility(ESlateVisibility::Collapsed);
+        }
+        return;
+    }
+
+    const EWTBRCompositeBulletType MergeType = TriggerSet->GetCurrentMergeState();
+    const bool bMerging = MergeType != EWTBRCompositeBulletType::None;
+    const bool bReady = TriggerSet->HasReadyComposite();
+    const bool bCoolingDown = TriggerSet->bCompositeCooldownActive;
+
+    if (Border_CompositeMergeBar)
+    {
+        Border_CompositeMergeBar->SetVisibility(bMerging || bReady || bCoolingDown
+            ? ESlateVisibility::SelfHitTestInvisible
+            : ESlateVisibility::Collapsed);
+    }
+    if (!bMerging && !bReady && !bCoolingDown)
+    {
+        bWasMerging = false;
+        bWasCoolingDown = false;
+        return;
+    }
+
+    const float LocalTime = GetWorld()->GetTimeSeconds();
+    const FLinearColor ActiveColor(0.125f, 0.851f, 1.0f, 1.0f);
+    const FLinearColor CooldownColor(0.35f, 0.40f, 0.43f, 1.0f);
+
+    if (bMerging)
+    {
+        if (!bWasMerging || ObservedMergeType != MergeType)
+        {
+            ObservedMergeType = MergeType;
+            LastCompositeType = MergeType;
+            MergeStartLocalTime = LocalTime;
+        }
+        bWasMerging = true;
+        bWasCoolingDown = false;
+
+        const float Duration = FMath::Max(TriggerSet->CompositeMergeDuration, KINDA_SMALL_NUMBER);
+        const float Progress = FMath::Clamp((LocalTime - MergeStartLocalTime) / Duration, 0.0f, 1.0f);
+        SetPercentSafe(PB_CompositeMergeProgress, Progress);
+        if (PB_CompositeMergeProgress)
+        {
+            PB_CompositeMergeProgress->SetFillColorAndOpacity(ActiveColor);
+        }
+        SetTextSafe(Txt_CompositeMergeStatus, FText::FromString(FString::Printf(
+            TEXT("%s — MERGING %d%%"), *CompositeTypeName(MergeType), FMath::RoundToInt(Progress * 100.0f))));
+        return;
+    }
+
+    bWasMerging = false;
+    if (bReady)
+    {
+        const EWTBRCompositeBulletType ReadyType = TriggerSet->GetReadyCompositeType();
+        LastCompositeType = ReadyType;
+        bWasCoolingDown = false;
+        SetPercentSafe(PB_CompositeMergeProgress, 1.0f);
+        if (PB_CompositeMergeProgress)
+        {
+            PB_CompositeMergeProgress->SetFillColorAndOpacity(ActiveColor);
+        }
+        SetTextSafe(Txt_CompositeMergeStatus, FText::FromString(FString::Printf(
+            TEXT("%s — READY [Input] Fire"), *CompositeTypeName(ReadyType))));
+        return;
+    }
+
+    if (!bWasCoolingDown)
+    {
+        bWasCoolingDown = true;
+        CooldownStartLocalTime = LocalTime;
+        CooldownDurationLocal = 0.0f;
+        if (UWTBRCompositeRegistryDataAsset* Registry = TriggerSet->CompositeRegistryAsset.LoadSynchronous())
+        {
+            FWTBRCompositeDefinition Definition;
+            if (Registry->FindDefinition(LastCompositeType, Definition))
+            {
+                CooldownDurationLocal = Definition.CompositeCooldown;
+            }
+        }
+    }
+
+    const float Remaining = CooldownDurationLocal > KINDA_SMALL_NUMBER
+        ? FMath::Max(CooldownDurationLocal - (LocalTime - CooldownStartLocalTime), 0.0f)
+        : 0.0f;
+    const float Progress = CooldownDurationLocal > KINDA_SMALL_NUMBER
+        ? Remaining / CooldownDurationLocal
+        : 0.0f;
+    SetPercentSafe(PB_CompositeMergeProgress, Progress);
+    if (PB_CompositeMergeProgress)
+    {
+        PB_CompositeMergeProgress->SetFillColorAndOpacity(CooldownColor);
+    }
+    SetTextSafe(Txt_CompositeMergeStatus, FText::FromString(FString::Printf(
+        TEXT("%s — COOLDOWN %.1fs"), *CompositeTypeName(LastCompositeType), Remaining)));
 }
 
 void UWTBRGeneratedHUDWidget::OnViewModelSnapshotChanged()
