@@ -31,5 +31,10 @@ Saved/Logs/
 # Ignore local Claude Code / skills tooling state (not game content)
 .agents/
 skills-lock.json
+Source/.claude/
+
+# Headless automation/import run logs. Evidence for a working session, never part
+# of the project — the code they verify is what gets committed.
+Source/output/*.log
 
 # Note: Content/, Source/, and Config/ are NOT ignored. They will go to Git.
