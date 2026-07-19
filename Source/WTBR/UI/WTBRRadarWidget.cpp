@@ -2,6 +2,7 @@
 #include "UI/WTBRRadarWidget.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRHealthComponent.h"
+#include "Engine/Texture2D.h"
 #include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "Rendering/DrawElements.h"
@@ -92,43 +93,59 @@ int32 UWTBRRadarWidget::NativePaint(const FPaintArgs& Args, const FGeometry& All
     const FVector2D Center = TopLeft + FVector2D(Diameter * 0.5f, Diameter * 0.5f);
     const float Radius = Diameter * 0.5f;
     const FSlateBrush* WhiteBrush = FAppStyle::Get().GetBrush("WhiteBrush");
+    const FVector LocalLocation = LocalCharacter->GetActorLocation();
+    const float Yaw = PC->GetControlRotation().Yaw;
 
+    // Background: baked top-down map, panned so the player stays centered (North-up, no rotation).
+    // Falls back to the old flat radar tint if no MapTexture is assigned yet.
+    FSlateBrush BackgroundBrush;
+    BackgroundBrush.DrawAs = ESlateBrushDrawType::RoundedBox;
+    BackgroundBrush.OutlineSettings = FSlateBrushOutlineSettings(Radius);
+    FLinearColor BackgroundTint(0.02f, 0.05f, 0.08f, 0.86f);
+    if (MapTexture)
+    {
+        const float TextureSpan = FMath::Max(MapWorldExtent, 1.0f) * 2.0f;
+        FVector2D UVCenter(0.5f + (LocalLocation.X - MapWorldCenter.X) / TextureSpan,
+                            0.5f + (LocalLocation.Y - MapWorldCenter.Y) / TextureSpan);
+        if (bFlipMapV) UVCenter.Y = 1.0f - UVCenter.Y;
+        const float UVHalfSize = FMath::Clamp(MapViewRadius / TextureSpan, 0.01f, 0.5f);
+        BackgroundBrush.SetResourceObject(MapTexture);
+        BackgroundBrush.ImageSize = FVector2D(MapTexture->GetSizeX(), MapTexture->GetSizeY());
+        BackgroundBrush.SetUVRegion(FBox2D(UVCenter - FVector2D(UVHalfSize, UVHalfSize),
+                                            UVCenter + FVector2D(UVHalfSize, UVHalfSize)));
+        BackgroundTint = FLinearColor::White;
+    }
     FSlateDrawElement::MakeBox(OutDrawElements, ++LayerId,
-        AllottedGeometry.ToPaintGeometry(TopLeft, FVector2D(Diameter, Diameter)), WhiteBrush,
-        ESlateDrawEffect::None, FLinearColor(0.02f, 0.05f, 0.08f, 0.86f));
+        AllottedGeometry.ToPaintGeometry(TopLeft, FVector2D(Diameter, Diameter)), &BackgroundBrush,
+        ESlateDrawEffect::None, BackgroundTint);
 
-    // Canon-style concentric range rings plus a heading crosshair.
-    for (int32 RingIndex = 1; RingIndex <= 3; ++RingIndex)
+    // Detection-range ring, only meaningful when it's smaller than the visible map window.
+    if (RadarRange < MapViewRadius)
     {
         TArray<FVector2D> Ring;
-        const float RingRadius = Radius * static_cast<float>(RingIndex) / 3.0f;
+        const float RingRadius = Radius * (RadarRange / MapViewRadius);
         for (int32 Index = 0; Index <= 32; ++Index)
         {
             const float Angle = (2.0f * PI * Index) / 32.0f;
             Ring.Add(Center + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * RingRadius);
         }
-        const bool bOuterRing = RingIndex == 3;
         FSlateDrawElement::MakeLines(OutDrawElements, ++LayerId, AllottedGeometry.ToPaintGeometry(), Ring,
-            ESlateDrawEffect::None,
-            bOuterRing ? FLinearColor(0.35f, 0.75f, 1.0f, 0.9f) : FLinearColor(0.22f, 0.48f, 0.68f, 0.5f),
-            true, bOuterRing ? 1.5f : 1.0f);
+            ESlateDrawEffect::None, FLinearColor(0.35f, 0.75f, 1.0f, 0.55f), true, 1.0f);
     }
 
-    const FLinearColor GridColour(0.22f, 0.48f, 0.68f, 0.55f);
-    FSlateDrawElement::MakeLines(OutDrawElements, ++LayerId, AllottedGeometry.ToPaintGeometry(),
-        { Center - FVector2D(Radius, 0.0f), Center + FVector2D(Radius, 0.0f) },
-        ESlateDrawEffect::None, GridColour, true, 1.0f);
-    FSlateDrawElement::MakeLines(OutDrawElements, ++LayerId, AllottedGeometry.ToPaintGeometry(),
-        { Center - FVector2D(0.0f, Radius), Center + FVector2D(0.0f, Radius) },
-        ESlateDrawEffect::None, GridColour, true, 1.0f);
+    // Player heading indicator — the map itself is North-up/fixed now, so facing needs its own line.
+    {
+        const FVector2D Forward(FMath::Cos(FMath::DegreesToRadians(Yaw)), FMath::Sin(FMath::DegreesToRadians(Yaw)));
+        FSlateDrawElement::MakeLines(OutDrawElements, ++LayerId, AllottedGeometry.ToPaintGeometry(),
+            { Center, Center + FVector2D(Forward.X, -Forward.Y) * (Radius * 0.35f) },
+            ESlateDrawEffect::None, FLinearColor(1.0f, 1.0f, 1.0f, 0.9f), true, 2.0f);
+    }
 
-    const FVector LocalLocation = LocalCharacter->GetActorLocation();
-    const float Yaw = PC->GetControlRotation().Yaw;
-    const auto ProjectToRadar = [LocalLocation, Yaw, Radius, this](const FVector& WorldLocation, FVector2D& OutPoint)
+    const auto ProjectToRadar = [LocalLocation, Radius, this](const FVector& WorldLocation, FVector2D& OutPoint)
     {
         FVector2D Delta(WorldLocation.X - LocalLocation.X, WorldLocation.Y - LocalLocation.Y);
         if (Delta.SizeSquared() > FMath::Square(RadarRange)) return false;
-        Delta = Delta.GetRotated(-Yaw) * (Radius / RadarRange);
+        Delta = Delta * (Radius / MapViewRadius);
         OutPoint = Delta;
         return true;
     };

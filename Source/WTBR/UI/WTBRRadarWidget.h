@@ -6,9 +6,11 @@
 #include "WTBRRadarWidget.generated.h"
 
 class AWTBRCharacter;
+class UTexture2D;
 
-// Native always-on radar. It renders nearby trion bodies; Bagworm/Vexorn users
-// are omitted using their replicated cloak state.
+// Native always-on minimap+radar. Renders a panned window of MapTexture (North-up, player always
+// centered) plus nearby trion body contacts on top; Bagworm/Vexorn users are omitted using their
+// replicated cloak state. Falls back to a flat radar background if MapTexture isn't set yet.
 UCLASS()
 class WTBR_API UWTBRRadarWidget : public UUserWidget
 {
@@ -29,6 +31,27 @@ public:
     // Vertical distance before a HIGH/LOW label appears next to a contact.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Radar", meta=(ClampMin="0.0"))
     float VerticalLabelThreshold = 250.0f;
+
+    // Baked top-down capture of the map. Null = falls back to the old flat radar background.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Minimap")
+    TObjectPtr<UTexture2D> MapTexture = nullptr;
+
+    // World-space XY that the center pixel of MapTexture corresponds to.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Minimap")
+    FVector2D MapWorldCenter = FVector2D::ZeroVector;
+
+    // Half-width, in world units, that MapTexture's full width/height spans.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Minimap", meta=(ClampMin="100.0"))
+    float MapWorldExtent = 6000.0f;
+
+    // Half-width, in world units, of the area actually visible inside the widget. Independent of
+    // RadarRange, which only gates contact detection/visibility, not the map pan window.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Minimap", meta=(ClampMin="100.0"))
+    float MapViewRadius = 4000.0f;
+
+    // Flip if the baked capture's +world-Y maps to texture-down instead of texture-up.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Minimap")
+    bool bFlipMapV = false;
 
 protected:
     virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
