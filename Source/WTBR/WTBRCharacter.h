@@ -30,7 +30,16 @@ class USceneComponent;
 class AWTBRDroppedTriggerActor;
 class AWTBRCorpseLootContainerActor;
 class AWTBRGroundItemActor;
+class AWTBRNexilWireActor;
 class UUserWidget;
+
+UENUM(BlueprintType)
+enum class EWTBRCharacterStance : uint8
+{
+    Standing UMETA(DisplayName = "Standing"),
+    Crouching UMETA(DisplayName = "Crouching"),
+    Prone UMETA(DisplayName = "Prone"),
+};
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRHUDHintsChanged);
 
@@ -97,6 +106,27 @@ class AWTBRCharacter : public ACharacter
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
     TObjectPtr<UInputAction> DodgeAction;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
+    TObjectPtr<UInputAction> CrouchAction;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
+    TObjectPtr<UInputAction> ProneAction;
+
+    // Keyboard fallbacks for the stance actions. Change these in the character
+    // Blueprint's Class Defaults; Enhanced Input actions remain available for
+    // gamepad and future player-remapping UI.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Stance", meta=(AllowPrivateAccess="true"))
+    FKey CrouchKey;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Stance", meta=(AllowPrivateAccess="true"))
+    FKey ProneKey;
+
+    // Leave this enabled until IA_Crouch and IA_Prone have mappings in the
+    // active Input Mapping Context. Disable it once those mappings are authored
+    // to avoid one key firing both binding paths.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Stance", meta=(AllowPrivateAccess="true"))
+    bool bUseDirectStanceKeyBindings = true;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
     TObjectPtr<UInputAction> SwitchTriggerAction;
@@ -377,6 +407,25 @@ public:
     UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Input")
     void Server_StopVaelSprint();
 
+    // The movement component owns sprint stamina, but the character owns the
+    // stance restrictions that determine whether sprint is legal.
+    bool CanStartVaelSprint() const;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Movement | Stance")
+    EWTBRCharacterStance GetCharacterStance() const { return CharacterStance; }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Movement | Stance")
+    bool IsProne() const { return CharacterStance == EWTBRCharacterStance::Prone; }
+
+    UFUNCTION(Server, Reliable, BlueprintCallable, Category="WTBR | Movement | Stance")
+    void Server_SetCharacterStance(EWTBRCharacterStance NewStance);
+
+    UFUNCTION(BlueprintImplementableEvent, Category="WTBR | Movement | Stance")
+    void OnCharacterStanceChanged(EWTBRCharacterStance NewStance);
+
+    UFUNCTION(BlueprintImplementableEvent, Category="WTBR | Movement | Dodge")
+    void OnDodgeStarted(FVector Direction);
+
     UFUNCTION(BlueprintCallable, Category="WTBR | Input")
     void CancelCurrentAction();
 
@@ -428,6 +477,27 @@ public:
 
     UFUNCTION(Server, Reliable)
     void Server_RequestStopRevive(AWTBRCharacter* Target);
+
+    // Nexil zipline (owner + teammates only — enemy trip mechanic is untouched):
+    // F-grab dispatched from UWTBRInteractionComponent's P4 focus branch.
+    // Re-validates AWTBRNexilWireActor::CanBeGrabbedBy + a sane grab range
+    // server-side (client focus is advisory only). Switches movement to
+    // MOVE_Flying (no gravity, camera still fully controllable, no existing
+    // "suspended in place" mode in this codebase to reuse) and blocks Fire via
+    // bIsHangingOnNexilWire until release.
+    UFUNCTION(Server, Reliable)
+    void Server_GrabNexilWire(AWTBRNexilWireActor* Wire);
+
+    // Dispatched by UWTBRInputGestureComponent::OnJump_Started in place of a
+    // normal jump while bIsHangingOnNexilWire is true. Launches toward wherever
+    // the character (server-authoritative control rotation) is aimed at the
+    // moment of release — read fresh at release time, same convention as the
+    // Sniper aim-then-fire timing. Wire itself is untouched (persists, reusable).
+    UFUNCTION(Server, Reliable)
+    void Server_ReleaseNexilWireAndLaunch();
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Nexil Wire | Zipline")
+    bool IsHangingOnNexilWire() const { return bIsHangingOnNexilWire; }
 
     // BR inventory item use (S5-D). Server-authoritative MVP consumable use:
     // HealHP -> HealthComponent->RestoreHP, RestoreVael -> VaelComponent->GrantVael.
@@ -557,6 +627,21 @@ public:
         Category = "WTBR | Character | Stagger")
     bool bIsStaggered = false;
 
+    // Native ACharacter replicates crouch. This explicit stance also covers
+    // custom prone and drives the Animation Blueprint on every client.
+    UPROPERTY(ReplicatedUsing = OnRep_CharacterStance, BlueprintReadOnly,
+        Category = "WTBR | Movement | Stance")
+    EWTBRCharacterStance CharacterStance = EWTBRCharacterStance::Standing;
+
+    // Nexil zipline hang state — mirrors bIsStaggered's RepNotify pattern so
+    // every client (not just the owner) can react cosmetically later.
+    UPROPERTY(ReplicatedUsing = OnRep_bIsHangingOnNexilWire, BlueprintReadOnly,
+        Category = "WTBR | Nexil Wire | Zipline")
+    bool bIsHangingOnNexilWire = false;
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Nexil Wire | Zipline")
+    void OnHangingOnNexilWireChanged(bool bHanging);
+
     // Server-authoritative telegraph of "is this character's Serpveil actively
     // charging right now" — mirrors bIsStaggered's RepNotify pattern so ALL
     // clients (not just the locally-controlled owner) can react cosmetically.
@@ -615,11 +700,19 @@ public:
     // no-ops if its state is already false), safe to call with nothing active.
     void ClearTriggerCosmeticVFXState();
 
+    // Crouch-jump: jumping while crouched stands the character up first, matching
+    // the shooter convention (PUBG/Apex/Valorant). Prone must be exited manually,
+    // which is also the convention — see CanJumpInternal_Implementation. Public
+    // like the ACharacter version it overrides, since UWTBRInputGestureComponent
+    // dispatches the jump input through it.
+    virtual void Jump() override;
+
 protected:
     virtual void PostInitializeComponents() override;
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+    virtual bool CanJumpInternal_Implementation() const override;
 
     // ─── Input Handlers ──────────────────────────────────────────────────────
     void Move(const FInputActionValue& Value);
@@ -628,7 +721,13 @@ protected:
     void FireMainReleased(const FInputActionValue& Value);
     void FireSub(const FInputActionValue& Value);
     void FireSubReleased(const FInputActionValue& Value);
-    void Dodge(const FInputActionValue& Value);
+    void DodgeStarted(const FInputActionValue& Value);
+    void DodgeReleased(const FInputActionValue& Value);
+    void ToggleCrouch(const FInputActionValue& Value);
+    void ToggleProne(const FInputActionValue& Value);
+    void ToggleCrouchKey();
+    void ToggleProneKey();
+    void BeginVaelSprintFromDodgeHold();
     void SwitchTrigger(const FInputActionValue& Value);
     void SwitchMainTrigger(const FInputActionValue& Value);
     void SwitchSubTrigger(const FInputActionValue& Value);
@@ -652,7 +751,10 @@ protected:
     void Server_Fire(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir);
 
     UFUNCTION(Server, Unreliable)
-    void Server_Dodge();
+    void Server_Dodge(FVector ClientMoveInputDir);
+
+    UFUNCTION(NetMulticast, Unreliable)
+    void Multicast_PlayDodgeCosmetic(FVector_NetQuantizeNormal Direction);
 
     UFUNCTION(Server, Reliable)
     void Server_SwitchTrigger(int32 SlotIndex, bool bIsMain);
@@ -686,12 +788,78 @@ private:
     void OnRep_bIsStaggered();
 
     UFUNCTION()
+    void OnRep_CharacterStance();
+
+    UFUNCTION()
+    void OnRep_bIsHangingOnNexilWire();
+
+    UFUNCTION()
     void OnRep_SerpveilChargeTelegraph();
 
     UFUNCTION()
     void OnRep_LacernExtendTelegraph();
 
+    // Owning-client prediction of the native crouch that accompanies a stance
+    // request, so client and server simulate the same capsule/speed. No-op on the
+    // authority and on non-owning clients.
+    void PredictNativeCrouchForStance(EWTBRCharacterStance Desired);
+
+    bool CanResizeCapsuleTo(float NewHalfHeight) const;
+    // bKeepFeetPlanted moves the actor so the capsule's base stays put. That is
+    // right on the authority, but wrong on a replicated client: the location that
+    // arrives from the server already accounts for the resize, so re-applying the
+    // offset double-counts it and sinks the character through the floor.
+    void SetCapsuleHalfHeightKeepingBase(float NewHalfHeight, bool bKeepFeetPlanted = true);
+    void ApplyReplicatedStance();
+
+public:
+    // Server-authoritative stance change — Server_SetCharacterStance is a thin RPC
+    // wrapper around this. Returns false when the stance is refused (no headroom to
+    // stand, cannot crouch in the current movement state, staggered, hanging, dead).
+    bool TrySetCharacterStance(EWTBRCharacterStance NewStance);
+
+    // Single authority for MaxWalkSpeed / MaxWalkSpeedCrouched: folds the movement
+    // penalties, the sprint multiplier and the crouch/prone multiplier together.
+    // UWTBRMovementExtComponent calls this instead of writing MaxWalkSpeed itself,
+    // so a speed recompute can never drop the stance multiplier.
+    void RefreshStanceSpeeds();
+
 private:
+    void EndDodgeCooldown();
+
+private:
+    // Nexil zipline: which wire this character is currently hanging on, if any.
+    TWeakObjectPtr<AWTBRNexilWireActor> HangingNexilWire;
+
+    // Ends a zipline hang: restores falling movement, clears the state, and
+    // unsubscribes from the wire. bLaunch=true fires the normal aim-directed
+    // release launch; false just drops (used when the wire vanishes underneath).
+    void EndNexilWireHang(bool bLaunch);
+
+    // Bound to the hung-on wire's OnDestroyed while hanging. Without this, a wire
+    // that expires (WireDuration) or is cut mid-hang left the character stuck in
+    // MOVE_Flying, floating in mid-air and still able to launch off nothing.
+    UFUNCTION()
+    void HandleHangingNexilWireDestroyed(AActor* DestroyedActor);
+
+    EWTBRCharacterStance LastAppliedStance = EWTBRCharacterStance::Standing;
+    FTimerHandle DodgeHoldTimer;
+    FTimerHandle DodgeCooldownTimer;
+    bool bDodgeButtonHeld = false;
+    bool bDodgeHoldStartedSprint = false;
+    bool bDodgeOnCooldown = false;
+
+    UPROPERTY(EditDefaultsOnly, Category="WTBR | Movement | Dodge", meta=(ClampMin="0.0"))
+    float DodgeIFrameDuration = 0.22f;
+
+    float StandingCapsuleHalfHeight = 96.0f;
+    float ProneCapsuleHalfHeight = 36.0f;
+    static constexpr float CROUCH_SPEED_MULTIPLIER = 0.40f;
+    static constexpr float PRONE_SPEED_MULTIPLIER = 0.20f;
+    static constexpr float DODGE_HOLD_THRESHOLD = 0.20f;
+    static constexpr float DODGE_SPEED = 900.0f;
+    static constexpr float DODGE_COOLDOWN = 0.35f;
+
     // Dynamic delegate callbacks — UFUNCTION required for AddDynamic binding
     UFUNCTION()
     void OnStaminaChangedHandler(float NewStamina, bool bIsExhausted);

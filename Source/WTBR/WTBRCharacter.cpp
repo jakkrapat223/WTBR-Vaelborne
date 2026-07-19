@@ -13,6 +13,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
+#include "InputCoreTypes.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "TimerManager.h"
@@ -29,6 +30,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
+#include "Actors/WTBRNexilWireActor.h"
 #include "Inventory/WTBRInventoryComponent.h"
 #include "Inventory/WTBRGroundItemActor.h"
 #include "Inventory/WTBRItemDataAsset.h"
@@ -246,6 +248,11 @@ AWTBRCharacter::AWTBRCharacter()
     GetCharacterMovement()->JumpZVelocity               = 700.f;
     GetCharacterMovement()->AirControl                  = 0.35f;
     GetCharacterMovement()->MaxWalkSpeed                = 600.f;
+    GetCharacterMovement()->NavAgentProps.bCanCrouch    = true;
+    GetCharacterMovement()->SetCrouchedHalfHeight(60.0f);
+    GetCharacterMovement()->MaxWalkSpeedCrouched        = 300.0f;
+    CrouchKey = EKeys::C;
+    ProneKey = EKeys::Z;
     GetCharacterMovement()->MinAnalogWalkSpeed          = 20.f;
     GetCharacterMovement()->BrakingDecelerationWalking  = 2000.f;
 
@@ -343,6 +350,20 @@ AWTBRCharacter::AWTBRCharacter()
     {
         DodgeAction = DodgeActionAsset.Object;
     }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> CrouchActionAsset(
+        TEXT("/Game/Input/Actions/IA_Crouch.IA_Crouch"));
+    if (CrouchActionAsset.Succeeded())
+    {
+        CrouchAction = CrouchActionAsset.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UInputAction> ProneActionAsset(
+        TEXT("/Game/Input/Actions/IA_Prone.IA_Prone"));
+    if (ProneActionAsset.Succeeded())
+    {
+        ProneAction = ProneActionAsset.Object;
+    }
 }
 
 void AWTBRCharacter::PostInitializeComponents()
@@ -428,7 +449,35 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         EIC->BindAction(FireMainAction,      ETriggerEvent::Completed, this, &AWTBRCharacter::FireMainReleased);
         EIC->BindAction(FireSubAction,       ETriggerEvent::Started,   this, &AWTBRCharacter::FireSub);
         EIC->BindAction(FireSubAction,       ETriggerEvent::Completed, this, &AWTBRCharacter::FireSubReleased);
-        EIC->BindAction(DodgeAction,         ETriggerEvent::Triggered, this, &AWTBRCharacter::Dodge);
+        if (IsValid(DodgeAction))
+        {
+            EIC->BindAction(DodgeAction, ETriggerEvent::Started, this, &AWTBRCharacter::DodgeStarted);
+            EIC->BindAction(DodgeAction, ETriggerEvent::Completed, this, &AWTBRCharacter::DodgeReleased);
+            EIC->BindAction(DodgeAction, ETriggerEvent::Canceled, this, &AWTBRCharacter::DodgeReleased);
+        }
+        // Use exactly one binding path. The editable direct keys are enabled by
+        // default; Enhanced Input is used after those fallbacks are disabled in
+        // Class Defaults and the actions are mapped in the active IMC.
+        if (!bUseDirectStanceKeyBindings && IsValid(CrouchAction))
+        {
+            EIC->BindAction(CrouchAction, ETriggerEvent::Started, this, &AWTBRCharacter::ToggleCrouch);
+        }
+        if (!bUseDirectStanceKeyBindings && IsValid(ProneAction))
+        {
+            EIC->BindAction(ProneAction, ETriggerEvent::Started, this, &AWTBRCharacter::ToggleProne);
+        }
+
+        // These editable fallback keys keep stance controls usable before their
+        // Enhanced Input mappings are authored. Disable them in Class Defaults
+        // once IA_Crouch / IA_Prone are mapped in the active IMC.
+        if (bUseDirectStanceKeyBindings && CrouchKey.IsValid())
+        {
+            PlayerInputComponent->BindKey(CrouchKey, IE_Pressed, this, &AWTBRCharacter::ToggleCrouchKey);
+        }
+        if (bUseDirectStanceKeyBindings && ProneKey.IsValid())
+        {
+            PlayerInputComponent->BindKey(ProneKey, IE_Pressed, this, &AWTBRCharacter::ToggleProneKey);
+        }
         if (IsValid(SwitchTriggerAction))
         {
             EIC->BindAction(SwitchTriggerAction, ETriggerEvent::Started, this, &AWTBRCharacter::SwitchTrigger);
@@ -755,10 +804,90 @@ void AWTBRCharacter::HandleCompositeMergeInput()
     }
 }
 
-void AWTBRCharacter::Dodge(const FInputActionValue& Value)
+void AWTBRCharacter::DodgeStarted(const FInputActionValue& Value)
 {
-    if (StaminaComponent) StaminaComponent->TryConsumeDodgeStamina();
-    Server_Dodge();
+    if (CharacterStance != EWTBRCharacterStance::Standing || !GetWorld()) return;
+
+    bDodgeButtonHeld = true;
+    bDodgeHoldStartedSprint = false;
+    GetWorldTimerManager().SetTimer(
+        DodgeHoldTimer, this, &AWTBRCharacter::BeginVaelSprintFromDodgeHold,
+        DODGE_HOLD_THRESHOLD, false);
+}
+
+void AWTBRCharacter::DodgeReleased(const FInputActionValue& Value)
+{
+    if (!GetWorld()) return;
+
+    bDodgeButtonHeld = false;
+    GetWorldTimerManager().ClearTimer(DodgeHoldTimer);
+    if (bDodgeHoldStartedSprint)
+    {
+        bDodgeHoldStartedSprint = false;
+        Server_StopVaelSprint();
+        return;
+    }
+
+    // A tap sends exactly one request. The server validates stamina, stance,
+    // cooldown and movement state before applying any velocity.
+    Server_Dodge(GetClientMoveInputDirectionForTrigger());
+}
+
+void AWTBRCharacter::BeginVaelSprintFromDodgeHold()
+{
+    if (!bDodgeButtonHeld || CharacterStance != EWTBRCharacterStance::Standing) return;
+
+    bDodgeHoldStartedSprint = true;
+    Server_StartVaelSprint();
+}
+
+void AWTBRCharacter::ToggleCrouch(const FInputActionValue& Value)
+{
+    ToggleCrouchKey();
+}
+
+void AWTBRCharacter::ToggleCrouchKey()
+{
+    const EWTBRCharacterStance Desired = CharacterStance == EWTBRCharacterStance::Crouching
+        ? EWTBRCharacterStance::Standing
+        : EWTBRCharacterStance::Crouching;
+    PredictNativeCrouchForStance(Desired);
+    Server_SetCharacterStance(Desired);
+}
+
+void AWTBRCharacter::PredictNativeCrouchForStance(EWTBRCharacterStance Desired)
+{
+    // Owning clients must raise bWantsToCrouch themselves. It travels to the server
+    // in the saved move's compressed flags, so both sides simulate the same crouch
+    // state. Without it the client keeps predicting a standing capsule and speed and
+    // gets corrected on every stance change — the rubber-banding seen in NetMode
+    // Client. The authority already does this inside TrySetCharacterStance.
+    if (HasAuthority() || !IsLocallyControlled()) return;
+
+    if (Desired == EWTBRCharacterStance::Standing)
+    {
+        UnCrouch(false);
+    }
+    else
+    {
+        // Prone implies crouched; its extra capsule shrink is not predicted and
+        // arrives with the replicated stance.
+        Crouch(false);
+    }
+}
+
+void AWTBRCharacter::ToggleProne(const FInputActionValue& Value)
+{
+    ToggleProneKey();
+}
+
+void AWTBRCharacter::ToggleProneKey()
+{
+    const EWTBRCharacterStance Desired = CharacterStance == EWTBRCharacterStance::Prone
+        ? EWTBRCharacterStance::Standing
+        : EWTBRCharacterStance::Prone;
+    PredictNativeCrouchForStance(Desired);
+    Server_SetCharacterStance(Desired);
 }
 
 void AWTBRCharacter::CancelCurrentAction()
@@ -2285,6 +2414,126 @@ void AWTBRCharacter::Server_RequestStopRevive_Implementation(AWTBRCharacter* Tar
     }
 }
 
+namespace
+{
+    // Sane server-side re-validation range for a Nexil zipline grab — client
+    // focus (UWTBRInteractionComponent::GetFocusedNexilWire) is advisory only.
+    constexpr float WTBRNexilZiplineGrabRange = 500.0f;
+}
+
+void AWTBRCharacter::Server_GrabNexilWire_Implementation(AWTBRNexilWireActor* Wire)
+{
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR Nexil zipline grab rejected: character %s has no authority"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (!IsValid(HealthComponent) || !HealthComponent->IsAlive())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR Nexil zipline grab rejected: character %s is not alive"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (bIsHangingOnNexilWire)
+    {
+        return;
+    }
+
+    if (!IsValid(Wire) || !Wire->CanBeGrabbedBy(this))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR Nexil zipline grab rejected: wire invalid or not grabbable by character %s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (FVector::Dist(GetActorLocation(), Wire->GetActorLocation()) > WTBRNexilZiplineGrabRange)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR Nexil zipline grab rejected: character %s too far from wire %s"),
+            *GetNameSafe(this),
+            *GetNameSafe(Wire));
+        return;
+    }
+
+    bIsHangingOnNexilWire = true;
+    HangingNexilWire = Wire;
+
+    // A wire can expire (WireDuration) or be cut while someone is hanging on it —
+    // drop the rider instead of leaving them stuck in MOVE_Flying in mid-air.
+    Wire->OnDestroyed.AddDynamic(this, &AWTBRCharacter::HandleHangingNexilWireDestroyed);
+
+    if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+    {
+        MoveComp->SetMovementMode(MOVE_Flying);
+        MoveComp->StopMovementImmediately();
+    }
+    SetActorLocation(Wire->GetActorLocation());
+}
+
+void AWTBRCharacter::HandleHangingNexilWireDestroyed(AActor* /*DestroyedActor*/)
+{
+    if (!bIsHangingOnNexilWire)
+    {
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("WTBR Nexil zipline: wire destroyed while %s was hanging — dropping"),
+        *GetNameSafe(this));
+
+    // No launch: the wire is gone, so there is nothing to push off from.
+    EndNexilWireHang(false);
+}
+
+void AWTBRCharacter::EndNexilWireHang(bool bLaunch)
+{
+    if (!bIsHangingOnNexilWire)
+    {
+        return;
+    }
+
+    const float LaunchSpeed = (bLaunch && HangingNexilWire.IsValid())
+        ? HangingNexilWire->GetZiplineLaunchSpeed()
+        : 0.0f;
+
+    if (HangingNexilWire.IsValid())
+    {
+        HangingNexilWire->OnDestroyed.RemoveDynamic(
+            this, &AWTBRCharacter::HandleHangingNexilWireDestroyed);
+    }
+
+    bIsHangingOnNexilWire = false;
+    HangingNexilWire = nullptr;
+
+    if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+    {
+        MoveComp->SetMovementMode(MOVE_Falling);
+    }
+
+    if (LaunchSpeed > 0.0f)
+    {
+        // Read fresh at release time (server-authoritative control rotation), not
+        // whatever direction was aimed at grab time — same convention as Sniper
+        // aim-then-fire (WTBRFulgrisTrigger/Piercex/Telorn ExecuteFire()).
+        const FVector LaunchDir = GetControlRotation().Vector();
+        LaunchCharacter(LaunchDir * LaunchSpeed, true, true);
+    }
+}
+
+void AWTBRCharacter::Server_ReleaseNexilWireAndLaunch_Implementation()
+{
+    if (!HasAuthority())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBR Nexil zipline release rejected: character %s has no authority"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    // Wire persists (reusable) — this only ends the hang, never touches the wire.
+    EndNexilWireHang(true);
+}
+
 void AWTBRCharacter::Server_RequestUseInventoryItem_Implementation(int32 SlotIndex)
 {
     if (!HasAuthority())
@@ -2424,6 +2673,10 @@ void AWTBRCharacter::ExecuteBotTriggerInput(bool bIsMain, bool bIsPressed)
 void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FVector ClientMoveInputDir)
 {
     if (!HasAuthority()) return;
+
+    // Nexil zipline: no Trigger use while hanging on a wire (release via Jump
+    // first). Fire works normally again the instant the hang ends.
+    if (bIsHangingOnNexilWire) return;
 
     if (!TriggerSetComponent)
     {
@@ -2635,9 +2888,269 @@ bool AWTBRCharacter::HandleLacernHoldOptionInput(
     return true;
 }
 
-void AWTBRCharacter::Server_Dodge_Implementation()
+void AWTBRCharacter::Server_Dodge_Implementation(FVector ClientMoveInputDir)
 {
-    // Authoritative dodge validation / animation notify hook — extend in Phase 2
+    if (!HasAuthority() || bDodgeOnCooldown) return;
+    if (CharacterStance != EWTBRCharacterStance::Standing) return;
+    if (bIsStaggered || bIsHangingOnNexilWire) return;
+    if (!IsValid(HealthComponent) || !HealthComponent->IsAlive()) return;
+
+    UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+    if (!IsValid(MoveComp) || !MoveComp->IsMovingOnGround()) return;
+    if (!IsValid(StaminaComponent) || !StaminaComponent->TryConsumeDodgeStamina()) return;
+
+    if (IsValid(MovementExtComponent))
+    {
+        MovementExtComponent->StopVaelSprint();
+    }
+
+    FVector DodgeDirection = SanitizeClientMoveInputDirection(ClientMoveInputDir);
+    if (DodgeDirection.IsNearlyZero())
+    {
+        DodgeDirection = GetControlRotation().Vector().GetSafeNormal2D();
+    }
+    if (DodgeDirection.IsNearlyZero()) return;
+
+    bDodgeOnCooldown = true;
+    GetWorldTimerManager().SetTimer(
+        DodgeCooldownTimer, this, &AWTBRCharacter::EndDodgeCooldown,
+        DODGE_COOLDOWN, false);
+
+    // Health is authoritative too, so the immunity window cannot be forged by
+    // a client and every damage path using ApplyDamage observes the same frame.
+    HealthComponent->StartDodgeIFrame(DodgeIFrameDuration);
+    LaunchCharacter(DodgeDirection * DODGE_SPEED, true, false);
+    Multicast_PlayDodgeCosmetic(DodgeDirection);
+}
+
+void AWTBRCharacter::Multicast_PlayDodgeCosmetic_Implementation(
+    FVector_NetQuantizeNormal Direction)
+{
+    OnDodgeStarted(Direction);
+}
+
+void AWTBRCharacter::EndDodgeCooldown()
+{
+    bDodgeOnCooldown = false;
+}
+
+void AWTBRCharacter::Server_SetCharacterStance_Implementation(
+    EWTBRCharacterStance NewStance)
+{
+    TrySetCharacterStance(NewStance);
+}
+
+bool AWTBRCharacter::TrySetCharacterStance(EWTBRCharacterStance NewStance)
+{
+    if (!HasAuthority() || NewStance == CharacterStance) return false;
+    if (bIsStaggered || bIsHangingOnNexilWire) return false;
+    if (!IsValid(HealthComponent) || !HealthComponent->IsAlive()) return false;
+
+    UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+    UCapsuleComponent* Capsule = GetCapsuleComponent();
+    if (!IsValid(MoveComp) || !IsValid(Capsule)) return false;
+
+    if (IsValid(MovementExtComponent))
+    {
+        MovementExtComponent->StopVaelSprint();
+    }
+
+    // ACharacter::Crouch/UnCrouch only raise bWantsToCrouch; bIsCrouched does not
+    // flip until the next character-movement update. Testing bIsCrouched right
+    // after calling them therefore always failed on the first press, which is why
+    // every stance change used to need the key pressed twice — and why the stance
+    // never reached the code below that applies its walk speed. Gate on what can be
+    // known *now* (headroom / CanCrouchInCurrentState) and let the movement
+    // component apply the capsule change on its own schedule.
+    const float CrouchedHalfHeight = MoveComp->GetCrouchedHalfHeight();
+    switch (NewStance)
+    {
+    case EWTBRCharacterStance::Standing:
+        // Refuse to stand up under a ceiling instead of committing the stance and
+        // letting the movement component silently keep the character crouched.
+        if (!CanResizeCapsuleTo(GetDefaultHalfHeight())) return false;
+        if (CharacterStance == EWTBRCharacterStance::Prone)
+        {
+            SetCapsuleHalfHeightKeepingBase(CrouchedHalfHeight);
+        }
+        UnCrouch(false);          // lowers bWantsToCrouch
+        MoveComp->UnCrouch(false); // ...and applies it this frame
+        if (bIsCrouched) return false;
+        break;
+
+    case EWTBRCharacterStance::Crouching:
+        if (CharacterStance == EWTBRCharacterStance::Prone)
+        {
+            if (!CanResizeCapsuleTo(CrouchedHalfHeight)) return false;
+            SetCapsuleHalfHeightKeepingBase(CrouchedHalfHeight);
+        }
+        else
+        {
+            if (!MoveComp->CanCrouchInCurrentState()) return false;
+            Crouch(false);
+            MoveComp->Crouch(false);
+            if (!bIsCrouched) return false;
+        }
+        break;
+
+    case EWTBRCharacterStance::Prone:
+        if (!CanResizeCapsuleTo(ProneCapsuleHalfHeight)) return false;
+        if (CharacterStance == EWTBRCharacterStance::Standing)
+        {
+            if (!MoveComp->CanCrouchInCurrentState()) return false;
+            // Apply the crouch immediately. If it were left pending, the next
+            // movement update would see bWantsToCrouch with IsCrouching() still
+            // false and resize the capsule back to crouch height, undoing the
+            // prone resize below.
+            Crouch(false);
+            MoveComp->Crouch(false);
+            if (!bIsCrouched) return false;
+        }
+        SetCapsuleHalfHeightKeepingBase(ProneCapsuleHalfHeight);
+        break;
+
+    default:
+        return false;
+    }
+
+    CharacterStance = NewStance;
+    LastAppliedStance = NewStance;
+    RefreshStanceSpeeds();
+    OnCharacterStanceChanged(CharacterStance);
+    ForceNetUpdate();
+    return true;
+}
+
+bool AWTBRCharacter::CanResizeCapsuleTo(float NewHalfHeight) const
+{
+    const UCapsuleComponent* Capsule = GetCapsuleComponent();
+    if (!IsValid(Capsule) || NewHalfHeight <= Capsule->GetUnscaledCapsuleHalfHeight()) return true;
+    if (!GetWorld()) return false;
+
+    const float CurrentHalfHeight = Capsule->GetUnscaledCapsuleHalfHeight();
+    const FVector TargetLocation = GetActorLocation()
+        + FVector(0.0f, 0.0f, NewHalfHeight - CurrentHalfHeight);
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(WTBRStanceExpansion), false, this);
+    return !GetWorld()->OverlapBlockingTestByChannel(
+        TargetLocation,
+        GetActorQuat(),
+        Capsule->GetCollisionObjectType(),
+        FCollisionShape::MakeCapsule(Capsule->GetUnscaledCapsuleRadius(), NewHalfHeight),
+        Params);
+}
+
+void AWTBRCharacter::SetCapsuleHalfHeightKeepingBase(float NewHalfHeight, bool bKeepFeetPlanted)
+{
+    UCapsuleComponent* Capsule = GetCapsuleComponent();
+    if (!IsValid(Capsule)) return;
+
+    const float CurrentHalfHeight = Capsule->GetUnscaledCapsuleHalfHeight();
+    if (FMath::IsNearlyEqual(CurrentHalfHeight, NewHalfHeight)) return;
+
+    if (!bKeepFeetPlanted)
+    {
+        // Replicated path: resize only. The server already moved the actor and that
+        // location is what replication delivers.
+        Capsule->SetCapsuleHalfHeight(NewHalfHeight, true);
+        return;
+    }
+
+    const FVector PreviousLocation = GetActorLocation();
+    const FVector NewLocation = PreviousLocation + FVector(0.0f, 0.0f,
+        NewHalfHeight - CurrentHalfHeight);
+    Capsule->SetCapsuleHalfHeight(NewHalfHeight, true);
+    // The old unswept move let a prone capsule pass through floors and props.
+    // Retain the foot position but respect blocking geometry; if the movement
+    // cannot be completed, restore the previous collision shape and location.
+    if (!SetActorLocation(NewLocation, true))
+    {
+        Capsule->SetCapsuleHalfHeight(CurrentHalfHeight, true);
+        SetActorLocation(PreviousLocation, false);
+    }
+}
+
+void AWTBRCharacter::ApplyReplicatedStance()
+{
+    UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+    if (!IsValid(MoveComp)) return;
+
+    // Runs from OnRep_CharacterStance, i.e. only on non-authoritative clients, so
+    // never move the actor here — see SetCapsuleHalfHeightKeepingBase. Doing so was
+    // what sank the character into the floor on a stance change in NetMode Client.
+    if (CharacterStance == EWTBRCharacterStance::Prone)
+    {
+        SetCapsuleHalfHeightKeepingBase(ProneCapsuleHalfHeight, /*bKeepFeetPlanted=*/false);
+    }
+    else if (LastAppliedStance == EWTBRCharacterStance::Prone)
+    {
+        SetCapsuleHalfHeightKeepingBase(MoveComp->GetCrouchedHalfHeight(), /*bKeepFeetPlanted=*/false);
+    }
+
+    LastAppliedStance = CharacterStance;
+    RefreshStanceSpeeds();
+}
+
+void AWTBRCharacter::RefreshStanceSpeeds()
+{
+    UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+    if (!IsValid(MoveComp)) return;
+
+    float Speed = IsValid(MovementExtComponent)
+        ? MovementExtComponent->GetNonSprintingSpeed()
+        : 600.0f;
+
+    // Sprinting is a standing-only ability — crouch/prone must not inherit it.
+    if (IsValid(MovementExtComponent)
+        && MovementExtComponent->IsSprinting()
+        && CharacterStance == EWTBRCharacterStance::Standing)
+    {
+        Speed *= MovementExtComponent->GetSprintSpeedMultiplier();
+    }
+
+    switch (CharacterStance)
+    {
+    case EWTBRCharacterStance::Prone:     Speed *= PRONE_SPEED_MULTIPLIER;  break;
+    case EWTBRCharacterStance::Crouching: Speed *= CROUCH_SPEED_MULTIPLIER; break;
+    default: break;
+    }
+
+    // Both are set to the same stance-adjusted value on purpose. The movement
+    // component picks MaxWalkSpeedCrouched only while bIsCrouched is true, and that
+    // flag lags a stance change by one movement update — keeping the two in sync
+    // means the speed is correct no matter which one is read on a given frame.
+    MoveComp->MaxWalkSpeed = Speed;
+    MoveComp->MaxWalkSpeedCrouched = Speed;
+}
+
+bool AWTBRCharacter::CanJumpInternal_Implementation() const
+{
+    // Crouch-jump is standard shooter movement, so Crouching is allowed here and
+    // Jump() stands the character up alongside it. Prone stays blocked: every
+    // comparable game requires standing (or crouching) first, and allowing it
+    // would invite prone-jump spam.
+    // Deliberately does NOT depend on the stand-up having already applied — the
+    // jump must work on the pressed frame even if there is no headroom to stand.
+    return CharacterStance != EWTBRCharacterStance::Prone
+        && Super::CanJumpInternal_Implementation();
+}
+
+void AWTBRCharacter::Jump()
+{
+    if (CharacterStance == EWTBRCharacterStance::Crouching)
+    {
+        // Best-effort: silently stays crouched (and still jumps) when there is no
+        // headroom, which is what a low ceiling should do.
+        if (HasAuthority())
+        {
+            TrySetCharacterStance(EWTBRCharacterStance::Standing);
+        }
+        else
+        {
+            Server_SetCharacterStance(EWTBRCharacterStance::Standing);
+        }
+    }
+
+    Super::Jump();
 }
 
 void AWTBRCharacter::Server_CancelCurrentAction_Implementation()
@@ -3544,6 +4057,8 @@ void AWTBRCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
     DOREPLIFETIME(AWTBRCharacter, bActionPingActive);
     DOREPLIFETIME(AWTBRCharacter, bRadarCloaked);
     DOREPLIFETIME(AWTBRCharacter, bIsStaggered);
+    DOREPLIFETIME(AWTBRCharacter, CharacterStance);
+    DOREPLIFETIME(AWTBRCharacter, bIsHangingOnNexilWire);
     DOREPLIFETIME(AWTBRCharacter, bSerpveilChargeTelegraphActive);
     DOREPLIFETIME(AWTBRCharacter, bLacernExtendTelegraphActive);
     DOREPLIFETIME(AWTBRCharacter, bLacernExtendDualWield);
@@ -3609,6 +4124,11 @@ void AWTBRCharacter::OnRep_bIsStaggered()
         IsLocallyControlled() ? TEXT("true") : TEXT("false"),
         bIsStaggered ? TEXT("true") : TEXT("false"));
     // Blueprint: true=disable input+stagger anim | false=re-enable input
+}
+
+void AWTBRCharacter::OnRep_bIsHangingOnNexilWire()
+{
+    OnHangingOnNexilWireChanged(bIsHangingOnNexilWire);
 }
 
 void AWTBRCharacter::SetSerpveilChargeTelegraphActive(bool bActive)
@@ -4104,6 +4624,22 @@ void AWTBRCharacter::Server_StartVaelSprint_Implementation()
     {
         MovementExtComponent->StartVaelSprint();
     }
+}
+
+void AWTBRCharacter::OnRep_CharacterStance()
+{
+    ApplyReplicatedStance();
+    OnCharacterStanceChanged(CharacterStance);
+}
+
+bool AWTBRCharacter::CanStartVaelSprint() const
+{
+    if (CharacterStance != EWTBRCharacterStance::Standing) return false;
+    if (bIsStaggered || bIsHangingOnNexilWire) return false;
+    if (!IsValid(HealthComponent) || !HealthComponent->IsAlive()) return false;
+
+    const UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+    return IsValid(MoveComp) && MoveComp->IsMovingOnGround();
 }
 
 void AWTBRCharacter::Server_StopVaelSprint_Implementation()

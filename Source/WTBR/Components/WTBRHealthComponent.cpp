@@ -145,9 +145,9 @@ void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstiga
         }
     }
 
-    if (CurrentCombatState == EWTBRCombatState::Downed && bIsInvulnerable)
+    if (bIsInvulnerable)
     {
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[Test28 Server DamageIgnored_Invulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s | DamageAmount=%.1f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Server DamageIgnored_Invulnerable] Owner=%s | NetMode=%d | Role=%d | State=%d | CurrentHP=%.1f | DownedHP=%.1f | Invulnerable=%s | DamageAmount=%.1f"),
             *GetNameSafe(GetOwner()),
             (int32)GetNetMode(),
             GetOwner() ? (int32)GetOwner()->GetLocalRole() : -1,
@@ -156,7 +156,7 @@ void UWTBRHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstiga
             CurrentDownedHP,
             bIsInvulnerable ? TEXT("true") : TEXT("false"),
             DamageAmount);
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyDamage Rejected | Target=%s | Reason=DownedInvulnerable | OldHP=%.1f | Damage=%.1f"),
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] ApplyDamage Rejected | Target=%s | Reason=Invulnerable | OldHP=%.1f | Damage=%.1f"),
             *GetNameSafe(GetOwner()),
             OldHP,
             DamageAmount);
@@ -694,6 +694,29 @@ void UWTBRHealthComponent::StartKnockdownIFrame()
 }
 
 void UWTBRHealthComponent::EndKnockdownIFrame()
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority()) return;
+    SetInvulnerable(false);
+}
+
+void UWTBRHealthComponent::StartDodgeIFrame(float Duration)
+{
+    if (!GetOwner() || !GetOwner()->HasAuthority() || Duration <= 0.0f) return;
+    if (CurrentCombatState != EWTBRCombatState::Alive) return;
+
+    SetInvulnerable(true);
+
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().SetTimer(
+            DodgeIFrameTimerHandle,
+            this, &UWTBRHealthComponent::EndDodgeIFrame,
+            Duration,
+            false);
+    }
+}
+
+void UWTBRHealthComponent::EndDodgeIFrame()
 {
     if (!GetOwner() || !GetOwner()->HasAuthority()) return;
     SetInvulnerable(false);

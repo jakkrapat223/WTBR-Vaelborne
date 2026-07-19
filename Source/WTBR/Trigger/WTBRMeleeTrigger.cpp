@@ -3,6 +3,7 @@
 #include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "Components/WTBRHealthComponent.h"
+#include "Actors/WTBRNexilWireActor.h"
 #include "DrawDebugHelpers.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
@@ -191,6 +192,20 @@ void UWTBRMeleeTrigger::ApplyDamageToHits(
     const float FinalDamage = DataAsset->BaseDamage * DamageMultiplier;
     for (const FHitResult& Hit : Hits)
     {
+        // GDD: Nexil wires can be "ฟันหรือยิงขาดได้" — cut by melee same as
+        // gunfire/explosion (see AWTBRNexilWireActor::TakeHit, already wired for
+        // projectile contact). Hit-count, not damage-amount: any qualifying
+        // swing removes exactly 1 WireHP regardless of this weapon's own
+        // damage number. No team check, matching the projectile-cut path.
+        if (AWTBRNexilWireActor* HitWire = Cast<AWTBRNexilWireActor>(Hit.GetActor()))
+        {
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] WireCutByMelee | Attacker=%s | Wire=%s"),
+                *GetNameSafe(OwnerCharacter.Get()),
+                *GetNameSafe(HitWire));
+            HitWire->TakeHit();
+            continue;
+        }
+
         AWTBRCharacter* HitChar = Cast<AWTBRCharacter>(Hit.GetActor());
         WTBR_VALIDATION_LOG(Verbose, TEXT("[RemoteDamage Test] MeleeHitAttempt | Attacker=%s | Target=%s | TargetClass=%s | HasAuthority=%s | Damage=%.1f"),
             *GetNameSafe(OwnerCharacter.Get()),

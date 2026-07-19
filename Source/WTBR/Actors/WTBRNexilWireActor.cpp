@@ -64,15 +64,37 @@ void AWTBRNexilWireActor::InitializeWire(
     float InStaggerDuration,
     float InWireLength,
     int32 InWireHP,
-    UWTBRNexilTrigger* InOwnerTrigger)
+    UWTBRNexilTrigger* InOwnerTrigger,
+    float InZiplineLaunchSpeed)
 {
     ensure(HasAuthority());
-    StaggerDuration = InStaggerDuration;
-    OwnerTrigger    = InOwnerTrigger;
+    StaggerDuration    = InStaggerDuration;
+    OwnerTrigger       = InOwnerTrigger;
+    ZiplineLaunchSpeed = InZiplineLaunchSpeed;
     MaxWireHP       = FMath::Max(1, InWireHP);
     WireHP          = MaxWireHP;
     WireOverlap->SetBoxExtent(
         FVector(10.0f, InWireLength * 0.5f, 30.0f));
+
+    // WireLength (FWTBRNexilParams, DataAsset-tunable) previously only affected
+    // the collision box above — the visible mesh stayed whatever fixed size the
+    // BP's assigned StaticMesh happens to be, so changing the DA value never
+    // looked any different. Scale the mesh's local Y (its long axis, matching
+    // WireOverlap's own Y extent convention) to the ratio between the requested
+    // length and the mesh's OWN authored bounds — reads the real StaticMesh
+    // asset's size rather than assuming a fixed reference length, so this keeps
+    // working correctly no matter which mesh a BP assigns.
+    if (IsValid(WireMesh) && IsValid(WireMesh->GetStaticMesh()))
+    {
+        const float MeshLengthY = WireMesh->GetStaticMesh()->GetBounds().BoxExtent.Y * 2.0f;
+        if (MeshLengthY > KINDA_SMALL_NUMBER)
+        {
+            FVector MeshScale = WireMesh->GetRelativeScale3D();
+            MeshScale.Y = InWireLength / MeshLengthY;
+            WireMesh->SetRelativeScale3D(MeshScale);
+        }
+    }
+
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Nexil Test] Wire Initialized | Wire=%s | Lifetime=%.1f | Stagger=%.2f | Length=%.1f | WireHP=%d | Extent=%s | OwnerTrigger=%s"),
         *GetNameSafe(this),
         InLifetime,
@@ -215,6 +237,23 @@ float AWTBRNexilWireActor::GetWireHPPercent() const
 {
     if (MaxWireHP <= 0) return 0.0f;
     return static_cast<float>(WireHP) / static_cast<float>(MaxWireHP);
+}
+
+bool AWTBRNexilWireActor::CanBeGrabbedBy(const AWTBRCharacter* Character) const
+{
+    if (!IsValid(Character) || bIsTriggered) return false;
+
+    const AWTBRCharacter* OwnerChar = Cast<AWTBRCharacter>(GetInstigator());
+    if (!IsValid(OwnerChar)) return false;
+
+    // The wire's own caster can always grab their own wire, independent of
+    // team-mode state — IsSameTeamAs() deliberately returns false for two
+    // team-less characters (INDEX_NONE never matches, even against itself),
+    // which would otherwise make self-grab impossible in solo/no-team PIE
+    // testing. Team check only applies for a genuinely different character.
+    if (OwnerChar == Character) return true;
+
+    return OwnerChar->IsSameTeamAs(Character);
 }
 
 void AWTBRNexilWireActor::TriggerAndDestroy(AActor* TriggeredBy)

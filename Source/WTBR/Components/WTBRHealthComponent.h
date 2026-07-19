@@ -161,6 +161,11 @@ public:
     UFUNCTION(BlueprintPure, Category="Health")
     bool IsInvulnerable() const { return bIsInvulnerable; }
 
+    // Server-only full-damage immunity used by an active dodge. This is kept
+    // here so every gameplay damage source passes through one authoritative
+    // gate rather than each weapon needing special-case dodge logic.
+    void StartDodgeIFrame(float Duration);
+
     // ── Revive (server-authoritative; teammate-driven) ───────────────────────
 
     // Begin a revive on this (Downed) combatant by Reviver. Server-only. Rejects
@@ -245,6 +250,7 @@ private:
 
     FTimerHandle LimbDrainTimerHandle;
     FTimerHandle KnockdownIFrameTimerHandle;
+    FTimerHandle DodgeIFrameTimerHandle;
     FTimerHandle BleedOutTimerHandle;
     FTimerHandle ReviveTimerHandle;
     FTimerHandle BleedStatusTimerHandle;
@@ -293,6 +299,7 @@ private:
     void SetInvulnerable(bool bNewInvulnerable);
     void StartKnockdownIFrame();
     void EndKnockdownIFrame();
+    void EndDodgeIFrame();
 
     // Bleed-out: starts on EnterDownedState (authority, requires CoreStats). On
     // expiry the combatant is Eliminated crediting LastDamageInstigator.

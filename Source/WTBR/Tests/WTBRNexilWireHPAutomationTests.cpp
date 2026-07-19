@@ -8,6 +8,7 @@
 #include "Actors/WTBRNexilWireActor.h"
 #include "Actors/WTBRProjectileBase.h"
 #include "WTBRCharacter.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 namespace
 {
@@ -183,6 +184,50 @@ bool FWTBRNexilWireHPOwnerIgnoredTest::RunTest(const FString& /*Parameters*/)
     TestTrue(TEXT("Owner walking through their own wire is still ignored"), IsValid(Wire));
     if (!IsValid(Wire)) return false;
     TestFalse(TEXT("Owner walkthrough does not trip the wire"), Wire->bIsTriggered);
+    return true;
+}
+
+// Owner-found PIE bug 2026-07-19: a wire that expired (WireDuration) or was cut
+// while someone was ziplining on it left the rider stuck in MOVE_Flying — floating
+// in mid-air and still able to launch off a wire that no longer existed. The grab
+// now subscribes to the wire's OnDestroyed and drops the rider when it dies.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRNexilZiplineWireDestroyedReleasesRiderTest,
+    "WTBR.Nexil.Zipline.WireDestroyedReleasesRider",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRNexilZiplineWireDestroyedReleasesRiderTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRNexilWireHPWorldFixture Fixture(TEXT("WTBR_NexilZipline_WireDestroyed"));
+    UWorld* World = Fixture.GetWorld();
+    if (!World) return false;
+
+    // Unlike the other tests in this file, this one needs a world that has actually
+    // begun play: AActor::Destroy only routes Destroyed()/OnDestroyed for actors
+    // that have begun play, and OnDestroyed is exactly the hook under test.
+    World->InitializeActorsForPlay(FURL());
+    World->BeginPlay();
+
+    // The wire's own caster may grab it, so one character is enough here.
+    AWTBRCharacter* Rider = SpawnNexilWireHPCharacter(World, 0);
+    AWTBRNexilWireActor* Wire = SpawnNexilWireHPWire(World, Rider, /*WireHP=*/1);
+    if (!Rider || !Wire) return false;
+
+    // Call the RPC body directly — the fixture world has no net driver, so going
+    // through the Server_ RPC wrapper does not dispatch here.
+    Rider->Server_GrabNexilWire_Implementation(Wire);
+    TestTrue(TEXT("Rider is hanging after grabbing the wire"), Rider->IsHangingOnNexilWire());
+
+    Wire->Destroy();
+
+    TestFalse(TEXT("Rider stops hanging once the wire is destroyed"),
+        Rider->IsHangingOnNexilWire());
+    if (UCharacterMovementComponent* MoveComp = Rider->GetCharacterMovement())
+    {
+        TestEqual(TEXT("Rider falls instead of staying stuck in flying mode"),
+            static_cast<int32>(MoveComp->MovementMode.GetValue()),
+            static_cast<int32>(MOVE_Falling));
+    }
     return true;
 }
 

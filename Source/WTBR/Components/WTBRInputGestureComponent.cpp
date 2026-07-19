@@ -105,6 +105,11 @@ void UWTBRInputGestureComponent::OnMove_Triggered(const FInputActionValue& Value
     AWTBRCharacter* Char = Cast<AWTBRCharacter>(GetOwner());
     if (!IsValid(Char)) return;
 
+    // Nexil zipline: hanging is meant to hold the character in place (camera
+    // still free) — MOVE_Flying otherwise responds to AddMovementInput like
+    // any other flight, letting WASD drift the character away from the wire.
+    if (Char->IsHangingOnNexilWire()) return;
+
     // UE5 Enhanced Input + Axis2D: X = strafe, Y = forward/backward
     const FVector2D MoveAxis = Value.Get<FVector2D>();
     LastMoveAxis2D = MoveAxis.SizeSquared() > 1.0f
@@ -161,10 +166,17 @@ void UWTBRInputGestureComponent::OnLook_Triggered(const FInputActionValue& Value
 void UWTBRInputGestureComponent::OnJump_Started(const FInputActionValue& Value)
 {
     AWTBRCharacter* Char = Cast<AWTBRCharacter>(GetOwner());
-    if (IsValid(Char))
+    if (!IsValid(Char)) return;
+
+    // Nexil zipline: Jump while hanging releases + launches toward the current
+    // camera direction instead of a normal jump.
+    if (Char->IsHangingOnNexilWire())
     {
-        Char->Jump();
+        Char->Server_ReleaseNexilWireAndLaunch();
+        return;
     }
+
+    Char->Jump();
 }
 
 void UWTBRInputGestureComponent::OnJump_Completed(const FInputActionValue& Value)

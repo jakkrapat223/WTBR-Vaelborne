@@ -4,6 +4,7 @@
 #include "WTBRValidationLog.h"
 #include "Components/WTBRHealthComponent.h"
 #include "Components/WTBRVaelComponent.h"
+#include "Actors/WTBRNexilWireActor.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "TimerManager.h"
@@ -38,6 +39,13 @@ bool UWTBRMantornTrigger::WhipSlash()
 
     for (const FHitResult& Hit : Hits)
     {
+        // GDD: Nexil wires can be cut by melee same as gunfire/explosion.
+        if (AWTBRNexilWireActor* HitWire = Cast<AWTBRNexilWireActor>(Hit.GetActor()))
+        {
+            HitWire->TakeHit();
+            continue;
+        }
+
         AWTBRCharacter* HitChar = Cast<AWTBRCharacter>(Hit.GetActor());
         if (!IsValid(HitChar) || !IsValid(HitChar->HealthComponent)) continue;
         HitChar->HealthComponent->ApplyDamage(M.WhipDamage, OwnerCharacter.Get());
@@ -82,6 +90,13 @@ bool UWTBRMantornTrigger::SpinSlash()
 
     for (const FHitResult& Hit : Hits)
     {
+        // GDD: Nexil wires can be cut by melee same as gunfire/explosion.
+        if (AWTBRNexilWireActor* HitWire = Cast<AWTBRNexilWireActor>(Hit.GetActor()))
+        {
+            HitWire->TakeHit();
+            continue;
+        }
+
         AWTBRCharacter* HitChar = Cast<AWTBRCharacter>(Hit.GetActor());
         if (!IsValid(HitChar) || !IsValid(HitChar->HealthComponent)) continue;
         HitChar->HealthComponent->ApplyDamage(SpinDamage, OwnerCharacter.Get());

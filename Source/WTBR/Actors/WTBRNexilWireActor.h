@@ -8,6 +8,7 @@
 class UBoxComponent;
 class UStaticMeshComponent;
 class UWTBRNexilTrigger;
+class AWTBRCharacter;
 
 UCLASS()
 class WTBR_API AWTBRNexilWireActor : public AActor
@@ -44,7 +45,21 @@ public:
         float InStaggerDuration,
         float InWireLength,
         int32 InWireHP,
-        UWTBRNexilTrigger* InOwnerTrigger);
+        UWTBRNexilTrigger* InOwnerTrigger,
+        float InZiplineLaunchSpeed = 0.0f);
+
+    // Zipline ability (owner + teammates only, not the trip mechanic): a wire
+    // can be F-grabbed and later released via Jump, launching the grabber in
+    // whatever direction their camera is facing at release. Wire persists
+    // afterward — reusable until natural expiry or an enemy cuts it, same as
+    // any other contact. Returns false for the wire's own owner (no self-grab
+    // restriction was requested, but there's no defined use for it either —
+    // revisit if a real need shows up), enemies, or an already-triggered wire.
+    UFUNCTION(BlueprintPure, Category = "WTBR | Nexil Wire | Zipline")
+    bool CanBeGrabbedBy(const AWTBRCharacter* Character) const;
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Nexil Wire | Zipline")
+    float GetZiplineLaunchSpeed() const { return ZiplineLaunchSpeed; }
 
     // Removes exactly 1 WireHP regardless of the hitting weapon's own damage
     // number (GDD: "ฟันหรือยิงขาดได้" — any qualifying hit cuts it). Destroys the
@@ -98,6 +113,7 @@ public:
 
 private:
     float StaggerDuration = 1.5f;
+    float ZiplineLaunchSpeed = 0.0f;
     TWeakObjectPtr<UWTBRNexilTrigger> OwnerTrigger;
     FTimerHandle LifetimeTimer;
 

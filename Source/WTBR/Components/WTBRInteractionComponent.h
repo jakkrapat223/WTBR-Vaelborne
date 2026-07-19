@@ -10,6 +10,7 @@ class AWTBRCharacter;
 class AWTBRCorpseLootContainerActor;
 class AWTBRDroppedTriggerActor;
 class AWTBRGroundItemActor;
+class AWTBRNexilWireActor;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FWTBRCorpseLootInteractRequested, AWTBRCorpseLootContainerActor*, Container);
 
@@ -54,7 +55,9 @@ public:
     //                                    MainOnly -> active main, SubOnly -> active sub,
     //                                    Any -> reject AmbiguousTargetSlot (no slot guessed)
     //   3. BR ground item             -> Server_RequestPickupGroundItem [implemented S6]
-    //   4. generic interactable       -> future: waits for interactable interface pass
+    //   4. generic interactable       -> Nexil zipline wire grab [implemented] ->
+    //                                    AWTBRCharacter::Server_GrabNexilWire (ally-owned,
+    //                                    untriggered wires only; enemy trip mechanic untouched)
     //   5. no valid focus             -> no-op
     // Does not mutate gameplay state; server-authoritative pickup RPCs are unchanged.
     // Returns true if a branch handled the interaction, false otherwise.
@@ -107,6 +110,14 @@ private:
     // Line-traces from the owner's viewpoint (same model as GetFocusedCorpseLootContainer)
     // and returns the focused BR ground item, or null. Focus only — no mutation.
     AWTBRGroundItemActor* GetFocusedGroundItem() const;
+
+    // Nexil zipline wire grab (priority 4). AWTBRNexilWireActor has a real
+    // collision box, but it's thin/rope-like — same aim-forgiveness problem
+    // as dropped triggers, so this uses the same actor-iteration + view-cone
+    // approach as GetFocusedDroppedTrigger instead of a line trace. Only
+    // returns a wire the owner can actually grab (AWTBRNexilWireActor::
+    // CanBeGrabbedBy — same team as the wire's caster, not yet triggered).
+    AWTBRNexilWireActor* GetFocusedNexilWire() const;
 
     // Interaction focus trace length. In third person the viewpoint is the follow
     // camera (behind the pawn via a ~400-unit spring arm), so the trace must cover

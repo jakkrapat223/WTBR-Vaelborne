@@ -608,6 +608,23 @@ struct FWTBRNexilParams
         meta = (ClampMin = "50.0"))
     float WireLength = 500.0f;
 
+    // ระยะเล็งสูงสุดจากมุมกล้องถึงจุดปักหมุดแต่ละจุด — Cypher-style two-point
+    // placement (owner ask 2026-07-19): เล็งไปที่พื้น/กำแพงข้างหน้าแล้วปักหมุด
+    // ทีละจุด. Convention เดียวกับ VoltisParams.TrapPlacementRange.
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Nexil | Wire",
+        meta = (ClampMin = "100.0"))
+    float NexilPlacementRange = 800.0f;
+
+    // ระยะห่างสูงสุดระหว่างหมุด A กับ B (ความยาว wire สูงสุดที่ลากได้) — Cypher
+    // two-point placement. มุม/ความยาวจริงมาจากตำแหน่งสองหมุด, ค่านี้คือเพดาน.
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Nexil | Wire",
+        meta = (ClampMin = "100.0"))
+    float NexilMaxWireSpan = 800.0f;
+
     // ระยะเวลา Stagger เมื่อศัตรูสะดุด (GDD: 1.5 วิ)
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
@@ -632,9 +649,10 @@ struct FWTBRNexilParams
 
     // HP ของเส้น (GDD: 1 — ฟันหรือยิงขาดได้). Hit-count, not a damage-amount pool:
     // any qualifying hit removes exactly 1, regardless of the weapon's own damage
-    // number. Wired to gunfire/explosion contact in AWTBRNexilWireActor as of this
-    // pass; melee-destroys-wire is GDD-intended but not yet implemented (melee
-    // triggers don't sweep-check for Nexil wires along their hit path).
+    // number. Wired to gunfire/explosion contact (AWTBRNexilWireActor::
+    // OnWireOverlapBegin) and melee contact (UWTBRMeleeTrigger::ApplyDamageToHits
+    // + UWTBRMantornTrigger's Whip/Spin loops) — both routes call the same
+    // AWTBRNexilWireActor::TakeHit().
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Nexil | Wire",
@@ -649,6 +667,16 @@ struct FWTBRNexilParams
         Category = "Nexil | Cost",
         meta = (ClampMin = "0.0"))
     float NexilVaelCost = 15.0f;
+
+    // Zipline ability: F-grab a placed wire (owner + teammates only — the trip
+    // mechanic for enemies is unaffected), release via Jump to launch toward
+    // wherever the camera is aimed at that moment. Wire persists after use —
+    // reusable by anyone on the team until it expires or an enemy cuts it.
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Nexil | Zipline",
+        meta = (ClampMin = "0.0"))
+    float NexilZiplineLaunchSpeed = 2200.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

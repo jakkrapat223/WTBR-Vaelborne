@@ -1488,12 +1488,25 @@ bool FWTBRVexornPassiveActivateIsNoOpTest::RunTest(const FString& /*Parameters*/
 // ═════════════════════════════════════════════════════════════════════════════
 // Nexil — Wire tripwire (place-to-deploy)
 //
-// Tap places one wire actor at the player's aim yaw (360°). NexilVaelCost is
-// charged per wire (added 2026-07-15 — base Activate consumes nothing; canon
-// GDD §5.2 = 15/wire, DA-tunable). Max wires FIFO (9th removes 1st), auto-
-// despawn after WireDuration, cleared on Deactivate. The wire's TRIP detection
-// (enemy overlap → stagger + Action-Ping reveal) needs a physics scene → PIE-
-// gated; here we lock placement, the Vael economy, the FIFO cap, and cleanup.
+// True Cypher trapwire placement (owner correction 2026-07-19): ONE press. An
+// aim-trace finds endpoint A on the surface under the crosshair, then a trace fired
+// perpendicularly out of that surface finds endpoint B on the surface facing it, so
+// the wire strings itself across the gap and the ghost previews both endpoints with
+// no press required. NexilVaelCost is charged on that single press (canon GDD §5.2
+// = 15/wire, DA-tunable). Max wires FIFO (9th removes 1st), auto-despawn after
+// WireDuration, cleared on Deactivate. The wire's TRIP detection (enemy overlap →
+// stagger + Action-Ping reveal) and the placement traces need a physics scene →
+// PIE-gated; headless tests inject both endpoints via SetTestPlacement and lock
+// placement, the Vael economy, the FIFO cap, and cleanup.
+
+// Single-press placement helper. File-unique name per the anonymous-namespace
+// unity-build collision gotcha.
+static bool NexilRegressionTest_PlaceSpan(
+    UWTBRNexilTrigger* Nexil, const FVector& A, const FVector& B)
+{
+    Nexil->SetTestPlacement(A, B);
+    return Nexil->Activate(FInputActionValue(), false);
+}
 // The ghost-preview + hold-to-place confirm flow is a separate BP/UMG phase.
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -1549,9 +1562,11 @@ bool FWTBRNexilPlaceConsumesVaelAndSpawnsWireTest::RunTest(const FString& /*Para
     Nexil->InitializeTrigger(Owner, DataAsset);
     Nexil->SetWireActorClassForTest(AWTBRNexilWireActor::StaticClass());
 
-    const bool bPlaced = Nexil->Activate(FInputActionValue(), false);
+    // One press places the whole wire — both endpoints are resolved by the traces.
+    const bool bPlaced = NexilRegressionTest_PlaceSpan(
+        Nexil, FVector(0.0f, 0.0f, 0.0f), FVector(300.0f, 0.0f, 0.0f));
 
-    TestTrue(TEXT("Nexil places on press"), bPlaced);
+    TestTrue(TEXT("Nexil places on a single press"), bPlaced);
     TestEqual(TEXT("Vael consumed by NexilVaelCost"), Owner->VaelComponent->GetCurrentVael(), 85.0f);
     TestEqual(TEXT("Exactly one wire active"), Nexil->GetActiveWireCount(), 1);
 
@@ -1579,7 +1594,8 @@ bool FWTBRNexilInsufficientVaelBlocksPlaceTest::RunTest(const FString& /*Paramet
     Nexil->InitializeTrigger(Owner, DataAsset);
     Nexil->SetWireActorClassForTest(AWTBRNexilWireActor::StaticClass());
 
-    const bool bPlaced = Nexil->Activate(FInputActionValue(), false);
+    const bool bPlaced = NexilRegressionTest_PlaceSpan(
+        Nexil, FVector(0.0f, 0.0f, 0.0f), FVector(300.0f, 0.0f, 0.0f));
 
     TestFalse(TEXT("Placement rejected when Vael insufficient"), bPlaced);
     TestEqual(TEXT("Vael unchanged (fail-closed)"), Owner->VaelComponent->GetCurrentVael(), 10.0f);
@@ -1610,12 +1626,16 @@ bool FWTBRNexilMaxWiresFifoTest::RunTest(const FString& /*Parameters*/)
     Nexil->InitializeTrigger(Owner, DataAsset);
     Nexil->SetWireActorClassForTest(AWTBRNexilWireActor::StaticClass());
 
-    // Place the max (8).
-    for (int32 i = 0; i < 8; ++i) Nexil->Activate(FInputActionValue(), false);
+    // Place the max (8), each a distinct two-point span.
+    for (int32 i = 0; i < 8; ++i)
+    {
+        NexilRegressionTest_PlaceSpan(
+            Nexil, FVector(0.0f, i * 10.0f, 0.0f), FVector(300.0f, i * 10.0f, 0.0f));
+    }
     TestEqual(TEXT("Eight wires active at cap"), Nexil->GetActiveWireCount(), 8);
 
     // The 9th must remove the oldest, keeping the count at the cap.
-    Nexil->Activate(FInputActionValue(), false);
+    NexilRegressionTest_PlaceSpan(Nexil, FVector(0.0f, 80.0f, 0.0f), FVector(300.0f, 80.0f, 0.0f));
     TestEqual(TEXT("9th placement keeps count at MaxWires (oldest removed)"),
         Nexil->GetActiveWireCount(), 8);
 
@@ -1643,11 +1663,58 @@ bool FWTBRNexilDeactivateClearsAllWiresTest::RunTest(const FString& /*Parameters
     Nexil->InitializeTrigger(Owner, DataAsset);
     Nexil->SetWireActorClassForTest(AWTBRNexilWireActor::StaticClass());
 
-    for (int32 i = 0; i < 3; ++i) Nexil->Activate(FInputActionValue(), false);
+    for (int32 i = 0; i < 3; ++i)
+    {
+        NexilRegressionTest_PlaceSpan(
+            Nexil, FVector(0.0f, i * 10.0f, 0.0f), FVector(300.0f, i * 10.0f, 0.0f));
+    }
     TestEqual(TEXT("Three wires placed"), Nexil->GetActiveWireCount(), 3);
 
     Nexil->Deactivate();
     TestEqual(TEXT("Deactivate destroys every wire"), Nexil->GetActiveWireCount(), 0);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRNexilSpanLengthBoundsTest,
+    "WTBR.Trigger.Nexil.SpanLengthBoundsRejectPlacement",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRNexilSpanLengthBoundsTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_NexilSpanBounds"));
+    UWorld* World = Fixture.GetWorld();
+
+    UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
+    DataAsset->NexilParams.NexilVaelCost = 0.0f; // isolate from the Vael economy
+    DataAsset->NexilParams.NexilMaxWireSpan = 800.0f;
+
+    AWTBRCharacter* Owner = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Owner || !Owner->VaelComponent) return false;
+    Owner->VaelComponent->DebugSetCurrentVaelDirect(100.0f);
+
+    UWTBRNexilTrigger* Nexil = NewObject<UWTBRNexilTrigger>(Owner);
+    Nexil->InitializeTrigger(Owner, DataAsset);
+    Nexil->SetWireActorClassForTest(AWTBRNexilWireActor::StaticClass());
+
+    // Too short (< WTBRNexilMinWireSpan 100): walls too close together to string a wire.
+    const bool bTooShort = NexilRegressionTest_PlaceSpan(
+        Nexil, FVector(0.0f, 0.0f, 0.0f), FVector(50.0f, 0.0f, 0.0f));
+    TestFalse(TEXT("Span below the minimum is rejected"), bTooShort);
+    TestEqual(TEXT("No wire from a too-short span"), Nexil->GetActiveWireCount(), 0);
+
+    // Too long (> NexilMaxWireSpan 800): also rejected.
+    const bool bTooLong = NexilRegressionTest_PlaceSpan(
+        Nexil, FVector(0.0f, 0.0f, 0.0f), FVector(900.0f, 0.0f, 0.0f));
+    TestFalse(TEXT("Span beyond the maximum is rejected"), bTooLong);
+    TestEqual(TEXT("No wire from a too-long span"), Nexil->GetActiveWireCount(), 0);
+
+    // In range (300): commits.
+    const bool bInRange = NexilRegressionTest_PlaceSpan(
+        Nexil, FVector(0.0f, 0.0f, 0.0f), FVector(300.0f, 0.0f, 0.0f));
+    TestTrue(TEXT("In-range span places a wire"), bInRange);
+    TestEqual(TEXT("Exactly one wire from the in-range span"), Nexil->GetActiveWireCount(), 1);
 
     return true;
 }

@@ -9,6 +9,7 @@
 #include "Interaction/WTBRCorpseLootContainerActor.h"
 #include "Interaction/WTBRDroppedTriggerActor.h"
 #include "Inventory/WTBRGroundItemActor.h"
+#include "Actors/WTBRNexilWireActor.h"
 #include "WTBRCharacter.h"
 #include "WTBRValidationLog.h"
 
@@ -142,6 +143,11 @@ bool UWTBRInteractionComponent::HasValidFocusedInteractable() const
     }
 
     if (IsValid(GetFocusedGroundItem()))
+    {
+        return true;
+    }
+
+    if (IsValid(GetFocusedNexilWire()))
     {
         return true;
     }
@@ -302,6 +308,70 @@ AWTBRGroundItemActor* UWTBRInteractionComponent::GetFocusedGroundItem() const
         (Hit.Location - TraceStart).Size(),
         InteractionTraceDistance);
     return GroundItem;
+}
+
+AWTBRNexilWireActor* UWTBRInteractionComponent::GetFocusedNexilWire() const
+{
+    const AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (!IsValid(OwnerCharacter))
+    {
+        return nullptr;
+    }
+
+    UWorld* World = OwnerCharacter->GetWorld();
+    if (!World)
+    {
+        return nullptr;
+    }
+
+    FVector ViewLocation = FVector::ZeroVector;
+    FRotator ViewRotation = FRotator::ZeroRotator;
+    if (AController* Controller = OwnerCharacter->GetController())
+    {
+        Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
+    }
+    else
+    {
+        OwnerCharacter->GetActorEyesViewPoint(ViewLocation, ViewRotation);
+    }
+
+    const FVector ViewForward = ViewRotation.Vector();
+
+    // Same reasoning as GetFocusedDroppedTrigger: a thin rope-like wire is easy
+    // to miss with a precise line trace, so use actor-iteration + view-cone
+    // instead. Only wires this character can actually grab are candidates.
+    AWTBRNexilWireActor* BestWire = nullptr;
+    float BestDistanceSq = TNumericLimits<float>::Max();
+    const float MaxRangeSq = FMath::Square(InteractionTraceDistance);
+
+    for (TActorIterator<AWTBRNexilWireActor> It(World); It; ++It)
+    {
+        AWTBRNexilWireActor* Candidate = *It;
+        if (!IsValid(Candidate) || !Candidate->CanBeGrabbedBy(OwnerCharacter))
+        {
+            continue;
+        }
+
+        const FVector ToCandidate = Candidate->GetActorLocation() - ViewLocation;
+        const float CandidateDistanceSq = ToCandidate.SizeSquared();
+        if (CandidateDistanceSq > MaxRangeSq)
+        {
+            continue;
+        }
+
+        if (FVector::DotProduct(ToCandidate.GetSafeNormal(), ViewForward) < WTBRInteractionDroppedTriggerFocusAimDotThreshold)
+        {
+            continue;
+        }
+
+        if (CandidateDistanceSq < BestDistanceSq)
+        {
+            BestWire = Candidate;
+            BestDistanceSq = CandidateDistanceSq;
+        }
+    }
+
+    return BestWire;
 }
 
 AWTBRCharacter* UWTBRInteractionComponent::GetFocusedRevivableTeammate() const
@@ -474,9 +544,23 @@ bool UWTBRInteractionComponent::RequestContextInteract()
         return false;
     }
 
-    // Priority 4 — generic interactable.
-    // Generic interactable branch waits for interface pass
-    // (no interactable interface exists yet).
+    // Priority 4 — generic interactable (Nexil zipline wire grab).
+    // Server-authoritative: client only decides focus, then dispatches
+    // Server_GrabNexilWire, which re-validates CanBeGrabbedBy + range itself.
+    if (AWTBRNexilWireActor* FocusedWire = GetFocusedNexilWire())
+    {
+        if (AWTBRCharacter* OwnerCharacter = Cast<AWTBRCharacter>(GetOwner()))
+        {
+            WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] Nexil wire %s focused (priority 4); dispatching Server_GrabNexilWire."),
+                *GetNameSafe(FocusedWire));
+            OwnerCharacter->Server_GrabNexilWire(FocusedWire);
+            return true;
+        }
+
+        UE_LOG(LogTemp, Warning, TEXT("[WTBR Interact] Nexil wire %s focused but owner is not an AWTBRCharacter; cannot dispatch."),
+            *GetNameSafe(FocusedWire));
+        return false;
+    }
 
     // Priority 5 — no valid focus: no-op.
     WTBR_VALIDATION_LOG(Log, TEXT("[WTBR Interact] No valid focus for context interact (no-op)."));
