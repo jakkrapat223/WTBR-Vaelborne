@@ -55,6 +55,16 @@ public:
     UFUNCTION(BlueprintPure, Category="Movement")
     FWTBRSpeedModifiers GetSpeedModifiers() const { return SpeedModifiers; }
 
+    UFUNCTION(BlueprintPure, Category="WTBR | Movement")
+    float GetNonSprintingSpeed() const { return ComputeFinalSpeed(); }
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Sprint")
+    bool IsSprinting() const { return bIsSprinting; }
+
+    // 1.0 when there is no CoreStats asset, so callers can multiply unconditionally.
+    UFUNCTION(BlueprintPure, Category="WTBR | Sprint")
+    float GetSprintSpeedMultiplier() const;
+
     UFUNCTION(BlueprintCallable, Category="WTBR | Movement")
     void StartVaelSprint();
 

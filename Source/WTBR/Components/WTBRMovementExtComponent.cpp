@@ -80,11 +80,24 @@ float UWTBRMovementExtComponent::ComputeFinalSpeed() const
         * (1.f - SpeedModifiers.DebuffPenalty);
 }
 
+float UWTBRMovementExtComponent::GetSprintSpeedMultiplier() const
+{
+    return IsValid(CoreStatsAsset) ? CoreStatsAsset->VaelSprintSpeedMultiplier : 1.0f;
+}
+
 void UWTBRMovementExtComponent::PushSpeedToMovement()
 {
-    if (ACharacter* Owner = Cast<ACharacter>(GetOwner()))
+    // Routed through the character so the crouch/prone multiplier and
+    // MaxWalkSpeedCrouched are always reapplied. Writing MaxWalkSpeed directly
+    // here used to clobber the stance speed on every limb/stamina/debuff change,
+    // which is how a crouching or prone character ended up moving at full speed.
+    if (AWTBRCharacter* Owner = Cast<AWTBRCharacter>(GetOwner()))
     {
-        Owner->GetCharacterMovement()->MaxWalkSpeed = ComputeFinalSpeed();
+        Owner->RefreshStanceSpeeds();
+    }
+    else if (ACharacter* PlainOwner = Cast<ACharacter>(GetOwner()))
+    {
+        PlainOwner->GetCharacterMovement()->MaxWalkSpeed = ComputeFinalSpeed();
     }
 }
 
@@ -97,6 +110,7 @@ void UWTBRMovementExtComponent::StartVaelSprint()
 {
     AWTBRCharacter* Owner = Cast<AWTBRCharacter>(GetOwner());
     if (!Owner || !Owner->HasAuthority()) return;
+    if (bIsSprinting || !Owner->CanStartVaelSprint()) return;
     if (!StaminaComponent || StaminaComponent->GetCurrentStamina() <= 0.f) return;
 
     bIsSprinting = true;
@@ -114,6 +128,7 @@ void UWTBRMovementExtComponent::StopVaelSprint()
 {
     AWTBRCharacter* Owner = Cast<AWTBRCharacter>(GetOwner());
     if (!Owner || !Owner->HasAuthority()) return;
+    if (!bIsSprinting) return;
 
     bIsSprinting = false;
     OnRep_bIsSprinting();
@@ -143,11 +158,20 @@ void UWTBRMovementExtComponent::OnRep_bIsSprinting()
     if (!Owner) return;
 
     LogTest32MovementCoreStats(this, CoreStatsAsset.Get(), TEXT("OnRep_bIsSprinting"));
+
+    // Same reasoning as PushSpeedToMovement: the character folds the sprint
+    // multiplier and the stance multiplier together in one place.
+    if (AWTBRCharacter* WTBROwner = Cast<AWTBRCharacter>(Owner))
+    {
+        WTBROwner->RefreshStanceSpeeds();
+        return;
+    }
+
     if (IsValid(CoreStatsAsset))
     {
         const float TargetSpeed = bIsSprinting
-            ? CoreStatsAsset->BaseWalkSpeed * CoreStatsAsset->VaelSprintSpeedMultiplier
-            : CoreStatsAsset->BaseWalkSpeed;
+            ? ComputeFinalSpeed() * CoreStatsAsset->VaelSprintSpeedMultiplier
+            : ComputeFinalSpeed();
         Owner->GetCharacterMovement()->MaxWalkSpeed = TargetSpeed;
     }
     else
