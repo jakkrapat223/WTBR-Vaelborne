@@ -321,6 +321,34 @@ UWTBRTriggerBase* UWTBRTriggerSetComponent::GetActiveSubTrigger() const
     return RuntimeTriggers.IsValidIndex(ActiveSubIndex) ? RuntimeTriggers[ActiveSubIndex] : nullptr;
 }
 
+FText UWTBRTriggerSetComponent::GetSlotDisplayName(int32 SlotIndex) const
+{
+    if (!TriggerSlots.IsValidIndex(SlotIndex))
+    {
+        return FText::GetEmpty();
+    }
+
+    const TSoftObjectPtr<UWTBRTriggerDataAsset>& SlotAsset = TriggerSlots[SlotIndex].DataAsset;
+    if (SlotAsset.IsNull())
+    {
+        return FText::GetEmpty();
+    }
+
+    if (const UWTBRTriggerDataAsset* Loaded = SlotAsset.Get())
+    {
+        return Loaded->FunctionalName;
+    }
+
+    // Deliberately not forcing a synchronous load here — this is called from UI
+    // paint, and the slot's real name arrives once the existing async load lands.
+    return FText::FromString(SlotAsset.ToSoftObjectPath().GetAssetName());
+}
+
+bool UWTBRTriggerSetComponent::IsSlotOccupied(int32 SlotIndex) const
+{
+    return TriggerSlots.IsValidIndex(SlotIndex) && !TriggerSlots[SlotIndex].DataAsset.IsNull();
+}
+
 UWTBRTriggerBase* UWTBRTriggerSetComponent::GetTriggerInSlot(ETriggerSlot Slot) const
 {
     const int32 Idx = (int32)Slot;

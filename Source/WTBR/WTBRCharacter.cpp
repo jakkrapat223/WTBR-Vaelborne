@@ -58,6 +58,7 @@
 #include "Trigger/WTBRVexornTrigger.h"
 #include "UI/WTBRRadarWidget.h"
 #include "UI/WTBRSniperScopeWidget.h"
+#include "UI/WTBRTriggerWheelWidget.h"
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
 #include "UI/WTBRInputBindingDisplayLibrary.h"
 #include "NiagaraComponent.h"
@@ -487,10 +488,14 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         }
         if (IsValid(SwitchMainAction))
         {
+            EIC->BindAction(SwitchMainAction, ETriggerEvent::Completed, this, &AWTBRCharacter::SwitchMainTriggerReleased);
+            EIC->BindAction(SwitchMainAction, ETriggerEvent::Canceled, this, &AWTBRCharacter::SwitchMainTriggerReleased);
             EIC->BindAction(SwitchMainAction, ETriggerEvent::Started, this, &AWTBRCharacter::SwitchMainTrigger);
         }
         if (IsValid(SwitchSubAction))
         {
+            EIC->BindAction(SwitchSubAction, ETriggerEvent::Completed, this, &AWTBRCharacter::SwitchSubTriggerReleased);
+            EIC->BindAction(SwitchSubAction, ETriggerEvent::Canceled, this, &AWTBRCharacter::SwitchSubTriggerReleased);
             EIC->BindAction(SwitchSubAction, ETriggerEvent::Started, this, &AWTBRCharacter::SwitchSubTrigger);
         }
         if (IsValid(InteractAction))
@@ -529,6 +534,15 @@ void AWTBRCharacter::Look(const FInputActionValue& Value)
 {
     const FVector2D Axis = Value.Get<FVector2D>();
     if (!Controller) return;
+
+    // The selection wheel steers off the same mouse movement. Without this the
+    // camera would swing around while the player is flicking to pick a Trigger,
+    // which makes the wheel unusable and leaves the view somewhere unintended when
+    // it closes.
+    if (IsValid(TriggerWheelWidgetInstance) && TriggerWheelWidgetInstance->IsWheelOpen())
+    {
+        return;
+    }
 
     // While a Sniper zoom has narrowed FollowCamera's FOV, scale turn input
     // down by the same ratio so degrees-turned-per-mouse-inch stays roughly
@@ -963,12 +977,123 @@ void AWTBRCharacter::SwitchTrigger(const FInputActionValue& Value)
 void AWTBRCharacter::SwitchMainTrigger(const FInputActionValue& Value)
 {
     WTBR_VALIDATION_LOG(Verbose, TEXT("WTBR SwitchMain input pressed"));
-    Server_CycleTrigger(true);
+    BeginTriggerSetSelect(true);
+}
+
+void AWTBRCharacter::SwitchMainTriggerReleased(const FInputActionValue& Value)
+{
+    EndTriggerSetSelect(true);
+}
+
+void AWTBRCharacter::SwitchSubTriggerReleased(const FInputActionValue& Value)
+{
+    EndTriggerSetSelect(false);
+}
+
+void AWTBRCharacter::OnMainWheelHoldElapsed()
+{
+    bTriggerWheelPendingIsMain = true;
+    OpenTriggerWheel();
+}
+
+void AWTBRCharacter::OnSubWheelHoldElapsed()
+{
+    bTriggerWheelPendingIsMain = false;
+    OpenTriggerWheel();
+}
+
+void AWTBRCharacter::BeginTriggerSetSelect(bool bIsMain)
+{
+    // The slot switch itself deliberately does NOT happen here any more. It moved to
+    // release, because a press can still turn into a hold — cycling on press would
+    // change the slot and then open the wheel on top of the slot it just left.
+    bTriggerWheelPendingIsMain = bIsMain;
+
+    if (!IsLocallyControlled())
+    {
+        return;
+    }
+
+    GetWorldTimerManager().SetTimer(
+        TriggerWheelHoldTimer,
+        this,
+        bIsMain ? &AWTBRCharacter::OnMainWheelHoldElapsed : &AWTBRCharacter::OnSubWheelHoldElapsed,
+        FMath::Max(TriggerWheelHoldThreshold, 0.05f),
+        false);
+}
+
+void AWTBRCharacter::EndTriggerSetSelect(bool bIsMain)
+{
+    GetWorldTimerManager().ClearTimer(TriggerWheelHoldTimer);
+
+    if (IsValid(TriggerWheelWidgetInstance) && TriggerWheelWidgetInstance->IsWheelOpen())
+    {
+        // INDEX_NONE means the player never flicked far enough, or aimed at an empty
+        // slot — close without changing anything rather than guessing.
+        const int32 ChosenSlot = TriggerWheelWidgetInstance->GetHighlightedSlotIndex();
+        TriggerWheelWidgetInstance->CloseWheel();
+
+        if (ChosenSlot != INDEX_NONE)
+        {
+            Server_SelectTriggerSlot(bIsMain, ChosenSlot);
+        }
+        return;
+    }
+
+    // Tap: the original cycle behaviour, now on release.
+    Server_CycleTrigger(bIsMain);
+}
+
+void AWTBRCharacter::OpenTriggerWheel()
+{
+    if (!IsLocallyControlled() || !IsValid(TriggerWheelWidgetInstance))
+    {
+        return;
+    }
+
+    // Nothing to pick from while dead or hanging — and opening a wheel mid-zipline
+    // would eat the release that is supposed to launch.
+    if (!IsValid(HealthComponent) || !HealthComponent->IsAlive() || bIsHangingOnNexilWire)
+    {
+        return;
+    }
+
+    TriggerWheelWidgetInstance->OpenWheel(bTriggerWheelPendingIsMain);
+}
+
+void AWTBRCharacter::Server_SelectTriggerSlot_Implementation(bool bIsMain, int32 SlotIndex)
+{
+    if (!HasAuthority() || !IsValid(TriggerSetComponent))
+    {
+        return;
+    }
+
+    // Re-validate rather than trusting the client: the index must exist, be occupied,
+    // and belong to the set the player was actually holding.
+    if (!TriggerSetComponent->IsSlotOccupied(SlotIndex))
+    {
+        return;
+    }
+
+    const bool bSlotIsMainSet = SlotIndex < UWTBRTriggerSetComponent::MainSlotCount;
+    if (bSlotIsMainSet != bIsMain)
+    {
+        return;
+    }
+
+    if (bIsMain)
+    {
+        TriggerSetComponent->SwitchMainSlot(SlotIndex);
+    }
+    else
+    {
+        TriggerSetComponent->SwitchSubSlot(SlotIndex);
+    }
 }
 
 void AWTBRCharacter::SwitchSubTrigger(const FInputActionValue& Value)
 {
-    Server_CycleTrigger(false);
+    BeginTriggerSetSelect(false);
 }
 
 void AWTBRCharacter::DebugConsumeVaelFailTest()
@@ -3942,6 +4067,24 @@ void AWTBRCharacter::CreateLocalPlayerUI()
             // engine source, not just inferred from symptoms.
         }
     }
+
+    if (!IsValid(TriggerWheelWidgetInstance))
+    {
+        TriggerWheelWidgetInstance =
+            CreateWidget<UWTBRTriggerWheelWidget>(PC, UWTBRTriggerWheelWidget::StaticClass());
+        if (IsValid(TriggerWheelWidgetInstance))
+        {
+            // Above the Scope (2) so the wheel is never hidden behind it, still under
+            // the modal BagLoot layer (10). Same full-stretch anchoring, and the same
+            // deliberate omission of SetPositionInViewport as the two widgets above.
+            TriggerWheelWidgetInstance->AddToViewport(3);
+            TriggerWheelWidgetInstance->SetAnchorsInViewport(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+            TriggerWheelWidgetInstance->SetAlignmentInViewport(FVector2D::ZeroVector);
+            // Starts hidden; OpenWheel makes it visible. HitTestInvisible when shown, so
+            // it never steals clicks from gameplay.
+            TriggerWheelWidgetInstance->SetVisibility(ESlateVisibility::Collapsed);
+        }
+    }
 }
 
 void AWTBRCharacter::DestroyLocalPlayerUI()
@@ -3969,6 +4112,15 @@ void AWTBRCharacter::DestroyLocalPlayerUI()
         ScopeWidgetInstance->RemoveFromParent();
     }
     ScopeWidgetInstance = nullptr;
+
+    if (IsValid(TriggerWheelWidgetInstance))
+    {
+        TriggerWheelWidgetInstance->RemoveFromParent();
+    }
+    TriggerWheelWidgetInstance = nullptr;
+
+    // The hold watch outlives the widget otherwise and would fire into a dead pointer.
+    GetWorldTimerManager().ClearTimer(TriggerWheelHoldTimer);
 }
 
 void AWTBRCharacter::ShowBagLootLayer()

@@ -157,6 +157,19 @@ public:
     UFUNCTION(BlueprintPure, Category="TriggerSet")
     UWTBRTriggerDataAsset* GetActiveSubDataAsset() const;
 
+    // Display name for any slot, including ones the player is not currently
+    // holding — GetTriggerInSlot only returns a runtime Trigger for slots that
+    // have been instantiated, which is not enough for UI that lists the whole set
+    // (the selection wheel). Reads the slot's DataAsset if it is already loaded and
+    // falls back to the asset name while the soft pointer is still resolving, so
+    // the wheel never shows a blank segment for a slot that does have a Trigger.
+    UFUNCTION(BlueprintPure, Category="TriggerSet")
+    FText GetSlotDisplayName(int32 SlotIndex) const;
+
+    // True when the slot has a Trigger assigned at all, loaded or not.
+    UFUNCTION(BlueprintPure, Category="TriggerSet")
+    bool IsSlotOccupied(int32 SlotIndex) const;
+
     // ── Trigger Option (canon: Senkū-style attachment to a Trigger's own slot) ──
     // Lazily instantiates the active Main/Sub slot's OptionDataAsset runtime
     // trigger the first time it's needed (Options are EditDefaultsOnly / design-

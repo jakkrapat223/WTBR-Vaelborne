@@ -23,6 +23,7 @@ class UWTBRHUDViewModelComponent;
 class UWTBRBagLootViewModelComponent;
 class UWTBRRadarWidget;
 class UWTBRSniperScopeWidget;
+class UWTBRTriggerWheelWidget;
 class UTexture2D;
 class UNiagaraComponent;
 class UNiagaraSystem;
@@ -226,6 +227,16 @@ public:
 
     UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
     TObjectPtr<UWTBRSniperScopeWidget> ScopeWidgetInstance;
+
+    UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
+    TObjectPtr<UWTBRTriggerWheelWidget> TriggerWheelWidgetInstance;
+
+    // Seconds Q/E must be held before the selection wheel opens. Below this the
+    // release is treated as a tap and cycles the slot, preserving the existing
+    // behaviour. Mirrors UWTBRInputGestureComponent's own HoldThreshold.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="WTBR | UI",
+        meta=(ClampMin="0.05"))
+    float TriggerWheelHoldThreshold = 0.20f;
 
     FORCEINLINE TObjectPtr<USpringArmComponent> GetCameraBoom()    const { return CameraBoom; }
     FORCEINLINE TObjectPtr<UCameraComponent>    GetFollowCamera()  const { return FollowCamera; }
@@ -737,8 +748,21 @@ protected:
     void ToggleProneKey();
     void BeginVaelSprintFromDodgeHold();
     void SwitchTrigger(const FInputActionValue& Value);
+    // Q/E are press-and-release now: press starts the hold watch, release either
+    // commits a wheel selection or falls back to the original tap-to-cycle.
     void SwitchMainTrigger(const FInputActionValue& Value);
     void SwitchSubTrigger(const FInputActionValue& Value);
+    void SwitchMainTriggerReleased(const FInputActionValue& Value);
+    void SwitchSubTriggerReleased(const FInputActionValue& Value);
+
+    void BeginTriggerSetSelect(bool bIsMain);
+    void EndTriggerSetSelect(bool bIsMain);
+    void OpenTriggerWheel();
+    void OnMainWheelHoldElapsed();
+    void OnSubWheelHoldElapsed();
+
+    FTimerHandle TriggerWheelHoldTimer;
+    bool bTriggerWheelPendingIsMain = true;
     void DebugConsumeVaelFailTest();
     void Interact(const FInputActionValue& Value);
     // IA_Interact Completed (button release): stops any in-progress revive this
@@ -769,6 +793,12 @@ protected:
 
     UFUNCTION(Server, Reliable)
     void Server_CycleTrigger(bool bIsMain);
+
+    // Selection-wheel commit. Unlike Server_CycleTrigger this jumps straight to a
+    // chosen slot; the server re-validates the index and the set it belongs to
+    // rather than trusting the client's pick.
+    UFUNCTION(Server, Reliable)
+    void Server_SelectTriggerSlot(bool bIsMain, int32 SlotIndex);
 
     // ─── Replication ─────────────────────────────────────────────────────────
     UPROPERTY(ReplicatedUsing=OnRep_ActionPing)
