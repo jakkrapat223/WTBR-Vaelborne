@@ -4,13 +4,19 @@
 #include "Actors/WTBRProjectileBase.h"
 #include "WTBRCharacter.h"
 #include "Components/BoxComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 
 AWTBRAegornWallActor::AWTBRAegornWallActor()
 {
-    PrimaryActorTick.bCanEverTick = false;
+    // Tick only drives the Escudo ground-eruption animation (BeginEscudoEruption
+    // enables it explicitly, server-only); off by default so a normal
+    // Aegorn Shield or a settled Escudo wall costs nothing per-frame.
+    PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.bStartWithTickEnabled = false;
     bReplicates = true;
     // A held Aegorn shield is repositioned ~20x/sec on the server
     // (UWTBRAegornTrigger::TickHeldShield); replicate that movement and update
@@ -83,6 +89,15 @@ void AWTBRAegornWallActor::BeginPlay()
     }
 }
 
+void AWTBRAegornWallActor::Tick(float DeltaTime)
+{
+    Super::Tick(DeltaTime);
+    if (bIsErupting)
+    {
+        TickEscudoEruption(DeltaTime);
+    }
+}
+
 void AWTBRAegornWallActor::GetLifetimeReplicatedProps(
     TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -111,6 +126,157 @@ void AWTBRAegornWallActor::InitializeWall(float InMaxHP, float InDuration)
         MaxWallHP,
         InDuration,
         GetIsReplicated() ? TEXT("true") : TEXT("false"));
+}
+
+void AWTBRAegornWallActor::BeginEscudoEruption(const FVector& InFinalLocation, float InBuildTime,
+    float InAllyPushImpulse, float InEnemyLaunchImpulse)
+{
+    ensure(HasAuthority());
+    if (!HasAuthority()) return;
+
+    EruptStartLocation   = GetActorLocation();
+    EruptFinalLocation   = InFinalLocation;
+    EruptDuration        = FMath::Max(InBuildTime, 0.01f);
+    EruptElapsed         = 0.0f;
+    EruptAllyPushImpulse = InAllyPushImpulse;
+    EruptEnemyLaunchImpulse = InEnemyLaunchImpulse;
+    EruptDisplacedCharacters.Empty();
+    EruptDisplacedProps.Empty();
+    bIsErupting = true;
+    SetActorTickEnabled(true);
+}
+
+void AWTBRAegornWallActor::TickEscudoEruption(float DeltaTime)
+{
+    if (!HasAuthority())
+    {
+        bIsErupting = false;
+        SetActorTickEnabled(false);
+        return;
+    }
+
+    EruptElapsed += DeltaTime;
+    const float Alpha = FMath::Clamp(EruptElapsed / EruptDuration, 0.0f, 1.0f);
+
+    const FVector OldLocation = GetActorLocation();
+    const FVector NewLocation = FMath::Lerp(EruptStartLocation, EruptFinalLocation, Alpha);
+
+    ApplyEruptionDisplacement(OldLocation, NewLocation);
+    SetActorLocation(NewLocation);
+
+    if (Alpha >= 1.0f)
+    {
+        bIsErupting = false;
+        SetActorTickEnabled(false);
+        EruptDisplacedCharacters.Empty();
+        EruptDisplacedProps.Empty();
+    }
+}
+
+// Canon (Hyuse): the erupting wall shoves whoever/whatever stands in its
+// footprint as it rises — teammates get pushed to safety behind the wall
+// (caster side), enemies and physics props get launched skyward. Damage
+// always 0 for characters (Escudo Slam lock). Runs every eruption tick with
+// an expanded/swept overlap box (covers the Z travelled this frame) so a
+// server hitch can't let something slip through un-displaced.
+void AWTBRAegornWallActor::ApplyEruptionDisplacement(const FVector& SweepFrom, const FVector& SweepTo)
+{
+    if (!IsValid(WallCollision) || !GetWorld()) return;
+
+    const FVector BaseExtent = WallCollision->GetScaledBoxExtent();
+    const float DeltaZ = FMath::Abs(SweepTo.Z - SweepFrom.Z);
+    FVector SweepExtent = BaseExtent;
+    SweepExtent.Z += DeltaZ * 0.5f;
+    const FVector SweepCenter(SweepTo.X, SweepTo.Y, (SweepFrom.Z + SweepTo.Z) * 0.5f);
+
+    FCollisionObjectQueryParams ObjectParams;
+    ObjectParams.AddObjectTypesToQuery(ECC_Pawn);
+    ObjectParams.AddObjectTypesToQuery(ECC_PhysicsBody);
+
+    FCollisionQueryParams QueryParams;
+    QueryParams.AddIgnoredActor(this);
+
+    AWTBRCharacter* CasterCharacter = Cast<AWTBRCharacter>(GetOwner());
+    if (IsValid(CasterCharacter))
+    {
+        QueryParams.AddIgnoredActor(CasterCharacter);
+    }
+
+    TArray<FOverlapResult> Overlaps;
+    GetWorld()->OverlapMultiByObjectType(
+        Overlaps, SweepCenter, GetActorQuat(), ObjectParams,
+        FCollisionShape::MakeBox(SweepExtent), QueryParams);
+
+    if (Overlaps.Num() == 0) return;
+
+    FVector TowardOwner = -GetActorForwardVector();
+    if (IsValid(CasterCharacter))
+    {
+        TowardOwner = CasterCharacter->GetActorLocation() - GetActorLocation();
+        TowardOwner.Z = 0.0f;
+        TowardOwner = TowardOwner.IsNearlyZero()
+            ? -CasterCharacter->GetActorForwardVector()
+            : TowardOwner.GetSafeNormal();
+    }
+
+    for (const FOverlapResult& Overlap : Overlaps)
+    {
+        AActor* OtherActor = Overlap.GetActor();
+        if (!IsValid(OtherActor) || OtherActor == this) continue;
+
+        if (AWTBRCharacter* Char = Cast<AWTBRCharacter>(OtherActor))
+        {
+            if (Char == CasterCharacter) continue;
+            if (EruptDisplacedCharacters.Contains(Char)) continue;
+            EruptDisplacedCharacters.Add(Char);
+
+            const bool bAlly = IsValid(CasterCharacter) && Char->IsSameTeamAs(CasterCharacter);
+            if (bAlly)
+            {
+                Char->LaunchCharacter(
+                    TowardOwner * EruptAllyPushImpulse + FVector(0.0f, 0.0f, EruptAllyPushImpulse * 0.25f),
+                    true, true);
+            }
+            else
+            {
+                // Pure-vertical launch used to land the enemy right back on the
+                // same X/Y the instant gravity pulled them down — by then the
+                // wall had finished erupting there, so they landed embedded in
+                // it. Add an outward (away-from-caster) horizontal component so
+                // they clear the footprint before coming back down.
+                Char->LaunchCharacter(
+                    (-TowardOwner) * (EruptEnemyLaunchImpulse * 0.3f) + FVector(0.0f, 0.0f, EruptEnemyLaunchImpulse),
+                    true, true);
+            }
+
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] EruptDisplacement | Wall=%s | Target=%s | Relation=%s | Impulse=%.1f"),
+                *GetNameSafe(this),
+                *GetNameSafe(Char),
+                bAlly ? TEXT("Ally->PushBehind") : TEXT("Enemy->LaunchUp"),
+                bAlly ? EruptAllyPushImpulse : EruptEnemyLaunchImpulse);
+            continue;
+        }
+
+        UPrimitiveComponent* HitComp = Overlap.GetComponent();
+        if (IsValid(HitComp) && HitComp->IsSimulatingPhysics())
+        {
+            if (EruptDisplacedProps.Contains(HitComp)) continue;
+            EruptDisplacedProps.Add(HitComp);
+            // Same outward-plus-vertical fix as the enemy-character branch
+            // above: a pure vertical impulse lets the prop fall straight back
+            // down into the now-solid wall footprint (WallCollision is
+            // QueryOnly, so nothing in the physics engine would ever push it
+            // back out once embedded).
+            HitComp->AddImpulse(
+                (-TowardOwner) * (EruptEnemyLaunchImpulse * 0.3f) + FVector(0.0f, 0.0f, EruptEnemyLaunchImpulse),
+                NAME_None, /*bVelChange=*/true);
+
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] EruptDisplacement | Wall=%s | Prop=%s | Impulse=%.1f"),
+                *GetNameSafe(this),
+                *GetNameSafe(HitComp),
+                EruptEnemyLaunchImpulse);
+        }
+    }
 }
 
 void AWTBRAegornWallActor::OnLifetimeExpired()

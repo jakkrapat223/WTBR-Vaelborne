@@ -487,6 +487,15 @@ struct FWTBREscudoParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Escudo | Wall")
     FVector2D EscudoWallSize = FVector2D(300.0f, 200.0f);
+
+    // ระยะห่างขั้นต่ำ (แนวราบ X/Y) จากกำแพง Escudo/Aegorn ที่มีอยู่แล้ว — วางใกล้
+    // กว่านี้ = วางไม่ได้ ไม่เสีย Vael (anti-abuse: ป้องกันการวางกำแพงซ้อนกันจน
+    // ล้อมตัวเองเป็นที่หลบซ่อนถาวร). วางเรียงข้างกันแบบไม่ทับกันยังทำได้ตามปกติ
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Escudo | Wall",
+        meta = (ClampMin = "0.0"))
+    float EscudoMinWallSpacing = 300.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

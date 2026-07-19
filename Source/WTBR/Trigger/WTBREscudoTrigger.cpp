@@ -6,6 +6,7 @@
 #include "Components/WTBRVaelComponent.h"
 #include "Components/BoxComponent.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 
 bool UWTBREscudoTrigger::Activate_Implementation(
     const FInputActionValue& InputValue,
@@ -71,6 +72,38 @@ bool UWTBREscudoTrigger::Activate_Implementation(
         return false;
     }
 
+    // Ground reference for the eruption: previously SpawnLoc (the raw aim
+    // point) was used for the actual spawn transform even though the trace
+    // above found the real surface — the wall floated at aim height instead
+    // of snapping to ground. Use the traced ImpactPoint's Z from here on;
+    // X/Y are unchanged since the trace is a straight vertical line.
+    const FVector GroundPoint = SurfaceHit.ImpactPoint;
+    const AWTBRAegornWallActor* WallCDO = WallClass->GetDefaultObject<AWTBRAegornWallActor>();
+    const float HalfHeight = (IsValid(WallCDO) && IsValid(WallCDO->WallCollision))
+        ? WallCDO->WallCollision->GetScaledBoxExtent().Z
+        : 150.0f;
+    const FVector FinalLocation = GroundPoint + FVector(0.0f, 0.0f, HalfHeight);
+    const FVector EruptStartLocation = GroundPoint - FVector(0.0f, 0.0f, HalfHeight);
+
+    // Anti-abuse (owner's own ask): reject placement too close (horizontally)
+    // to an existing Escudo/Aegorn wall — stacking walls to fully enclose
+    // yourself into a permanent hideout is not allowed. Side-by-side placement
+    // beyond the spacing threshold is still fine. On-screen "cannot place"
+    // feedback is deferred; this only gates server-side for now.
+    float ClosestWallDistance = TNumericLimits<float>::Max();
+    for (TActorIterator<AWTBRAegornWallActor> It(GetWorld()); It; ++It)
+    {
+        if (!IsValid(*It)) continue;
+        ClosestWallDistance = FMath::Min(ClosestWallDistance, FVector::Dist2D(GroundPoint, It->GetActorLocation()));
+    }
+    if (ClosestWallDistance < DataAsset->EscudoParams.EscudoMinWallSpacing)
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] SpawnFail | Reason=TooCloseToExistingWall | Distance=%.1f | MinSpacing=%.1f"),
+            ClosestWallDistance,
+            DataAsset->EscudoParams.EscudoMinWallSpacing);
+        return false;
+    }
+
     if (!IsValid(Vael) || !Vael->TryConsumeVael(DataAsset->VaelCostPerUse))
     {
         WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] ConsumeFail | CurrentVael=%.2f | Cost=%.2f"),
@@ -85,20 +118,24 @@ bool UWTBREscudoTrigger::Activate_Implementation(
 
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] SpawnAttempt | Class=%s | Location=%s | Rotation=%s"),
         *GetNameSafe(WallClass.Get()),
-        *SpawnLoc.ToString(),
+        *EruptStartLocation.ToString(),
         *SpawnRot.ToString());
 
     FActorSpawnParameters Params;
     Params.Owner      = OwnerCharacter.Get();
     Params.Instigator = OwnerCharacter.Get();
-    // AlwaysSpawn (no engine adjust): overlapping pawns are displaced below
-    // instead of the wall being nudged off its placement point.
+    // AlwaysSpawn (no engine adjust): overlapping pawns/props are displaced
+    // by the eruption tick below instead of the wall being nudged off its
+    // placement point.
     Params.SpawnCollisionHandlingOverride =
         ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
+    // Spawn fully underground at the traced ground point; BeginEscudoEruption
+    // below animates it up to FinalLocation (canon: Escudo "sprouts" from the
+    // surface rather than popping in at full height).
     AWTBRAegornWallActor* Wall =
         GetWorld()->SpawnActor<AWTBRAegornWallActor>(
-            WallClass, SpawnLoc, SpawnRot, Params);
+            WallClass, EruptStartLocation, SpawnRot, Params);
 
     if (!IsValid(Wall))
     {
@@ -119,71 +156,14 @@ bool UWTBREscudoTrigger::Activate_Implementation(
         DataAsset->EscudoParams.EscudoWallDuration,
         Wall->GetIsReplicated() ? TEXT("true") : TEXT("false"));
 
-    DisplaceOverlappingCharacters(Wall);
+    Wall->BeginEscudoEruption(
+        FinalLocation,
+        DataAsset->EscudoParams.EscudoWallBuildTime,
+        DataAsset->EscudoParams.EscudoAllyPushImpulse,
+        DataAsset->EscudoParams.EscudoEnemyLaunchImpulse);
 
     OnWallPlaced.Broadcast();
     OnEscudoWallSpawned(Wall);
     return true;
 }
 
-// Canon (Hyuse): the erupting wall shoves whoever stands on its footprint —
-// teammates get pushed to safety behind the wall (caster side), enemies get
-// launched skyward by the eruption force. Displacement only, damage = 0
-// (Escudo Slam lock).
-void UWTBREscudoTrigger::DisplaceOverlappingCharacters(AWTBRAegornWallActor* Wall)
-{
-    if (!OwnerCharacter.IsValid() || !IsValid(Wall) || !GetWorld()) return;
-
-    const FVector WallExtent = IsValid(Wall->WallCollision)
-        ? Wall->WallCollision->GetScaledBoxExtent()
-        : FVector(20.0f, 150.0f, 150.0f);
-
-    TArray<FOverlapResult> Overlaps;
-    FCollisionQueryParams QueryParams;
-    QueryParams.AddIgnoredActor(OwnerCharacter.Get());
-    QueryParams.AddIgnoredActor(Wall);
-    GetWorld()->OverlapMultiByChannel(
-        Overlaps,
-        Wall->GetActorLocation(),
-        Wall->GetActorQuat(),
-        ECC_Pawn,
-        FCollisionShape::MakeBox(WallExtent),
-        QueryParams);
-
-    FVector TowardOwner = OwnerCharacter->GetActorLocation() - Wall->GetActorLocation();
-    TowardOwner.Z = 0.0f;
-    TowardOwner = TowardOwner.IsNearlyZero()
-        ? -OwnerCharacter->GetActorForwardVector()
-        : TowardOwner.GetSafeNormal();
-
-    const float AllyPush    = DataAsset->EscudoParams.EscudoAllyPushImpulse;
-    const float EnemyLaunch = DataAsset->EscudoParams.EscudoEnemyLaunchImpulse;
-
-    TSet<AWTBRCharacter*> Displaced;
-    for (const FOverlapResult& Overlap : Overlaps)
-    {
-        AWTBRCharacter* Char = Cast<AWTBRCharacter>(Overlap.GetActor());
-        if (!IsValid(Char) || Char == OwnerCharacter.Get()) continue;
-        if (Displaced.Contains(Char)) continue;
-        Displaced.Add(Char);
-
-        const bool bAlly = Char->IsSameTeamAs(OwnerCharacter.Get());
-        if (bAlly)
-        {
-            // Small vertical pop so ground friction doesn't eat the push.
-            Char->LaunchCharacter(
-                TowardOwner * AllyPush + FVector(0.0f, 0.0f, AllyPush * 0.25f),
-                true, true);
-        }
-        else
-        {
-            Char->LaunchCharacter(FVector(0.0f, 0.0f, EnemyLaunch), false, true);
-        }
-
-        WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] Displacement | Owner=%s | Target=%s | Relation=%s | Impulse=%.1f"),
-            *GetNameSafe(OwnerCharacter.Get()),
-            *GetNameSafe(Char),
-            bAlly ? TEXT("Ally->PushBehind") : TEXT("Enemy->LaunchUp"),
-            bAlly ? AllyPush : EnemyLaunch);
-    }
-}
