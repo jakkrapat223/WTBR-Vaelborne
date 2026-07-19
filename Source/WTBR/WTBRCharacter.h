@@ -541,6 +541,15 @@ public:
         int32 MaxTargets,
         TArray<AWTBRCharacter*>& OutTargets);
 
+    // Mirror of FindBestHomingTarget with the team filter inverted (SAME team only,
+    // excludes self) — deliberately duplicated rather than parameterized, matching this
+    // codebase's existing convention for FindBestHomingTargets. Used by Voltis Hold's
+    // aim-at-teammate direct-apply branch.
+    static AWTBRCharacter* FindBestFriendlyTarget(
+        AWTBRCharacter* QueryingCharacter,
+        float SearchRadius,
+        float AimConeHalfAngleDegrees);
+
     // Server-only; AWTBRGameMode team assignment is the intended caller.
     void SetTeamId(int32 NewTeamId);
 
@@ -590,6 +599,9 @@ public:
     // trade vs. head-of-line blocking a Reliable channel.
     UFUNCTION(NetMulticast, Unreliable)
     void Multicast_LacernHit(FVector ImpactPoint, FVector ImpactNormal, bool bDualWieldHit);
+
+    UFUNCTION(NetMulticast, Unreliable)
+    void Multicast_VoltisBurst(AWTBRCharacter* TargetCharacter, bool bIsAllyBoost, FVector Direction);
 
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Trigger | VFX")
     void OnLacernHitReceived(FVector ImpactPoint, FVector ImpactNormal, bool bDualWieldHit);
@@ -761,6 +773,14 @@ private:
         meta = (AllowPrivateAccess = "true"))
     TSoftObjectPtr<UNiagaraSystem> LacernHitImpactEffect;
 
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Trigger | VFX | Voltis",
+        meta = (AllowPrivateAccess = "true"))
+    TSoftObjectPtr<UNiagaraSystem> VoltisTapLaunchEffect;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Trigger | VFX | Voltis",
+        meta = (AllowPrivateAccess = "true"))
+    TSoftObjectPtr<UNiagaraSystem> VoltisAllyBoostEffect;
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Trigger | VFX | Lacern",
         meta = (AllowPrivateAccess = "true"))
     FName LacernBladeTipMarkerName = TEXT("BladeTipMarker");
@@ -792,6 +812,7 @@ private:
 
     void NativeHandleLacernExtendTelegraphChanged(bool bActive, bool bIsDualWield);
     void NativeHandleLacernHitReceived(FVector ImpactPoint, FVector ImpactNormal, bool bDualWieldHit);
+    void NativeHandleVoltisBurst(AWTBRCharacter* TargetCharacter, bool bIsAllyBoost, FVector Direction);
     void TickNativeLacernTrail();
     void StopNativeLacernTrail();
     USceneComponent* ResolveNativeLacernTrailAttachParent(FName& OutAttachSocketName) const;

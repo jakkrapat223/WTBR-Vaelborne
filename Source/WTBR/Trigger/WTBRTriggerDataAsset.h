@@ -354,6 +354,35 @@ struct FWTBRVoltisParams
         Category = "Voltis | Trap",
         meta = (ClampMin = "1.0"))
     float TrapLifetime = 30.0f;
+
+    // จำนวน Trap ที่วางพร้อมกันได้สูงสุด — เกินแล้วอันเก่าสุดจะถูกลบ (FIFO, ตาม
+    // convention เดียวกับ NexilParams.MaxWires) เจ้าของโปรเจกต์บอกว่า "2-3 อัน"
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Voltis | Trap",
+        meta = (ClampMin = "1"))
+    int32 MaxActiveTraps = 3;
+
+    // ระยะสูงสุดที่จะยิงเส้นเล็งไปข้างหน้าเพื่อหาจุดวาง Trap (กรณีเล็งพื้น/สภาพแวดล้อม)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Voltis | Trap",
+        meta = (ClampMin = "100.0"))
+    float TrapPlacementRange = 1000.0f;
+
+    // รัศมีค้นหาเพื่อนร่วมทีมตอนกด Hold (apply ตรงให้เพื่อน ไม่ต้อง surface check)
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Voltis | Hold",
+        meta = (ClampMin = "100.0"))
+    float FriendlySearchRadius = 800.0f;
+
+    // มุมกรวยเล็ง (องศา) สำหรับตรวจว่ากำลังเล็งเพื่อนร่วมทีมอยู่หรือไม่
+    // ⚠ PLAYTEST PENDING
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Voltis | Hold",
+        meta = (ClampMin = "1.0", ClampMax = "180.0"))
+    float FriendlyAimConeHalfAngleDegrees = 25.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

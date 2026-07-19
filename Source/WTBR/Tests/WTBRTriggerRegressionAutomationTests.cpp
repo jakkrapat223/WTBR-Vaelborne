@@ -1692,11 +1692,11 @@ bool FWTBRVoltisInitializeSetsMaxLaunchesTest::RunTest(const FString& /*Paramete
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-    FWTBRVoltisActivateConsumesLaunchNoVaelTest,
-    "WTBR.Trigger.Voltis.ActivateConsumesOneLaunchAndNoVael",
+    FWTBRVoltisTapConsumesLaunchAndVaelTest,
+    "WTBR.Trigger.Voltis.TapConsumesOneLaunchAndVael",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FWTBRVoltisActivateConsumesLaunchNoVaelTest::RunTest(const FString& /*Parameters*/)
+bool FWTBRVoltisTapConsumesLaunchAndVaelTest::RunTest(const FString& /*Parameters*/)
 {
     FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Trigger_VoltisActivate"));
     UWorld* World = Fixture.GetWorld();
@@ -1714,11 +1714,16 @@ bool FWTBRVoltisActivateConsumesLaunchNoVaelTest::RunTest(const FString& /*Param
     Voltis->InitializeTrigger(Owner, DataAsset);
 
     const bool bActivated = Voltis->Activate(FInputActionValue(), false);
+    TestTrue(TEXT("Activate arms the tap-vs-hold decision"), bActivated);
 
-    TestTrue(TEXT("Voltis launches on press"), bActivated);
+    // Quick release before HOLD_THRESHOLD (0.2s) = tap. Activate_Implementation no
+    // longer dashes synchronously — it defers to OnReleased/the hold timer, same
+    // pattern as Aegorn's tap-vs-hold shield.
+    Voltis->OnReleased(FInputActionValue(), false);
+
     TestEqual(TEXT("RemainingLaunches decremented by one"), Voltis->GetRemainingLaunches(), 2);
-    TestEqual(TEXT("Vael untouched — Voltis is 0-cost by current design lock"),
-        Owner->VaelComponent->GetCurrentVael(), 50.0f);
+    TestEqual(TEXT("Vael consumed — Voltis now costs Vael per locked design 2026-07-18 (passive regen made 0-cost stop making sense)"),
+        Owner->VaelComponent->GetCurrentVael(), 40.0f);
 
     return true;
 }
@@ -1742,8 +1747,12 @@ bool FWTBRVoltisBlocksWhenLaunchesExhaustedTest::RunTest(const FString& /*Parame
     UWTBRVoltisLaunchTrigger* Voltis = NewObject<UWTBRVoltisLaunchTrigger>(Owner);
     Voltis->InitializeTrigger(Owner, DataAsset);
 
-    TestTrue(TEXT("1st launch succeeds"), Voltis->Activate(FInputActionValue(), false));
-    TestTrue(TEXT("2nd launch succeeds"), Voltis->Activate(FInputActionValue(), false));
+    // Activate only arms the tap-vs-hold decision now; OnReleased (quick, before
+    // HOLD_THRESHOLD) is what actually resolves the tap and consumes a launch.
+    TestTrue(TEXT("1st launch Activate arms decision"), Voltis->Activate(FInputActionValue(), false));
+    Voltis->OnReleased(FInputActionValue(), false);
+    TestTrue(TEXT("2nd launch Activate arms decision"), Voltis->Activate(FInputActionValue(), false));
+    Voltis->OnReleased(FInputActionValue(), false);
     TestEqual(TEXT("Both launches consumed"), Voltis->GetRemainingLaunches(), 0);
 
     const bool bThirdActivate = Voltis->Activate(FInputActionValue(), false);
@@ -1772,8 +1781,12 @@ bool FWTBRVoltisLandingResetsLaunchesTest::RunTest(const FString& /*Parameters*/
     UWTBRVoltisLaunchTrigger* Voltis = NewObject<UWTBRVoltisLaunchTrigger>(Owner);
     Voltis->InitializeTrigger(Owner, DataAsset);
 
+    // Activate only arms the tap-vs-hold decision now; OnReleased (quick, before
+    // HOLD_THRESHOLD) is what actually resolves the tap and consumes a launch.
     Voltis->Activate(FInputActionValue(), false);
+    Voltis->OnReleased(FInputActionValue(), false);
     Voltis->Activate(FInputActionValue(), false);
+    Voltis->OnReleased(FInputActionValue(), false);
     TestEqual(TEXT("Two launches spent"), Voltis->GetRemainingLaunches(), 1);
 
     Voltis->OnCharacterLanded(FHitResult());
