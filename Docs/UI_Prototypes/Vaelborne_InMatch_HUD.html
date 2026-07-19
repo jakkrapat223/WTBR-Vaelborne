@@ -43,16 +43,15 @@
       </div>
 
       <aside class="match-cluster top-left" aria-label="Match state and kill feed">
-        <div class="match-summary panel angular" data-umg-name="Border_MatchSummary" data-umg-type="Border" aria-label="Match summary">
-          <div class="match-stat match-stat--alive">
-            <span class="stat-icon" data-umg="skip">A</span>
-            <span class="stat-label" data-umg-name="Txt_AliveLabel" data-umg-type="TextBlock">ALIVE</span>
-            <span class="stat-value" data-umg-name="Txt_AliveValue" data-umg-type="TextBlock">42</span>
+        <div class="match-panel cut-frame" data-umg-name="Border_MatchSummary" data-umg-type="Border" aria-label="Match summary">
+          <div class="match-stat">
+            <span class="label cyan" data-umg-name="Txt_AliveLabel" data-umg-type="TextBlock">ALIVE</span>
+            <strong data-umg-name="Txt_AliveValue" data-umg-type="TextBlock">42</strong>
           </div>
-          <div class="match-stat match-stat--kill">
-            <span class="stat-icon" data-umg="skip">K</span>
-            <span class="stat-label" data-umg-name="Txt_KillLabel" data-umg-type="TextBlock">KILL</span>
-            <span class="stat-value" data-umg-name="Txt_KillValue" data-umg-type="TextBlock">03</span>
+          <span class="divider" data-umg="skip"></span>
+          <div class="match-stat">
+            <span class="label amber" data-umg-name="Txt_KillLabel" data-umg-type="TextBlock">KILL</span>
+            <strong data-umg-name="Txt_KillValue" data-umg-type="TextBlock">03</strong>
           </div>
         </div>
         <!-- Production should show this only for death/elimination events, then hide or fade it after a short duration. -->
@@ -64,19 +63,64 @@
         </div>
       </aside>
 
-      <div class="top-center-reserve" aria-hidden="true"></div>
+      <!-- BINDING TODO: static reference only, not functional. A real heading compass needs a
+           native rotating widget (same NativePaint pattern as UWTBRRadarWidget) — the JSON
+           import pipeline has no rotation/scroll support, so these tick labels can never actually
+           track player yaw once imported. Only Txt_CountdownTimer is meant to carry a real
+           binding; everything else here is data-umg="skip" on purpose. -->
+      <div class="compass-strip panel top-center-reserve" data-umg-name="Border_CompassStrip" data-umg-type="Border" aria-label="Heading compass and match countdown">
+        <div class="compass-ticks" data-umg="skip" aria-hidden="true">
+          <span class="tick deg">285</span>
+          <span class="tick minor"></span>
+          <span class="tick deg">300</span>
+          <span class="tick minor"></span>
+          <span class="tick cardinal">NW</span>
+          <span class="tick minor"></span>
+          <span class="tick deg">330</span>
+          <span class="tick minor"></span>
+          <span class="tick deg">345</span>
+          <span class="tick minor"></span>
+          <span class="tick cardinal north">N</span>
+          <span class="tick minor"></span>
+          <span class="tick deg">15</span>
+          <span class="tick minor"></span>
+          <span class="tick deg">30</span>
+          <span class="tick minor"></span>
+          <span class="tick cardinal">NE</span>
+          <span class="tick minor"></span>
+          <span class="tick deg">60</span>
+          <span class="tick minor"></span>
+          <span class="tick deg">75</span>
+          <span class="tick minor"></span>
+          <span class="tick cardinal">E</span>
+        </div>
+        <div class="compass-needle" data-umg="skip" aria-hidden="true"></div>
+        <div class="compass-countdown">
+          <span data-umg="skip">COUNTDOWN</span>
+          <span data-umg-name="Txt_CountdownTimer" data-umg-type="TextBlock">01:24</span>
+        </div>
+        <!-- Txt_MatchPhaseValue/Txt_WinnerValue: pre-existing native-bound production widgets
+             (real properties on WTBRGeneratedHUDWidget.h, already live-imported per
+             Source/Docs/UI/WBP_HUD_Reimport_Safety_Decision.md). This redesign's compass strip
+             now visually occupies their old on-screen position — kept here as invisible carriers
+             so the Reimport Probe's structural contract stays green, same reasoning as
+             Txt_VitalIcon above. Their real display, if/when actually used, needs its own
+             non-overlapping layout slot in a later pass — not solved by this carrier. -->
+        <span class="umg-binding-only" data-umg-name="Txt_MatchPhaseValue" data-umg-type="TextBlock">Match Phase</span>
+        <span class="umg-binding-only" data-umg-name="Txt_WinnerValue" data-umg-type="TextBlock">Winner</span>
+      </div>
 
-      <!-- BINDING TODO: Zone/Timer/Phase strip remains visible in this prototype. Hide it only for BR mode during the future binding pass. -->
+      <!-- BINDING TODO: Border_Minimap/Img_MinimapPlaceholder/Txt_MinimapTitle are kept as
+           hidden, unused JSON placeholders — matches the live WBP state shipped in a583a98
+           ("hide Kill Feed and Minimap placeholders"). The REAL minimap+radar is the fully
+           native UWTBRRadarWidget, added directly to the viewport in WTBRCharacter.cpp
+           (CreateLocalPlayerUI), completely outside this WBP tree. Do not rebuild fake
+           grid/marker/arrow decoration here — this Border only reserves the on-screen layout
+           slot conceptually, it never actually renders. -->
       <aside class="navigation-stack top-right" aria-label="Map and zone state">
-        <div class="minimap panel angular" data-umg-name="Border_Minimap" data-umg-type="Border">
+        <div class="minimap hidden" data-umg-name="Border_Minimap" data-umg-type="Border">
           <div class="minimap-umg-image-proxy" data-umg-name="Img_MinimapPlaceholder" data-umg-type="Image" data-umg="keep" aria-hidden="true"></div>
-          <div class="map-grid" data-umg="skip"></div>
-          <div class="safe-zone" data-umg="skip"></div>
-          <div class="player-arrow" data-umg="skip"></div>
-          <span class="map-marker marker-a" data-umg="skip"></span>
-          <span class="map-marker marker-b" data-umg="skip"></span>
-          <span class="map-marker marker-c" data-umg="skip"></span>
-          <div class="compass" data-umg-name="Txt_MinimapTitle" data-umg-type="TextBlock">N</div>
+          <span class="umg-binding-only" data-umg-name="Txt_MinimapTitle" data-umg-type="TextBlock">N</span>
         </div>
         <div class="zone-strip panel" data-umg-name="Border_ZoneStrip" data-umg-type="Border">
           <span><b data-umg-name="Txt_ZoneLabel" data-umg-type="TextBlock">ZONE</b> <i data-umg-name="Txt_ZoneValue" data-umg-type="TextBlock">2</i></span>
@@ -86,31 +130,38 @@
       </aside>
 
       <section class="vitals-stack bottom-left" aria-label="HP VAEL and quick item">
-        <div class="vital-card panel hp-card" data-umg-name="Border_PlayerVitals" data-umg-type="Border">
-          <div class="vital-icon hp-icon">+</div>
-          <div class="vital-body">
+        <article class="vital-card hp-card" data-umg-name="Border_PlayerVitals" data-umg-type="Border">
+          <!-- Txt_VitalIcon has no real C++ binding (confirmed: absent from WTBRGeneratedHUDWidget.h)
+               but the Reimport Probe's structural-contract gate rejects ANY previously-isVariable
+               widget name disappearing, regardless of whether C++ reads it — kept as an invisible
+               carrier so the probe stays green, matching the umg-binding-only pattern used elsewhere. -->
+          <span class="umg-binding-only" data-umg-name="Txt_VitalIcon" data-umg-type="TextBlock">+</span>
+          <div class="vital-icon hp-icon" data-umg="skip">+</div>
+          <div class="vital-data">
             <div class="vital-top">
               <span data-umg-name="Txt_HPLabel" data-umg-type="TextBlock">HP</span>
-              <strong data-umg-name="Txt_HPValue" data-umg-type="TextBlock">820 / 1000</strong>
+              <strong data-umg-name="Txt_HPValue" data-umg-type="TextBlock">300 / 300</strong>
             </div>
-            <div class="bar-track" data-umg-name="PB_HP" data-umg-type="ProgressBar"><span class="bar-fill hp-fill"></span></div>
+            <div class="meter" data-umg-name="PB_HP" data-umg-type="ProgressBar"><i class="hp-fill"></i></div>
           </div>
-        </div>
+        </article>
 
         <div class="vital-row">
           <!-- BINDING TODO: add/remove the "critical" class on this card based on affordability, NOT a
                flat percentage: Current VAEL < the active Main/Sub Trigger's Vael cost. A Trigger with
                VaelCost == 0 (e.g. Feryx, Lacern tap) must NEVER show this red state, even at 0 VAEL. -->
-          <div class="vital-card panel vael-card" data-umg-name="Border_VaelCard" data-umg-type="Border">
-            <div class="vital-icon vael-icon">◆</div>
-            <div class="vital-body">
+          <article class="vital-card vael-card" data-umg-name="Border_VaelCard" data-umg-type="Border">
+            <!-- Txt_VitalIcon_2: same Reimport Probe carrier reasoning as Txt_VitalIcon above. -->
+            <span class="umg-binding-only" data-umg-name="Txt_VitalIcon_2" data-umg-type="TextBlock">&#9670;</span>
+            <div class="vital-icon vael-icon" data-umg="skip">ϟ</div>
+            <div class="vital-data">
               <div class="vital-top">
                 <span data-umg-name="Txt_VaelLabel" data-umg-type="TextBlock">VAEL</span>
-                <strong data-umg-name="Txt_VaelValue" data-umg-type="TextBlock">64%</strong>
+                <strong data-umg-name="Txt_VaelValue" data-umg-type="TextBlock">100 / 100</strong>
               </div>
-              <div class="bar-track" data-umg-name="PB_Vael" data-umg-type="ProgressBar"><span class="bar-fill vael-fill"></span></div>
+              <div class="meter" data-umg-name="PB_Vael" data-umg-type="ProgressBar"><i class="vael-fill"></i></div>
             </div>
-          </div>
+          </article>
 
           <!-- BINDING TODO: these 3 widgets are visually-hidden (umg-binding-only class) on purpose —
                they exist to carry a real bindable name/type into the JSON without duplicating the
@@ -135,43 +186,47 @@
         </div>
 
         <!-- BINDING TODO: hidden by default (idle, no active merge). Visible only while CurrentMergeState != None OR bCompositeCooldownActive OR HasReadyComposite(). Text/fill/color driven by state, see wtbr-composite-merge-hud-mockup-state memory. -->
-        <div class="composite-merge-bar" data-umg-name="Border_CompositeMergeBar" data-umg-type="Border" aria-label="Composite Merge status">
-          <div class="composite-merge-progress" data-umg-name="PB_CompositeMergeProgress" data-umg-type="ProgressBar"><span class="composite-merge-progress__fill"></span></div>
-          <span class="composite-merge-status" data-umg-name="Txt_CompositeMergeStatus" data-umg-type="TextBlock">FULGVYN — MERGING 65%</span>
+        <div class="merge cut-frame" data-umg-name="Border_CompositeMergeBar" data-umg-type="Border" aria-label="Composite Merge status">
+          <span data-umg-name="Txt_CompositeMergeStatus" data-umg-type="TextBlock">FULGVYN — MERGING 65%</span>
+          <i data-umg="ignore"><em data-umg-name="PB_CompositeMergeProgress" data-umg-type="ProgressBar"></em></i>
         </div>
 
-        <article class="trigger-card panel angular main-trigger" data-umg-name="Border_MainTriggerCard" data-umg-type="Border" aria-label="Main Trigger FULGRIX">
-          <div class="slot-diamonds" data-umg-name="Txt_MainTriggerSlotIndicator" data-umg-type="TextBlock" aria-label="Active Main slot indicator">◆ ◇ ◇ ◇</div>
-          <div class="trigger-content">
-            <div class="trigger-icon slash-icon" data-umg-name="Img_MainTriggerIcon" data-umg-type="Image"></div>
-            <div class="trigger-copy">
-              <span data-umg-name="Txt_MainTriggerLabel" data-umg-type="TextBlock">MAIN</span>
-              <strong data-umg-name="Txt_MainTriggerName" data-umg-type="TextBlock">FULGRIX</strong>
-              <em class="trigger-cost" data-umg-name="Txt_MainTriggerCost" data-umg-type="TextBlock">Cost: 0</em>
-              <div class="trigger-cooldown" data-umg-name="PB_MainTriggerCooldown" data-umg-type="ProgressBar"><span class="trigger-cooldown__fill"></span></div>
-            </div>
-            <div class="trigger-key-wrap" data-umg-name="Border_MainTriggerKeyBox" data-umg-type="Border"><span class="binding trigger-binding" data-umg-name="Txt_MainTriggerKey" data-umg-type="TextBlock">[Input]</span></div>
+        <!-- Txt_MainTriggerSlotIndicator is a single TextBlock (the "◆ ◇ ◇ ◇" string), same as the
+             already-live binding — the visible 4-gem row is pure decoration (data-umg="skip"); the
+             actual bound text rides along invisibly via .umg-binding-only, same pattern already used
+             for the Quick Item widgets above. Do NOT bind the keybind badge to this name — that was
+             Codex's bug in Source/tmp/hud-preview: Txt_MainTriggerKey is the correct name for the
+             keybind letter, Txt_MainTriggerSlotIndicator is the slot-switch diamond indicator. -->
+        <article class="trigger-card main" data-umg-name="Border_MainTriggerCard" data-umg-type="Border" aria-label="Main Trigger SOLUX">
+          <div class="slot-gems" data-umg="skip"><b></b><b class="on"></b><b></b><b></b></div>
+          <span class="umg-binding-only" data-umg-name="Txt_MainTriggerSlotIndicator" data-umg-type="TextBlock">◆ ◇ ◇ ◇</span>
+          <div class="trigger-icon cyan-orb" data-umg-name="Img_MainTriggerIcon" data-umg-type="Image">✦</div>
+          <div class="trigger-copy">
+            <span class="type" data-umg-name="Txt_MainTriggerLabel" data-umg-type="TextBlock">MAIN</span>
+            <strong data-umg-name="Txt_MainTriggerName" data-umg-type="TextBlock">SOLUX</strong>
+            <p class="trigger-cost" data-umg-name="Txt_MainTriggerCost" data-umg-type="TextBlock">Cost: 8 Vael</p>
           </div>
+          <div class="trigger-key-wrap" data-umg-name="Border_MainTriggerKeyBox" data-umg-type="Border"><span class="trigger-binding" data-umg-name="Txt_MainTriggerKey" data-umg-type="TextBlock">Q</span></div>
+          <div class="cooldown" data-umg-name="PB_MainTriggerCooldown" data-umg-type="ProgressBar"><i></i></div>
         </article>
 
-        <article class="trigger-card panel angular sub-trigger" data-umg-name="Border_SubTriggerCard" data-umg-type="Border" aria-label="Sub Trigger VENYX">
-          <div class="slot-diamonds" data-umg-name="Txt_SubTriggerSlotIndicator" data-umg-type="TextBlock" aria-label="Active Sub slot indicator">◇ ◆ ◇ ◇</div>
-          <div class="trigger-content">
-            <div class="trigger-icon shield-icon" data-umg-name="Img_SubTriggerIcon" data-umg-type="Image"></div>
-            <div class="trigger-copy">
-              <span data-umg-name="Txt_SubTriggerLabel" data-umg-type="TextBlock">SUB</span>
-              <strong data-umg-name="Txt_SubTriggerName" data-umg-type="TextBlock">VENYX</strong>
-              <em class="trigger-cost" data-umg-name="Txt_SubTriggerCost" data-umg-type="TextBlock">Cost: 30</em>
-              <div class="trigger-cooldown" data-umg-name="PB_SubTriggerCooldown" data-umg-type="ProgressBar"><span class="trigger-cooldown__fill"></span></div>
-            </div>
-            <div class="trigger-key-wrap" data-umg-name="Border_SubTriggerKeyBox" data-umg-type="Border"><span class="binding trigger-binding" data-umg-name="Txt_SubTriggerKey" data-umg-type="TextBlock">[Input]</span></div>
+        <article class="trigger-card sub" data-umg-name="Border_SubTriggerCard" data-umg-type="Border" aria-label="Sub Trigger VENYX">
+          <div class="slot-gems" data-umg="skip"><b></b><b></b><b class="on"></b><b></b></div>
+          <span class="umg-binding-only" data-umg-name="Txt_SubTriggerSlotIndicator" data-umg-type="TextBlock">◇ ◆ ◇ ◇</span>
+          <div class="trigger-icon amber-orb" data-umg-name="Img_SubTriggerIcon" data-umg-type="Image">✦</div>
+          <div class="trigger-copy">
+            <span class="type" data-umg-name="Txt_SubTriggerLabel" data-umg-type="TextBlock">SUB</span>
+            <strong data-umg-name="Txt_SubTriggerName" data-umg-type="TextBlock">VENYX</strong>
+            <p class="trigger-cost" data-umg-name="Txt_SubTriggerCost" data-umg-type="TextBlock">Cost: 10 Vael</p>
           </div>
+          <div class="trigger-key-wrap" data-umg-name="Border_SubTriggerKeyBox" data-umg-type="Border"><span class="trigger-binding" data-umg-name="Txt_SubTriggerKey" data-umg-type="TextBlock">E</span></div>
+          <div class="cooldown" data-umg-name="PB_SubTriggerCooldown" data-umg-type="ProgressBar"><i></i></div>
         </article>
       </section>
 
       <section class="center-combat" aria-label="Center combat readability area">
         <div class="crosshair">
-          <span></span><span></span><span></span><span></span>
+          <span></span><i></i><span></span><i></i>
         </div>
         <div class="pickup-prompt hidden" data-umg-name="Border_PickupPrompt" data-umg-type="Border">
           <span class="binding" data-umg-name="Txt_PickupPrompt" data-umg-type="TextBlock">[Input] Pick Up</span>
