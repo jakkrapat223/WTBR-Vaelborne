@@ -164,7 +164,10 @@ class AWTBRCharacter : public ACharacter
     TObjectPtr<UInputAction> BagAction;
 
 public:
-    AWTBRCharacter();
+    // Takes an ObjectInitializer so the character movement component can be
+    // swapped for UWTBRCharacterMovementComponent, which makes prone a predicted
+    // movement state instead of a server-only capsule change.
+    explicit AWTBRCharacter(const FObjectInitializer& ObjectInitializer);
 
     // ─── Components (public — TriggerBase needs direct access) ───────────────
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category=Components)
@@ -714,6 +717,11 @@ protected:
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
     virtual bool CanJumpInternal_Implementation() const override;
 
+    // Both call RefreshStanceViewOffsets so the camera never rides the shrinking
+    // capsule down into the ground.
+    virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+    virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+
     // ─── Input Handlers ──────────────────────────────────────────────────────
     void Move(const FInputActionValue& Value);
     void Look(const FInputActionValue& Value);
@@ -804,6 +812,10 @@ private:
     // authority and on non-owning clients.
     void PredictNativeCrouchForStance(EWTBRCharacterStance Desired);
 
+    // Raises/lowers the predicted prone flag on UWTBRCharacterMovementComponent.
+    // Safe no-op if the movement component was overridden with a plain one.
+    void SetWantsToProne(bool bNewWantsToProne);
+
     bool CanResizeCapsuleTo(float NewHalfHeight) const;
     // bKeepFeetPlanted moves the actor so the capsule's base stays put. That is
     // right on the authority, but wrong on a replicated client: the location that
@@ -813,6 +825,21 @@ private:
     void ApplyReplicatedStance();
 
 public:
+    // How much of the capsule's shrink the camera boom compensates for, so the view
+    // does not ride the capsule centre down into the floor. 1 = the camera holds a
+    // constant world height in every stance (default); 0 = it drops the full amount,
+    // which is what made the spring arm collide with the ground and jam the camera
+    // up against the character while crouch-walking and crawling.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Movement | Stance",
+        meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float StanceCameraHeightCompensation = 1.0f;
+
+    // Single authority for the mesh and camera-boom offsets that must track the
+    // capsule height. Both are assigned absolutely from the current half-height —
+    // ACharacter::OnStartCrouch overwrites the mesh offset outright, so anything
+    // additive elsewhere silently loses.
+    void RefreshStanceViewOffsets();
+
     // Server-authoritative stance change — Server_SetCharacterStance is a thin RPC
     // wrapper around this. Returns false when the stance is refused (no headroom to
     // stand, cannot crouch in the current movement state, staggered, hanging, dead).

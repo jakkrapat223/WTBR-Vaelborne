@@ -15,7 +15,9 @@ class WTBR_API AWTBRBasicBotCharacter : public AWTBRCharacter
     GENERATED_BODY()
 
 public:
-    AWTBRBasicBotCharacter();
+    // Forwards the ObjectInitializer so AWTBRCharacter can keep substituting
+    // UWTBRCharacterMovementComponent for the default movement component.
+    explicit AWTBRBasicBotCharacter(const FObjectInitializer& ObjectInitializer);
 
     // Assign an editor-authored set containing approved Main + Aegorn Sub pairs.
     // Bots wait for LoadoutSetup before choosing a role, then lock slots 0 and 4.

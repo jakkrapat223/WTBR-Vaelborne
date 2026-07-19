@@ -23,6 +23,7 @@
 #include "Components/WTBRStaminaComponent.h"
 #include "Components/WTBRVaelComponent.h"
 #include "Components/WTBRMovementExtComponent.h"
+#include "Components/WTBRCharacterMovementComponent.h"
 #include "Components/WTBRInputGestureComponent.h"
 #include "Components/WTBRInteractionComponent.h"
 #include "Components/WTBRHUDViewModelComponent.h"
@@ -235,7 +236,9 @@ namespace
     }
 }
 
-AWTBRCharacter::AWTBRCharacter()
+AWTBRCharacter::AWTBRCharacter(const FObjectInitializer& ObjectInitializer)
+    : Super(ObjectInitializer.SetDefaultSubobjectClass<UWTBRCharacterMovementComponent>(
+        ACharacter::CharacterMovementComponentName))
 {
     GetCapsuleComponent()->InitCapsuleSize(42.f, 96.f);
 
@@ -855,6 +858,55 @@ void AWTBRCharacter::ToggleCrouchKey()
     Server_SetCharacterStance(Desired);
 }
 
+void AWTBRCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+    Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+    RefreshStanceViewOffsets();
+}
+
+void AWTBRCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+    Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+    RefreshStanceViewOffsets();
+}
+
+void AWTBRCharacter::RefreshStanceViewOffsets()
+{
+    const UCapsuleComponent* Capsule = GetCapsuleComponent();
+    if (!IsValid(Capsule)) return;
+
+    // How far the capsule centre currently sits below where it would be standing.
+    const float Shrink = GetDefaultHalfHeight() - Capsule->GetUnscaledCapsuleHalfHeight();
+
+    const ACharacter* DefaultChar = GetDefault<ACharacter>(GetClass());
+    if (USkeletalMeshComponent* MeshComp = GetMesh();
+        MeshComp && DefaultChar && DefaultChar->GetMesh())
+    {
+        // Lift the mesh by the same amount the capsule centre dropped, so the feet
+        // stay on the ground. Assigned (not added) for the reason in the header.
+        FVector MeshLocation = MeshComp->GetRelativeLocation();
+        MeshLocation.Z = DefaultChar->GetMesh()->GetRelativeLocation().Z + Shrink;
+        MeshComp->SetRelativeLocation(MeshLocation);
+        BaseTranslationOffset.Z = MeshLocation.Z;
+    }
+
+    if (CameraBoom)
+    {
+        FVector BoomLocation = CameraBoom->GetRelativeLocation();
+        BoomLocation.Z = Shrink * StanceCameraHeightCompensation;
+        CameraBoom->SetRelativeLocation(BoomLocation);
+    }
+}
+
+void AWTBRCharacter::SetWantsToProne(bool bNewWantsToProne)
+{
+    if (UWTBRCharacterMovementComponent* MoveComp =
+            Cast<UWTBRCharacterMovementComponent>(GetCharacterMovement()))
+    {
+        MoveComp->bWantsToProne = bNewWantsToProne;
+    }
+}
+
 void AWTBRCharacter::PredictNativeCrouchForStance(EWTBRCharacterStance Desired)
 {
     // Owning clients must raise bWantsToCrouch themselves. It travels to the server
@@ -864,14 +916,17 @@ void AWTBRCharacter::PredictNativeCrouchForStance(EWTBRCharacterStance Desired)
     // Client. The authority already does this inside TrySetCharacterStance.
     if (HasAuthority() || !IsLocallyControlled()) return;
 
+    // bWantsToProne is the predicted half: it rides to the server in the saved
+    // move's compressed flags, so the client's own simulation shrinks the capsule
+    // at the same point the server does instead of waiting for the replicated stance.
+    SetWantsToProne(Desired == EWTBRCharacterStance::Prone);
+
     if (Desired == EWTBRCharacterStance::Standing)
     {
         UnCrouch(false);
     }
     else
     {
-        // Prone implies crouched; its extra capsule shrink is not predicted and
-        // arrives with the replicated stance.
         Crouch(false);
     }
 }
@@ -2969,22 +3024,17 @@ bool AWTBRCharacter::TrySetCharacterStance(EWTBRCharacterStance NewStance)
         // Refuse to stand up under a ceiling instead of committing the stance and
         // letting the movement component silently keep the character crouched.
         if (!CanResizeCapsuleTo(GetDefaultHalfHeight())) return false;
-        if (CharacterStance == EWTBRCharacterStance::Prone)
-        {
-            SetCapsuleHalfHeightKeepingBase(CrouchedHalfHeight);
-        }
+        SetWantsToProne(false);
         UnCrouch(false);          // lowers bWantsToCrouch
         MoveComp->UnCrouch(false); // ...and applies it this frame
         if (bIsCrouched) return false;
         break;
 
     case EWTBRCharacterStance::Crouching:
-        if (CharacterStance == EWTBRCharacterStance::Prone)
-        {
-            if (!CanResizeCapsuleTo(CrouchedHalfHeight)) return false;
-            SetCapsuleHalfHeightKeepingBase(CrouchedHalfHeight);
-        }
-        else
+        // Leaving prone only needs bWantsToProne lowered — the movement component
+        // grows the capsule back to crouched height on its next update.
+        SetWantsToProne(false);
+        if (CharacterStance != EWTBRCharacterStance::Prone)
         {
             if (!MoveComp->CanCrouchInCurrentState()) return false;
             Crouch(false);
@@ -2994,19 +3044,12 @@ bool AWTBRCharacter::TrySetCharacterStance(EWTBRCharacterStance NewStance)
         break;
 
     case EWTBRCharacterStance::Prone:
-        if (!CanResizeCapsuleTo(ProneCapsuleHalfHeight)) return false;
-        if (CharacterStance == EWTBRCharacterStance::Standing)
-        {
-            if (!MoveComp->CanCrouchInCurrentState()) return false;
-            // Apply the crouch immediately. If it were left pending, the next
-            // movement update would see bWantsToCrouch with IsCrouching() still
-            // false and resize the capsule back to crouch height, undoing the
-            // prone resize below.
-            Crouch(false);
-            MoveComp->Crouch(false);
-            if (!bIsCrouched) return false;
-        }
-        SetCapsuleHalfHeightKeepingBase(ProneCapsuleHalfHeight);
+        if (!MoveComp->CanCrouchInCurrentState()) return false;
+        // The capsule itself is no longer touched here. Raising bWantsToProne hands
+        // the change to UWTBRCharacterMovementComponent, which applies it inside the
+        // movement update so client and server produce the same capsule from the
+        // same predicted move (see that class for why the old direct resize jittered).
+        SetWantsToProne(true);
         break;
 
     default:
@@ -3074,16 +3117,16 @@ void AWTBRCharacter::ApplyReplicatedStance()
     UCharacterMovementComponent* MoveComp = GetCharacterMovement();
     if (!IsValid(MoveComp)) return;
 
-    // Runs from OnRep_CharacterStance, i.e. only on non-authoritative clients, so
-    // never move the actor here — see SetCapsuleHalfHeightKeepingBase. Doing so was
-    // what sank the character into the floor on a stance change in NetMode Client.
-    if (CharacterStance == EWTBRCharacterStance::Prone)
+    // The prone capsule is no longer touched here. It is a predicted movement state
+    // now (UWTBRCharacterMovementComponent), so every machine derives it from the
+    // movement simulation. Simulated proxies get it from bWantsToProne below; the
+    // owning client already predicted it. Resizing here as well is what previously
+    // double-applied the offset and sank the character through the floor.
+    if (!IsLocallyControlled())
     {
-        SetCapsuleHalfHeightKeepingBase(ProneCapsuleHalfHeight, /*bKeepFeetPlanted=*/false);
-    }
-    else if (LastAppliedStance == EWTBRCharacterStance::Prone)
-    {
-        SetCapsuleHalfHeightKeepingBase(MoveComp->GetCrouchedHalfHeight(), /*bKeepFeetPlanted=*/false);
+        // Simulated proxies do not run the prediction path, so mirror the intent
+        // from the replicated stance and let the movement component do the resize.
+        SetWantsToProne(CharacterStance == EWTBRCharacterStance::Prone);
     }
 
     LastAppliedStance = CharacterStance;
@@ -3100,24 +3143,32 @@ void AWTBRCharacter::RefreshStanceSpeeds()
         : 600.0f;
 
     // Sprinting is a standing-only ability — crouch/prone must not inherit it.
+    // Read from the movement component's predicted state for the same reason the
+    // stance multiplier moved to GetMaxSpeed: CharacterStance lags on the client.
+    const UWTBRCharacterMovementComponent* WTBRMove =
+        Cast<UWTBRCharacterMovementComponent>(MoveComp);
+    const bool bGroundedStance =
+        WTBRMove ? (WTBRMove->IsCrouching() || WTBRMove->IsProne())
+                 : (CharacterStance != EWTBRCharacterStance::Standing);
+
     if (IsValid(MovementExtComponent)
         && MovementExtComponent->IsSprinting()
-        && CharacterStance == EWTBRCharacterStance::Standing)
+        && !bGroundedStance)
     {
         Speed *= MovementExtComponent->GetSprintSpeedMultiplier();
     }
 
-    switch (CharacterStance)
-    {
-    case EWTBRCharacterStance::Prone:     Speed *= PRONE_SPEED_MULTIPLIER;  break;
-    case EWTBRCharacterStance::Crouching: Speed *= CROUCH_SPEED_MULTIPLIER; break;
-    default: break;
-    }
-
-    // Both are set to the same stance-adjusted value on purpose. The movement
-    // component picks MaxWalkSpeedCrouched only while bIsCrouched is true, and that
-    // flag lags a stance change by one movement update — keeping the two in sync
-    // means the speed is correct no matter which one is read on a given frame.
+    // The crouch/prone multiplier is deliberately NOT applied here. It lives in
+    // UWTBRCharacterMovementComponent::GetMaxSpeed, keyed off the predicted capsule
+    // state — this function runs off the replicated CharacterStance, which reaches
+    // the owning client a round trip after it has already predicted the crouch.
+    // Applying it here meant the client simulated at standing speed during that
+    // window while the server used the crouch speed, so the client ran ahead and was
+    // corrected back a step at a time.
+    //
+    // Both fields get the same unmultiplied base: the movement component reads
+    // MaxWalkSpeedCrouched while crouched and MaxWalkSpeed otherwise, and GetMaxSpeed
+    // scales whichever one it picked.
     MoveComp->MaxWalkSpeed = Speed;
     MoveComp->MaxWalkSpeedCrouched = Speed;
 }

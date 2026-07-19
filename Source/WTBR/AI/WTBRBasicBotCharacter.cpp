@@ -7,7 +7,8 @@
 #include "Engine/World.h"
 #include "TimerManager.h"
 
-AWTBRBasicBotCharacter::AWTBRBasicBotCharacter()
+AWTBRBasicBotCharacter::AWTBRBasicBotCharacter(const FObjectInitializer& ObjectInitializer)
+    : Super(ObjectInitializer)
 {
     AIControllerClass = AWTBRBasicBotController::StaticClass();
     AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
