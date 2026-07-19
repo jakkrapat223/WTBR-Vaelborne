@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "template": "/Game/VFX/Templates/NS_Template_ConjureCube",
+  "outputPath": "/Game/VFX/Voltis/Prototype/NS_Voltis_HoldPrism_P02",
+  "strict": true,
+  "addMissingParams": false,
+  "params": {
+    "User.Color":         { "type": "color", "value": [0.30, 0.95, 1.00, 0.96] },
+    "User.CubeSize":      { "type": "float", "value": 56.0 },
+    "User.FormTime":      { "type": "float", "value": 0.08 },
+    "User.SplitTime":     { "type": "float", "value": 0.26 },
+    "User.CubeCount":     { "type": "int",   "value": 3 },
+    "User.MiniCubeSize":  { "type": "float", "value": 14.0 },
+    "User.MiniSpacing":   { "type": "float", "value": 30.0 },
+    "User.GlowSize":      { "type": "float", "value": 120.0 },
+    "User.PulseAmount":   { "type": "float", "value": 0.30 }
+  }
+}

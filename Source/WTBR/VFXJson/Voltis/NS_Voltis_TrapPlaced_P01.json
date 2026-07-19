@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "template": "/Game/VFX/Templates/NS_Template_Burst",
+  "outputPath": "/Game/VFX/Voltis/Prototype/NS_Voltis_TrapPlaced_P01",
+  "strict": true,
+  "addMissingParams": false,
+  "params": {
+    "User.Color":      { "type": "color", "value": [0.02, 0.82, 0.92, 0.86] },
+    "User.Lifetime":   { "type": "float", "value": 0.45 },
+    "User.Size":       { "type": "float", "value": 32.0 },
+    "User.SpawnCount": { "type": "int",   "value": 36 }
+  }
+}

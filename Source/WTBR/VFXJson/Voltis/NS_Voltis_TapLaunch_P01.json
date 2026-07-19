@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "template": "/Game/VFX/Templates/NS_Template_Burst",
+  "outputPath": "/Game/VFX/Voltis/Prototype/NS_Voltis_TapLaunch_P01",
+  "strict": true,
+  "addMissingParams": false,
+  "params": {
+    "User.Color":      { "type": "color", "value": [0.06, 0.88, 1.00, 1.00] },
+    "User.Lifetime":   { "type": "float", "value": 0.32 },
+    "User.Size":       { "type": "float", "value": 30.0 },
+    "User.SpawnCount": { "type": "int",   "value": 40 }
+  }
+}
