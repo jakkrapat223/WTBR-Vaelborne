@@ -59,6 +59,7 @@
 #include "UI/WTBRRadarWidget.h"
 #include "UI/WTBRSniperScopeWidget.h"
 #include "UI/WTBRTriggerWheelWidget.h"
+#include "UI/WTBRMarkPingHUDWidget.h"
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
 #include "UI/WTBRInputBindingDisplayLibrary.h"
 #include "NiagaraComponent.h"
@@ -502,6 +503,14 @@ void AWTBRCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
         {
             EIC->BindAction(InteractAction, ETriggerEvent::Started, this, &AWTBRCharacter::Interact);
             EIC->BindAction(InteractAction, ETriggerEvent::Completed, this, &AWTBRCharacter::InteractReleased);
+        }
+        if (IsValid(MarkPingAction))
+        {
+            EIC->BindAction(MarkPingAction, ETriggerEvent::Started, this, &AWTBRCharacter::Input_RequestMarkPing);
+        }
+        if (bUseDirectMarkPingKeyBinding && MarkPingKey.IsValid())
+        {
+            PlayerInputComponent->BindKey(MarkPingKey, IE_Pressed, this, &AWTBRCharacter::Input_RequestMarkPingKey);
         }
         if (IsValid(CancelAction))
         {
@@ -1089,6 +1098,176 @@ void AWTBRCharacter::Server_SelectTriggerSlot_Implementation(bool bIsMain, int32
     {
         TriggerSetComponent->SwitchSubSlot(SlotIndex);
     }
+}
+
+// ─── Mark/Ping ──────────────────────────────────────────────────────────────
+
+void AWTBRCharacter::Input_RequestMarkPing(const FInputActionValue& /*Value*/)
+{
+    RequestMarkPingFromLocalAim();
+}
+
+void AWTBRCharacter::Input_RequestMarkPingKey()
+{
+    RequestMarkPingFromLocalAim();
+}
+
+void AWTBRCharacter::RequestMarkPingFromLocalAim()
+{
+    FVector EyeLocation = FVector::ZeroVector;
+    FRotator EyeRotation = FRotator::ZeroRotator;
+    GetActorEyesViewPoint(EyeLocation, EyeRotation);
+
+    const FVector AimDirection = EyeRotation.Vector().GetSafeNormal();
+    if (AimDirection.IsNearlyZero())
+    {
+        return;
+    }
+
+    Server_RequestMarkPing(EyeLocation, AimDirection);
+}
+
+bool AWTBRCharacter::CanRequestMarkPingNow() const
+{
+    const UWorld* World = GetWorld();
+    if (!World)
+    {
+        return false;
+    }
+    return World->GetTimeSeconds() - LastMarkPingRequestTimeSeconds >= MarkPingCooldownSeconds;
+}
+
+bool AWTBRCharacter::ShouldTreatMarkPingHitAsEnemy(AActor* HitActor) const
+{
+    const AWTBRCharacter* HitCharacter = Cast<AWTBRCharacter>(HitActor);
+    // Deliberately NOT gated on HitCharacter->HasTeam(): in a no-team/solo BR
+    // match nobody has an assigned TeamId, and there everyone is hostile to
+    // everyone — requiring the target to HasTeam() before calling it an enemy
+    // silently vetoed every enemy ping in exactly that mode (owner-found PIE
+    // bug, confirmed against a solo BR match: ALIVE 42/KILL 03, both characters
+    // teamless). IsSameTeamAs already requires proving a matching assigned team
+    // to call two characters friendly; anything that fails to prove that is
+    // correctly hostile by default, teamless-vs-teamless included.
+    return IsValid(HitCharacter) && HitCharacter != this
+        && IsValid(HitCharacter->HealthComponent) && HitCharacter->HealthComponent->IsAlive()
+        && !IsSameTeamAs(HitCharacter);
+}
+
+TArray<AWTBRCharacter*> AWTBRCharacter::GetMarkPingRecipients() const
+{
+    TArray<AWTBRCharacter*> Recipients;
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return Recipients;
+    }
+
+    for (TActorIterator<AWTBRCharacter> It(World); It; ++It)
+    {
+        AWTBRCharacter* Candidate = *It;
+        if (!IsValid(Candidate))
+        {
+            continue;
+        }
+        if (Candidate == this || IsSameTeamAs(Candidate))
+        {
+            Recipients.Add(Candidate);
+        }
+    }
+    return Recipients;
+}
+
+void AWTBRCharacter::Server_RequestMarkPing_Implementation(
+    FVector_NetQuantize TraceStart, FVector_NetQuantizeNormal TraceDirection)
+{
+    if (!CanRequestMarkPingNow())
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    const FVector Direction = FVector(TraceDirection).GetSafeNormal();
+    if (Direction.IsNearlyZero())
+    {
+        return;
+    }
+
+    const FVector Start(TraceStart);
+    const FVector End = Start + Direction * MarkPingMaxRange;
+
+    // ECC_Pawn, not ECC_Visibility: this codebase's character capsules deliberately
+    // do NOT block Visibility (see e.g. WTBRNexilTrigger's wall-anchor placement
+    // trace, which uses Visibility specifically so it passes through characters).
+    // Pawn is the channel every other hit-detecting trace here uses (melee sweeps,
+    // projectile overlaps) — world static geometry responds to it too, so location
+    // pings against walls are unaffected.
+    FHitResult Hit;
+    FCollisionQueryParams TraceParams(SCENE_QUERY_STAT(WTBRMarkPingTrace), false);
+    TraceParams.AddIgnoredActor(this);
+    const bool bHit = World->LineTraceSingleByChannel(Hit, Start, End, ECC_Pawn, TraceParams);
+
+    AActor* HitActor = bHit ? Hit.GetActor() : nullptr;
+    const bool bIsEnemy = ShouldTreatMarkPingHitAsEnemy(HitActor);
+
+    LastMarkPingRequestTimeSeconds = World->GetTimeSeconds();
+
+    FWTBRMarkPingPayload Payload;
+    Payload.Location = bHit ? Hit.ImpactPoint : End;
+    Payload.MarkedActor = bIsEnemy ? HitActor : nullptr;
+    Payload.bIsEnemy = bIsEnemy;
+    Payload.Instigator = this;
+    Payload.ServerTimeSeconds = LastMarkPingRequestTimeSeconds;
+
+    // Written directly onto each recipient's own IncomingMarkPing (COND_OwnerOnly),
+    // then applied immediately here too: real replication only calls OnRep on a
+    // TRULY remote connection, never on the server's own local copy of an actor it
+    // owns (relevant on a listen server, where the host's own character is one of
+    // the recipients) — so the shared apply step has to run from both places.
+    for (AWTBRCharacter* Recipient : GetMarkPingRecipients())
+    {
+        Recipient->IncomingMarkPing = Payload;
+        Recipient->ApplyIncomingMarkPing();
+    }
+}
+
+void AWTBRCharacter::OnRep_IncomingMarkPing()
+{
+    ApplyIncomingMarkPing();
+}
+
+void AWTBRCharacter::ApplyIncomingMarkPing()
+{
+    UWorld* World = GetWorld();
+    const double Now = World ? World->GetTimeSeconds() : 0.0;
+
+    ActiveMarkPings.RemoveAll([Now](const FWTBRActiveMarkPing& Ping)
+    {
+        return Ping.ExpireTimeSeconds <= Now;
+    });
+
+    FWTBRActiveMarkPing NewPing;
+    NewPing.Location = IncomingMarkPing.Location;
+    NewPing.MarkedActor = IncomingMarkPing.MarkedActor;
+    NewPing.bIsEnemy = IncomingMarkPing.bIsEnemy;
+    NewPing.Instigator = IncomingMarkPing.Instigator;
+    NewPing.ExpireTimeSeconds = Now + MarkPingDisplayDuration;
+
+    constexpr int32 MaxActiveMarkPings = 6;
+    if (ActiveMarkPings.Num() >= MaxActiveMarkPings)
+    {
+        ActiveMarkPings.RemoveAt(0);
+    }
+    ActiveMarkPings.Add(NewPing);
+
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("[MarkPing] ApplyIncomingMarkPing | Recipient=%s | Location=%s | bIsEnemy=%s | MarkedActor=%s | ActiveCount=%d"),
+        *GetNameSafe(this), *NewPing.Location.ToString(), NewPing.bIsEnemy ? TEXT("true") : TEXT("false"),
+        *GetNameSafe(IncomingMarkPing.MarkedActor.Get()), ActiveMarkPings.Num());
 }
 
 void AWTBRCharacter::SwitchSubTrigger(const FInputActionValue& Value)
@@ -4085,6 +4264,21 @@ void AWTBRCharacter::CreateLocalPlayerUI()
             TriggerWheelWidgetInstance->SetVisibility(ESlateVisibility::Collapsed);
         }
     }
+
+    if (!IsValid(MarkPingHUDWidgetInstance))
+    {
+        MarkPingHUDWidgetInstance = CreateWidget<UWTBRMarkPingHUDWidget>(PC, UWTBRMarkPingHUDWidget::StaticClass());
+        if (IsValid(MarkPingHUDWidgetInstance))
+        {
+            // Above Radar/Scope/TriggerWheel (1/2/3) so a mark stays visible while
+            // aiming or picking a Trigger, below the modal BagLoot layer (10) — a
+            // fullscreen cosmetic overlay, same full-stretch anchoring/omitted-
+            // SetPositionInViewport pattern as those three widgets.
+            MarkPingHUDWidgetInstance->AddToViewport(4);
+            MarkPingHUDWidgetInstance->SetAnchorsInViewport(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+            MarkPingHUDWidgetInstance->SetAlignmentInViewport(FVector2D::ZeroVector);
+        }
+    }
 }
 
 void AWTBRCharacter::DestroyLocalPlayerUI()
@@ -4118,6 +4312,12 @@ void AWTBRCharacter::DestroyLocalPlayerUI()
         TriggerWheelWidgetInstance->RemoveFromParent();
     }
     TriggerWheelWidgetInstance = nullptr;
+
+    if (IsValid(MarkPingHUDWidgetInstance))
+    {
+        MarkPingHUDWidgetInstance->RemoveFromParent();
+    }
+    MarkPingHUDWidgetInstance = nullptr;
 
     // The hold watch outlives the widget otherwise and would fire into a dead pointer.
     GetWorldTimerManager().ClearTimer(TriggerWheelHoldTimer);
@@ -4265,6 +4465,7 @@ void AWTBRCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
     DOREPLIFETIME(AWTBRCharacter, bSerpveilChargeTelegraphActive);
     DOREPLIFETIME(AWTBRCharacter, bLacernExtendTelegraphActive);
     DOREPLIFETIME(AWTBRCharacter, bLacernExtendDualWield);
+    DOREPLIFETIME_CONDITION(AWTBRCharacter, IncomingMarkPing, COND_OwnerOnly);
 }
 
 // ─── Team Identity ────────────────────────────────────────────────────────────

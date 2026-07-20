@@ -24,6 +24,7 @@ class UWTBRBagLootViewModelComponent;
 class UWTBRRadarWidget;
 class UWTBRSniperScopeWidget;
 class UWTBRTriggerWheelWidget;
+class UWTBRMarkPingHUDWidget;
 class UTexture2D;
 class UNiagaraComponent;
 class UNiagaraSystem;
@@ -72,6 +73,63 @@ struct FWTBRHUDTriggerVaelAffordability
 
     UPROPERTY(BlueprintReadOnly, Category="WTBR | HUD")
     bool bUsesChargeOrVariableCost = false;
+};
+
+// Server -> owning-client(s)-only payload for the Mark/Ping system (MMB by convention,
+// see IMC). Replicated with COND_OwnerOnly on IncomingMarkPing below, so only the
+// instigator's teammates ever receive a copy — enemies never see it, by construction
+// of Unreal's replication conditions rather than a client-side visibility filter.
+// Deliberately named "MarkPing" rather than reusing "ActionPing": that name is already
+// taken by the unrelated stealth/detection system (bActionPingActive, see
+// UWTBRActionPingSubsystem) that fires when Vael energy leaves a character's bounds.
+USTRUCT()
+struct FWTBRMarkPingPayload
+{
+    GENERATED_BODY()
+
+    UPROPERTY()
+    FVector_NetQuantize Location = FVector_NetQuantize::ZeroVector;
+
+    // Set only for an enemy ping (nullptr for a plain location ping).
+    UPROPERTY()
+    TObjectPtr<AActor> MarkedActor = nullptr;
+
+    UPROPERTY()
+    bool bIsEnemy = false;
+
+    UPROPERTY()
+    TObjectPtr<AActor> Instigator = nullptr;
+
+    // Server GetTimeSeconds() at the moment of the ping. Not used for client-side
+    // expiry math (server/client clocks are not synced) — it exists purely so two
+    // pings can never replicate as byte-identical, which would otherwise silently
+    // skip OnRep on the receiving client (Unreal only fires OnRep on an actual change).
+    UPROPERTY()
+    double ServerTimeSeconds = 0.0;
+};
+
+// Client-local, non-replicated bookkeeping for one still-visible Mark/Ping. Built
+// from FWTBRMarkPingPayload inside OnRep_IncomingMarkPing / ApplyIncomingMarkPing.
+USTRUCT(BlueprintType)
+struct FWTBRActiveMarkPing
+{
+    GENERATED_BODY()
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Mark Ping")
+    FVector Location = FVector::ZeroVector;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Mark Ping")
+    TWeakObjectPtr<AActor> MarkedActor;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Mark Ping")
+    bool bIsEnemy = false;
+
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Mark Ping")
+    TWeakObjectPtr<AActor> Instigator;
+
+    // Local (client) GetTimeSeconds() deadline; the HUD widget hides/prunes past this.
+    UPROPERTY(BlueprintReadOnly, Category="WTBR | Mark Ping")
+    double ExpireTimeSeconds = 0.0;
 };
 
 UCLASS(config=Game)
@@ -142,6 +200,26 @@ class AWTBRCharacter : public ACharacter
     // binding is skipped if not assigned, so the game runs identically without it.
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
     TObjectPtr<UInputAction> InteractAction;
+
+    // Optional — assign IA_MarkPing in BP_WTBRCharacter or IMC (default key MMB, the
+    // Apex/Fortnite/PUBG convention). Defaults null; binding is skipped if not
+    // assigned, so the game runs identically without it. See
+    // Server_RequestMarkPing/GetMarkPingRecipients below.
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category=Input, meta=(AllowPrivateAccess="true"))
+    TObjectPtr<UInputAction> MarkPingAction;
+
+    // Direct-key fallback, same pattern/purpose as CrouchKey/ProneKey above: MMB
+    // works with zero Input Mapping Context authoring. Unlike CrouchKey/ProneKey
+    // this ships with a real default (the design lock names MMB specifically, see
+    // [[wtbr-mark-ping-design-lock]] project memory — it isn't a per-project
+    // choice the way the stance keys are), so Mark/Ping is live immediately.
+    // Disable bUseDirectMarkPingKeyBinding once IA_MarkPing is mapped in the IMC,
+    // same reasoning as bUseDirectStanceKeyBindings, to avoid firing both paths.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Mark Ping", meta=(AllowPrivateAccess="true"))
+    FKey MarkPingKey = EKeys::MiddleMouseButton;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Mark Ping", meta=(AllowPrivateAccess="true"))
+    bool bUseDirectMarkPingKeyBinding = true;
 
     // Optional — assign IA_Cancel in BP_WTBRCharacter or IMC (IA_Cancel already
     // exists and is mapped in IMC_WTBR_Default; only the CDO/BP reference needs
@@ -230,6 +308,9 @@ public:
 
     UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
     TObjectPtr<UWTBRTriggerWheelWidget> TriggerWheelWidgetInstance;
+
+    UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
+    TObjectPtr<UWTBRMarkPingHUDWidget> MarkPingHUDWidgetInstance;
 
     // Seconds Q/E must be held before the selection wheel opens. Below this the
     // release is treated as a tap and cycles the slot, preserving the existing
@@ -608,6 +689,50 @@ public:
         return Other != nullptr && HasTeam() && Other->TeamId == TeamId;
     }
 
+    // ─── Mark/Ping (team-only ground/enemy marker, MMB by convention) ─────────
+    // Design: [[wtbr-mark-ping-design-lock]]. Server re-traces from the client's
+    // aim (never trusts a client-supplied hit) and only ever writes into
+    // IncomingMarkPing on the instigator's own teammates (self included) — so an
+    // enemy team never receives a copy of the payload at all, not merely one that
+    // a HUD chooses not to draw.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Mark Ping", meta=(ClampMin="500.0"))
+    float MarkPingMaxRange = 15000.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Mark Ping", meta=(ClampMin="0.1"))
+    float MarkPingCooldownSeconds = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Mark Ping", meta=(ClampMin="1.0"))
+    float MarkPingDisplayDuration = 5.0f;
+
+    UFUNCTION(BlueprintPure, Category="WTBR | Mark Ping")
+    const TArray<FWTBRActiveMarkPing>& GetActiveMarkPings() const { return ActiveMarkPings; }
+
+    // Pure, no trace/RPC involved — true once MarkPingCooldownSeconds has elapsed
+    // since the last accepted request. Exposed (not just inlined into the RPC) so
+    // it can be unit-tested without going through the RPC transport, which has no
+    // headless equivalent (see the Automation gotchas note in project memory).
+    UFUNCTION(BlueprintPure, Category="WTBR | Mark Ping")
+    bool CanRequestMarkPingNow() const;
+
+    // True if HitActor is a living AWTBRCharacter this is not confirmed to be on
+    // the same team as (IsSameTeamAs — same assigned TeamId only). A teamless
+    // HitActor is NOT given the benefit of the doubt: in a no-team/solo BR match
+    // TeamId is INDEX_NONE for everyone, and there everyone is hostile to
+    // everyone by definition — "friendly" requires proving a shared team, not
+    // just failing to prove hostility. A trace that actually reaches an enemy
+    // already proves LOS by construction, so this alone is the enemy-ping/LOS
+    // gate — no separate check.
+    UFUNCTION(BlueprintPure, Category="WTBR | Mark Ping")
+    bool ShouldTreatMarkPingHitAsEnemy(AActor* HitActor) const;
+
+    // This character plus every other AWTBRCharacter on the same assigned team
+    // (teamless matches: self only). Deliberately not filtered to player-controlled
+    // characters — a bot recipient harmlessly receives IncomingMarkPing and simply
+    // has no HUD to draw it with, and the unfiltered version stays trivially
+    // testable without a full PlayerController/network-join fixture.
+    UFUNCTION(BlueprintPure, Category="WTBR | Mark Ping")
+    TArray<AWTBRCharacter*> GetMarkPingRecipients() const;
+
     // Finds the closest-to-crosshair living enemy in range, inside the supplied
     // aim cone, with an unobstructed visibility trace. Used by homing attacks.
     static AWTBRCharacter* FindBestHomingTarget(
@@ -770,6 +895,19 @@ protected:
     // release).
     void InteractReleased(const FInputActionValue& Value);
 
+    // IA_MarkPing Started: reads the local camera's eye trace and forwards it to
+    // the server. Never resolves the hit/enemy branch itself — see
+    // Server_RequestMarkPing_Implementation, which is the sole authority.
+    void Input_RequestMarkPing(const FInputActionValue& Value);
+
+    // MarkPingKey direct-bind path (BindKey has a no-arg handler signature,
+    // unlike the Enhanced Input BindAction path above). Same body as
+    // Input_RequestMarkPing; see RequestMarkPingFromLocalAim.
+    void Input_RequestMarkPingKey();
+
+    // Shared by both binding paths above.
+    void RequestMarkPingFromLocalAim();
+
     // IA_Cancel handler: closes any open local UI panel (e.g. Bag/Loot) if one is
     // open; otherwise falls back to the existing CancelCurrentAction() trigger-
     // charge cancel. Presentation-only routing — no new gameplay mutation, no
@@ -800,9 +938,23 @@ protected:
     UFUNCTION(Server, Reliable)
     void Server_SelectTriggerSlot(bool bIsMain, int32 SlotIndex);
 
+    // Re-traces server-side from the supplied eye location/direction (never
+    // trusts a client-reported hit result); silently no-ops if
+    // CanRequestMarkPingNow() is false (cooldown, spam-proofing — no error
+    // feedback needed, MMB just does nothing until it is ready again).
+    UFUNCTION(Server, Reliable)
+    void Server_RequestMarkPing(FVector_NetQuantize TraceStart, FVector_NetQuantizeNormal TraceDirection);
+
     // ─── Replication ─────────────────────────────────────────────────────────
     UPROPERTY(ReplicatedUsing=OnRep_ActionPing)
     bool bActionPingActive = false;
+
+    // COND_OwnerOnly (see GetLifetimeReplicatedProps): only this character's own
+    // owning connection ever receives it, so a Mark/Ping written onto an enemy
+    // recipient's character would be a bug at the write site, not something that
+    // needs hiding again downstream.
+    UPROPERTY(ReplicatedUsing=OnRep_IncomingMarkPing)
+    FWTBRMarkPingPayload IncomingMarkPing;
 
     // Set server-side by Vexorn. All clients omit a cloaked character from radar.
     UPROPERTY(ReplicatedUsing=OnRep_RadarCloaked, BlueprintReadOnly, Category="WTBR | Radar")
@@ -818,6 +970,27 @@ private:
 
     UFUNCTION()
     void OnRep_ActionPing();
+
+    UFUNCTION()
+    void OnRep_IncomingMarkPing();
+
+    // Shared by OnRep_IncomingMarkPing (remote clients, fired by real
+    // replication) and Server_RequestMarkPing_Implementation (called directly,
+    // once per recipient, right after writing IncomingMarkPing — OnRep never
+    // fires locally for the instance that owns the authoritative value, which on
+    // a listen server is the host's own recipient character). Prunes expired
+    // entries, then appends one built from the current IncomingMarkPing.
+    void ApplyIncomingMarkPing();
+
+    // Server-only; not replicated. Local wall-clock gate, see
+    // CanRequestMarkPingNow().
+    double LastMarkPingRequestTimeSeconds = -1000.0;
+
+    // Client-local cosmetic cache read by UWTBRMarkPingHUDWidget via
+    // GetActiveMarkPings(). Capped at MaxActiveMarkPings (see .cpp) — old
+    // entries fall off rather than growing unbounded.
+    UPROPERTY(Transient)
+    TArray<FWTBRActiveMarkPing> ActiveMarkPings;
 
     UFUNCTION()
     void OnRep_RadarCloaked();
