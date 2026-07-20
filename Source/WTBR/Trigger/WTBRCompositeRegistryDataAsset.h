@@ -188,11 +188,24 @@ public:
     UFUNCTION(BlueprintPure, Category = "Composite | Registry")
     bool FindDefinition(EWTBRCompositeBulletType Type, FWTBRCompositeDefinition& OutDefinition) const;
 
+    // Evenly-spaced point on a sphere via the golden-angle spiral. Deterministic
+    // by design — server and client must agree, and it keeps the scatter
+    // automation-testable. Returns ZeroVector when Total < 2.
+    static FVector ComputeFibonacciSphereOffset(int32 Index, int32 Total, float Radius);
+
     // Resolves a preset into one world-space waypoint list per (lane, cube) pair.
+    //
+    // ScatterRadius > 0 replaces the per-cube FormationOffset line-up with a
+    // Fibonacci sphere centred on SpawnOrigin (Viper's around-the-body split).
+    // It is opt-in and defaults OFF so the composite behaviours that share this
+    // resolver — Coilvyn, Ignivex, Solveil — keep their existing layout
+    // untouched until Composite Bullet ships.
     static void ResolvePathPreset(
         const FWTBRPathPreset& Preset,
         const FVector& SpawnOrigin,
         const FRotator& AimRotation,
         float Range,
-        TArray<TArray<FVector>>& OutCubeWorldPaths);
+        TArray<TArray<FVector>>& OutCubeWorldPaths,
+        float ScatterRadius = 0.0f,
+        bool bIsMainSlot = true);
 };

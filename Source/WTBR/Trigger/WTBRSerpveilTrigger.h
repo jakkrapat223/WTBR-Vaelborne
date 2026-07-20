@@ -36,6 +36,13 @@ public:
     // Deprecated release-fire compatibility entry point. S1 never fires from here.
     void ExecuteServerFire(EWTBRSerpveilShape Shape, FRotator Direction, float ChargedRange);
 
+    // Server entry point for the client-local hold flow (wheel → charge →
+    // release). The client only ever sends an INDEX and a 0-1 charge fraction;
+    // every position, range and path is re-derived here from the equipped
+    // Trigger's own DataAsset, so a tampered client cannot post arbitrary
+    // geometry. Mirrors how Server_ConfirmEscudoPreset re-derives its panels.
+    void FireSelectedPreset(int32 PresetIndex, float ChargeFraction, bool bIsMain);
+
     bool CancelCharge();
     bool IsCharging() const { return bIsCharging; }
     void OnWindupCompleteForTest() { OnWindupComplete(); }
@@ -78,6 +85,9 @@ private:
     bool  bModeIsPreset   = false;
     bool  bWindupReady    = false;
     float CommittedReach  = 0.0f;
+    // Index into FWTBRSerpveilParams::SerpveilPresets chosen by the hold wheel,
+    // or INDEX_NONE to use the single legacy SerpveilPresetPath instead.
+    int32 SelectedPresetIndex = INDEX_NONE;
     FTimerHandle ChargeUpdateTimer;
     FTimerHandle WindupTimer;
 

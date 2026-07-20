@@ -27,6 +27,7 @@ class UWTBRTriggerWheelWidget;
 class UWTBRMarkPingHUDWidget;
 class UWTBREscudoPresetWheelWidget;
 class UWTBREscudoTrigger;
+class UWTBRSerpveilTrigger;
 class AWTBRAegornWallActor;
 class UTexture2D;
 class UNiagaraComponent;
@@ -56,6 +57,24 @@ enum class EWTBREscudoPresetFlowState : uint8
     WaitingForHoldDecision UMETA(DisplayName = "Waiting For Hold Decision"),
     WheelOpen UMETA(DisplayName = "Wheel Open"),
     GhostPreview UMETA(DisplayName = "Ghost Preview"),
+};
+
+// Serpveil (Viper) Hold/Preset flow — client-local, same architecture and for
+// the same reason as EWTBREscudoPresetFlowState above. Two-stage by owner's
+// choice: hold opens the wheel, releasing arms a preset, then a SECOND
+// press-and-hold charges range and its release fires.
+//
+// This enum covers the SELECTION phase only, which is deliberately one-at-a-time
+// (two wheels open at once would be unreadable). Once a preset is armed it is
+// slot-independent, and CHARGING is tracked per slot instead — Main and Sub can
+// charge and fire the same armed preset simultaneously, which is the whole
+// reason the Fibonacci scatter interleaves by parity.
+UENUM(BlueprintType)
+enum class EWTBRSerpveilPresetFlowState : uint8
+{
+    Idle UMETA(DisplayName = "Idle"),
+    WaitingForHoldDecision UMETA(DisplayName = "Waiting For Hold Decision"),
+    WheelOpen UMETA(DisplayName = "Wheel Open"),
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRHUDHintsChanged);
@@ -842,12 +861,31 @@ public:
         Category = "WTBR | Trigger | VFX")
     bool bSerpveilChargeTelegraphActive = false;
 
+    // Which hand the in-flight Serpveil charge is being conjured from. Main
+    // conjures right, Sub conjures left. Replicated alongside the telegraph flag
+    // so remote clients attach the cosmetic to the correct socket — UE applies
+    // every replicated property in a bunch before running any RepNotify, so this
+    // is already current by the time OnRep_SerpveilChargeTelegraph fires.
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "WTBR | Trigger | VFX")
+    bool bSerpveilChargeFromMainHand = true;
+
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Trigger | VFX")
     void OnSerpveilChargeTelegraphChanged(bool bActive);
 
+    // Socket the conjure cosmetic should attach to. Blueprint reads this instead
+    // of hardcoding a hand — the telegraph event signature is deliberately left
+    // unchanged so existing graphs keep compiling.
+    UFUNCTION(BlueprintPure, Category = "WTBR | Trigger | VFX")
+    FName GetSerpveilChargeHandSocket() const;
+
+    // Single source of truth for the Main/Sub hand mapping, shared by the
+    // Serpveil trigger's spawn path and the cosmetic above so they cannot drift.
+    UFUNCTION(BlueprintPure, Category = "WTBR | Trigger | VFX")
+    static FName ResolveSerpveilHandSocket(bool bIsMainSlot);
+
     // Server-only setter, called by UWTBRSerpveilTrigger from its existing
     // authority-gated paths. Idempotent — no-ops if the value is unchanged.
-    void SetSerpveilChargeTelegraphActive(bool bActive);
+    void SetSerpveilChargeTelegraphActive(bool bActive, bool bFromMainHand = true);
 
     // Server-authoritative telegraph of "is this character's Lacern blade
     // currently extending" — mirrors bSerpveilChargeTelegraphActive's RepNotify
@@ -971,6 +1009,43 @@ protected:
     // functions changes.
     bool HandleEscudoFirePressed(bool bIsMain);
     bool HandleEscudoFireReleased(bool bIsMain);
+
+    // ── Serpveil Hold/Preset (client-local; same contract as the Escudo pair) ──
+    bool HandleSerpveilFirePressed(bool bIsMain);
+    bool HandleSerpveilFireReleased(bool bIsMain);
+
+    UFUNCTION()
+    void OnSerpveilHoldThresholdReached();
+
+    void OpenSerpveilPresetWheel();
+
+    // Release while the wheel is open: arms the highlighted preset for BOTH
+    // slots and waits for a stage-2 press on either. Dead zone = free cancel,
+    // same rule as Escudo.
+    void ArmSerpveilPresetAndAwaitCharge();
+
+    bool IsAnySerpveilSlotCharging() const;
+
+    UFUNCTION()
+    void TickSerpveilChargePreview();
+
+    // PHASE 1 STOPGAP: DrawDebug range line so the two-stage flow can be judged
+    // by feel before any real UI exists. Compiled out in Shipping — the real
+    // indicator (world marker + radar path) is deliberately deferred until the
+    // flow itself is confirmed worth keeping.
+    void DrawSerpveilChargePreview(float ChargeFraction) const;
+
+    // No stage-2 press within this long after locking = the player moved on.
+    // Frees the flow rather than leaving a stale preset armed.
+    UFUNCTION()
+    void OnSerpveilPresetLockExpired();
+
+    void CancelSerpveilPresetFlow();
+
+    UWTBRSerpveilTrigger* GetActiveSerpveilTrigger(bool bIsMain) const;
+
+    UFUNCTION(Server, Reliable)
+    void Server_FireSerpveilPreset(bool bIsMain, int32 PresetIndex, float ChargeFraction);
 
     UFUNCTION()
     void OnEscudoHoldThresholdReached();
@@ -1149,6 +1224,42 @@ private:
     // honest placements made while turning or running; this is wide enough to
     // absorb that but far too tight to place a preset across the map.
     static constexpr float ESCUDO_SERVER_RANGE_TOLERANCE = 1.25f;
+
+    // ── Serpveil Hold/Preset state (client-local only, never replicated) ──────
+    // Slot indexing for the per-slot arrays below: 0 = Main, 1 = Sub.
+    static constexpr int32 SERPVEIL_SLOT_MAIN = 0;
+    static constexpr int32 SERPVEIL_SLOT_SUB = 1;
+    static constexpr int32 SERPVEIL_SLOT_COUNT = 2;
+    static int32 SerpveilSlotIndex(bool bIsMain) { return bIsMain ? SERPVEIL_SLOT_MAIN : SERPVEIL_SLOT_SUB; }
+
+    EWTBRSerpveilPresetFlowState SerpveilFlowState = EWTBRSerpveilPresetFlowState::Idle;
+    bool bSerpveilFlowIsMainSlot = true;
+    // Armed preset is shared by BOTH slots, not owned by the one that picked it.
+    int32 SerpveilArmedPresetIndex = INDEX_NONE;
+    bool bSerpveilChargingSlot[SERPVEIL_SLOT_COUNT] = {false, false};
+    float SerpveilChargeStartTimeSlot[SERPVEIL_SLOT_COUNT] = {0.0f, 0.0f};
+    // With Serpveil in both slots, ONE button charges and fires both — holding
+    // and releasing LMB+RMB in sync is awkward on a mouse. The button that
+    // started the charge is the only one whose release fires it; the other
+    // button's press/release is swallowed so it cannot double-fire or leak
+    // through to the legacy Server_Fire path.
+    bool bSerpveilChargeInitiatorIsMain = true;
+    // A press we swallowed must have its matching release swallowed too. By
+    // release time the flow may already be back to Idle, so without this the
+    // release slips through to the legacy Server_Fire path on its own.
+    bool bSerpveilSwallowNextRelease[SERPVEIL_SLOT_COUNT] = {false, false};
+    FTimerHandle SerpveilHoldThresholdTimer;
+    FTimerHandle SerpveilChargeTickTimer;
+    FTimerHandle SerpveilPresetLockTimer;
+    // Matches the Escudo wheel's feel deliberately — both dialogs open off the
+    // same gesture on the same button, so a different threshold would read as
+    // inconsistent rather than as a distinct mechanic.
+    static constexpr float SERPVEIL_HOLD_THRESHOLD = 0.2f;
+    static constexpr float SERPVEIL_CHARGE_TICK_INTERVAL = 0.0167f;
+    // Seconds of charge to reach maximum range in stage 2.
+    static constexpr float SERPVEIL_FULL_CHARGE_SECONDS = 0.8f;
+    // Grace period after locking a preset before the flow releases itself.
+    static constexpr float SERPVEIL_PRESET_LOCK_TIMEOUT = 3.0f;
 
     UFUNCTION()
     void OnRep_RadarCloaked();

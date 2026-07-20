@@ -590,6 +590,7 @@ void AWTBRCharacter::FireMain(const FInputActionValue& Value)
     if (InputGestureComponent) InputGestureComponent->NotifyMainPressed();
     UpdateSniperZoom(true, true);
     if (HandleEscudoFirePressed(true)) return;
+    if (HandleSerpveilFirePressed(true)) return;
     Server_Fire(true, true, ClientMoveInputDir);
 }
 
@@ -603,6 +604,7 @@ void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
     if (InputGestureComponent) InputGestureComponent->NotifyMainReleased();
     UpdateSniperZoom(true, false);
     if (HandleEscudoFireReleased(true)) return;
+    if (HandleSerpveilFireReleased(true)) return;
     Server_Fire(true, false, FVector::ZeroVector);
 }
 
@@ -618,6 +620,7 @@ void AWTBRCharacter::FireSub(const FInputActionValue& Value)
     if (InputGestureComponent) InputGestureComponent->NotifySubPressed();
     UpdateSniperZoom(false, true);
     if (HandleEscudoFirePressed(false)) return;
+    if (HandleSerpveilFirePressed(false)) return;
     Server_Fire(false, true, ClientMoveInputDir);
 }
 
@@ -631,6 +634,7 @@ void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
     if (InputGestureComponent) InputGestureComponent->NotifySubReleased();
     UpdateSniperZoom(false, false);
     if (HandleEscudoFireReleased(false)) return;
+    if (HandleSerpveilFireReleased(false)) return;
     Server_Fire(false, false, FVector::ZeroVector);
 }
 
@@ -901,6 +905,397 @@ void AWTBRCharacter::LockEscudoPresetAndEnterGhostPreview()
     TickEscudoGhostPreview();
 }
 
+// ─── Serpveil Hold/Preset flow (client-local) ────────────────────────────────
+
+UWTBRSerpveilTrigger* AWTBRCharacter::GetActiveSerpveilTrigger(bool bIsMain) const
+{
+    if (!TriggerSetComponent)
+    {
+        return nullptr;
+    }
+    UWTBRTriggerBase* Trigger = bIsMain
+        ? TriggerSetComponent->GetActiveMainTrigger()
+        : TriggerSetComponent->GetActiveSubTrigger();
+    return Cast<UWTBRSerpveilTrigger>(Trigger);
+}
+
+bool AWTBRCharacter::IsAnySerpveilSlotCharging() const
+{
+    return bSerpveilChargingSlot[SERPVEIL_SLOT_MAIN] || bSerpveilChargingSlot[SERPVEIL_SLOT_SUB];
+}
+
+bool AWTBRCharacter::HandleSerpveilFirePressed(bool bIsMain)
+{
+    // Stage 2, with a preset armed. One button charges ONLY its own slot, so a
+    // dual-Viper player is never forced to spend both slots' Vael on a shot they
+    // wanted from one hand. Pressing the other button during the charge opts
+    // that slot in as well — tap or hold, it makes no difference, because only
+    // the button that STARTED the charge ever fires it.
+    if (SerpveilArmedPresetIndex != INDEX_NONE)
+    {
+        const int32 SlotIdx = SerpveilSlotIndex(bIsMain);
+
+        // A non-Serpveil slot is none of this flow's business even mid-charge —
+        // its own Trigger must still fire normally.
+        if (!IsValid(GetActiveSerpveilTrigger(bIsMain)))
+        {
+            return false;
+        }
+
+        if (IsAnySerpveilSlotCharging())
+        {
+            if (!bSerpveilChargingSlot[SlotIdx])
+            {
+                // Joining shares the initiator's start time on purpose: one
+                // release should send both volleys the same distance. Timing
+                // the second press would otherwise silently shorten its range.
+                bSerpveilChargingSlot[SlotIdx] = true;
+                SerpveilChargeStartTimeSlot[SlotIdx] =
+                    SerpveilChargeStartTimeSlot[SerpveilSlotIndex(bSerpveilChargeInitiatorIsMain)];
+            }
+            // This button is a modifier, not a trigger — make sure its release
+            // neither fires nor escapes to the legacy path, whenever it lands.
+            bSerpveilSwallowNextRelease[SlotIdx] = true;
+            return true;
+        }
+
+        bSerpveilChargingSlot[SlotIdx] = true;
+        SerpveilChargeStartTimeSlot[SlotIdx] = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+        bSerpveilChargeInitiatorIsMain = bIsMain;
+        GetWorldTimerManager().SetTimer(
+            SerpveilChargeTickTimer, this,
+            &AWTBRCharacter::TickSerpveilChargePreview,
+            SERPVEIL_CHARGE_TICK_INTERVAL, true);
+        TickSerpveilChargePreview();
+        return true;
+    }
+
+    // A selection is already running on the other slot. If this slot is ALSO a
+    // Serpveil, swallow the press outright — letting it fall through fires a
+    // legacy volley from one hand while the other hand's wheel is still opening.
+    // A non-Serpveil slot is untouched and falls through as it always did.
+    if (SerpveilFlowState != EWTBRSerpveilPresetFlowState::Idle)
+    {
+        const bool bSwallow = IsValid(GetActiveSerpveilTrigger(bIsMain));
+        if (bSwallow)
+        {
+            bSerpveilSwallowNextRelease[SerpveilSlotIndex(bIsMain)] = true;
+        }
+        return bSwallow;
+    }
+
+    if (!IsValid(GetActiveSerpveilTrigger(bIsMain)))
+    {
+        return false;
+    }
+
+    // Tap vs hold is still unknown, so suppress Server_Fire until the threshold
+    // resolves it. A tap replays both calls itself on release, keeping the
+    // normal Server_Fire route byte-for-byte identical for tap volleys.
+    bSerpveilFlowIsMainSlot = bIsMain;
+    SerpveilFlowState = EWTBRSerpveilPresetFlowState::WaitingForHoldDecision;
+    GetWorldTimerManager().SetTimer(
+        SerpveilHoldThresholdTimer, this,
+        &AWTBRCharacter::OnSerpveilHoldThresholdReached,
+        SERPVEIL_HOLD_THRESHOLD, false);
+    return true;
+}
+
+bool AWTBRCharacter::HandleSerpveilFireReleased(bool bIsMain)
+{
+    // Matching release for a press we already swallowed, however the flow has
+    // moved on since. Consume it and clear the marker.
+    if (bSerpveilSwallowNextRelease[SerpveilSlotIndex(bIsMain)])
+    {
+        bSerpveilSwallowNextRelease[SerpveilSlotIndex(bIsMain)] = false;
+        return true;
+    }
+
+    // Stage 2 release fires every slot the linked charge started. Only the
+    // button that began it counts — releasing the other one is swallowed, so a
+    // dual-Viper volley cannot fire twice or leak a stray legacy shot.
+    if (IsAnySerpveilSlotCharging())
+    {
+        if (bSerpveilChargeInitiatorIsMain != bIsMain)
+        {
+            return true;
+        }
+
+        const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+        const int32 FiredIndex = SerpveilArmedPresetIndex;
+
+        for (int32 Slot = 0; Slot < SERPVEIL_SLOT_COUNT; ++Slot)
+        {
+            if (!bSerpveilChargingSlot[Slot]) continue;
+
+            const bool bSlotIsMain = (Slot == SERPVEIL_SLOT_MAIN);
+            const float Elapsed = Now - SerpveilChargeStartTimeSlot[Slot];
+            const float ChargeFraction =
+                FMath::Clamp(Elapsed / SERPVEIL_FULL_CHARGE_SECONDS, 0.0f, 1.0f);
+
+            bSerpveilChargingSlot[Slot] = false;
+
+            WTBR_VALIDATION_LOG(Log,
+                TEXT("[Serpveil Hold] ChargeReleased | Owner=%s | IsMain=%s | Index=%d | Charge=%.2f | Elapsed=%.2f"),
+                *GetNameSafe(this), bSlotIsMain ? TEXT("true") : TEXT("false"),
+                FiredIndex, ChargeFraction, Elapsed);
+
+            Server_FireSerpveilPreset(bSlotIsMain, FiredIndex, ChargeFraction);
+        }
+
+        GetWorldTimerManager().ClearTimer(SerpveilChargeTickTimer);
+
+        // Consumed by the shot. This is what makes the NEXT hold open the wheel
+        // again instead of silently re-firing the same preset. Letting it live
+        // on only made sense while each slot fired separately; now that one
+        // press fires every slot, nothing is left that could still need it.
+        SerpveilArmedPresetIndex = INDEX_NONE;
+        GetWorldTimerManager().ClearTimer(SerpveilPresetLockTimer);
+        return true;
+    }
+
+    if (SerpveilFlowState == EWTBRSerpveilPresetFlowState::Idle)
+    {
+        return false;
+    }
+
+    // Mirror of the press guard: the other slot's release must be swallowed too,
+    // or it reaches Server_Fire on its own and fires a stray legacy volley.
+    if (bSerpveilFlowIsMainSlot != bIsMain)
+    {
+        return IsValid(GetActiveSerpveilTrigger(bIsMain));
+    }
+
+    switch (SerpveilFlowState)
+    {
+    case EWTBRSerpveilPresetFlowState::WaitingForHoldDecision:
+    {
+        // Released before the threshold — a plain Tap. Replay the pair the
+        // normal path would have sent.
+        GetWorldTimerManager().ClearTimer(SerpveilHoldThresholdTimer);
+        SerpveilFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        const FVector ClientMoveInputDir = GetClientMoveInputDirectionForTrigger();
+        Server_Fire(bIsMain, true, ClientMoveInputDir);
+        Server_Fire(bIsMain, false, FVector::ZeroVector);
+        return true;
+    }
+    case EWTBRSerpveilPresetFlowState::WheelOpen:
+        ArmSerpveilPresetAndAwaitCharge();
+        return true;
+    default:
+        return true;
+    }
+}
+
+void AWTBRCharacter::OnSerpveilHoldThresholdReached()
+{
+    if (SerpveilFlowState != EWTBRSerpveilPresetFlowState::WaitingForHoldDecision)
+    {
+        return;
+    }
+    OpenSerpveilPresetWheel();
+}
+
+void AWTBRCharacter::OpenSerpveilPresetWheel()
+{
+    // Reuses the Escudo wheel widget deliberately: nothing in it is Escudo-
+    // specific (its options are just name + affordable), the two flows are
+    // mutually exclusive, and renaming a shipped, owner-verified UCLASS would
+    // cost redirectors for no behavioural gain. Only the name is misleading.
+    const UWTBRSerpveilTrigger* SerpveilTrigger =
+        GetActiveSerpveilTrigger(bSerpveilFlowIsMainSlot);
+    if (!IsValid(SerpveilTrigger) || !IsValid(SerpveilTrigger->DataAsset)
+        || !IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        SerpveilFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        return;
+    }
+
+    const TArray<FWTBRPathPreset>& Presets =
+        SerpveilTrigger->DataAsset->SerpveilParams.SerpveilPresets;
+    if (Presets.Num() == 0)
+    {
+        SerpveilFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        return;
+    }
+
+    // Serpveil charges one flat cost per shot regardless of which path is
+    // chosen, so affordability is all-or-nothing rather than per-option.
+    const float CurrentVael = IsValid(VaelComponent) ? VaelComponent->GetCurrentVael() : 0.0f;
+    const float ShotCost = SerpveilTrigger->DataAsset->SerpveilParams.SerpveilVaelCostPerShot;
+    if (CurrentVael < ShotCost)
+    {
+        SerpveilFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        return;
+    }
+
+    TArray<FWTBREscudoPresetWheelOption> Options;
+    Options.Reserve(Presets.Num());
+    for (const FWTBRPathPreset& Preset : Presets)
+    {
+        FWTBREscudoPresetWheelOption Option;
+        Option.Name = Preset.DisplayName;
+        Option.bAffordable = true;
+        Options.Add(Option);
+    }
+
+    SerpveilFlowState = EWTBRSerpveilPresetFlowState::WheelOpen;
+    SetLookInputFrozen(true);
+    EscudoPresetWheelWidgetInstance->OpenWheel(Options);
+}
+
+void AWTBRCharacter::ArmSerpveilPresetAndAwaitCharge()
+{
+    SetLookInputFrozen(false);
+
+    const int32 SelectedIndex = IsValid(EscudoPresetWheelWidgetInstance)
+        ? EscudoPresetWheelWidgetInstance->GetHighlightedPresetIndex()
+        : INDEX_NONE;
+
+    if (IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        EscudoPresetWheelWidgetInstance->CloseWheel();
+    }
+
+    WTBR_VALIDATION_LOG(Log, TEXT("[Serpveil Hold] ArmPreset | Owner=%s | SelectedIndex=%d"),
+        *GetNameSafe(this), SelectedIndex);
+
+    // Selection phase is over either way — the wheel is closed and another
+    // slot is free to open its own once this armed preset lapses.
+    SerpveilFlowState = EWTBRSerpveilPresetFlowState::Idle;
+
+    // Dead zone = changed their mind, free cancel (same rule as Escudo).
+    if (SelectedIndex == INDEX_NONE)
+    {
+        return;
+    }
+
+    SerpveilArmedPresetIndex = SelectedIndex;
+    GetWorldTimerManager().SetTimer(
+        SerpveilPresetLockTimer, this,
+        &AWTBRCharacter::OnSerpveilPresetLockExpired,
+        SERPVEIL_PRESET_LOCK_TIMEOUT, false);
+}
+
+void AWTBRCharacter::OnSerpveilPresetLockExpired()
+{
+    if (SerpveilArmedPresetIndex == INDEX_NONE)
+    {
+        return;
+    }
+
+    // Never disarm out from under a slot that is mid-charge — its release
+    // would otherwise fire with INDEX_NONE and silently fall back to the
+    // legacy straight volley. Wait for the charge instead. (Firing clears the
+    // arm itself, so reaching here while charging means a very slow charge,
+    // not a leak.)
+    if (IsAnySerpveilSlotCharging())
+    {
+        GetWorldTimerManager().SetTimer(
+            SerpveilPresetLockTimer, this,
+            &AWTBRCharacter::OnSerpveilPresetLockExpired,
+            SERPVEIL_PRESET_LOCK_TIMEOUT, false);
+        return;
+    }
+
+    WTBR_VALIDATION_LOG(Log, TEXT("[Serpveil Hold] ArmExpired | Owner=%s"), *GetNameSafe(this));
+    SerpveilArmedPresetIndex = INDEX_NONE;
+}
+
+void AWTBRCharacter::TickSerpveilChargePreview()
+{
+    if (!IsAnySerpveilSlotCharging())
+    {
+        GetWorldTimerManager().ClearTimer(SerpveilChargeTickTimer);
+        return;
+    }
+
+    // Both slots charge along the same aim line, so one line is enough — draw
+    // the furthest-along of them rather than two overlapping lines.
+    const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+    float BestFraction = 0.0f;
+    for (int32 Slot = 0; Slot < SERPVEIL_SLOT_COUNT; ++Slot)
+    {
+        if (!bSerpveilChargingSlot[Slot]) continue;
+        BestFraction = FMath::Max(BestFraction,
+            FMath::Clamp((Now - SerpveilChargeStartTimeSlot[Slot]) / SERPVEIL_FULL_CHARGE_SECONDS,
+                0.0f, 1.0f));
+    }
+    DrawSerpveilChargePreview(BestFraction);
+}
+
+void AWTBRCharacter::DrawSerpveilChargePreview(float ChargeFraction) const
+{
+#if ENABLE_DRAW_DEBUG
+    const UWTBRSerpveilTrigger* SerpveilTrigger =
+        GetActiveSerpveilTrigger(bSerpveilFlowIsMainSlot);
+    if (!IsValid(SerpveilTrigger) || !IsValid(SerpveilTrigger->DataAsset)) return;
+
+    const UWorld* World = GetWorld();
+    if (!World) return;
+
+    const FWTBRSerpveilParams& Params = SerpveilTrigger->DataAsset->SerpveilParams;
+    const float BasicRange = FMath::Max(Params.SerpveilMaxRange, 0.0f);
+    const float PresetMaxRange = FMath::Max(Params.SerpveilPresetMaxRange, BasicRange);
+    const float Reach = FMath::Lerp(BasicRange, PresetMaxRange, ChargeFraction);
+
+    FVector EyeLocation = FVector::ZeroVector;
+    FRotator EyeRotation = FRotator::ZeroRotator;
+    GetActorEyesViewPoint(EyeLocation, EyeRotation);
+
+    // Straight reach line only — deliberately NOT the real curved path. The
+    // honest curved preview belongs with the radar work, and faking it here
+    // would repeat the old "preview showed a different shape than it fired" bug.
+    const FVector End = EyeLocation + EyeRotation.Vector() * Reach;
+    const FColor LineColour = FColor::MakeRedToGreenColorFromScalar(ChargeFraction);
+    DrawDebugLine(World, EyeLocation, End, LineColour, false,
+        SERPVEIL_CHARGE_TICK_INTERVAL * 2.0f, 0, 3.0f);
+    DrawDebugSphere(World, End, 40.0f, 12, LineColour, false,
+        SERPVEIL_CHARGE_TICK_INTERVAL * 2.0f);
+#endif
+}
+
+void AWTBRCharacter::CancelSerpveilPresetFlow()
+{
+    if (SerpveilFlowState == EWTBRSerpveilPresetFlowState::Idle
+        && SerpveilArmedPresetIndex == INDEX_NONE
+        && !IsAnySerpveilSlotCharging())
+    {
+        return;
+    }
+
+    GetWorldTimerManager().ClearTimer(SerpveilHoldThresholdTimer);
+    GetWorldTimerManager().ClearTimer(SerpveilChargeTickTimer);
+    GetWorldTimerManager().ClearTimer(SerpveilPresetLockTimer);
+    SetLookInputFrozen(false);
+
+    if (IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        EscudoPresetWheelWidgetInstance->CloseWheel();
+    }
+
+    SerpveilFlowState = EWTBRSerpveilPresetFlowState::Idle;
+    SerpveilArmedPresetIndex = INDEX_NONE;
+    for (int32 Slot = 0; Slot < SERPVEIL_SLOT_COUNT; ++Slot)
+    {
+        bSerpveilChargingSlot[Slot] = false;
+        bSerpveilSwallowNextRelease[Slot] = false;
+    }
+}
+
+void AWTBRCharacter::Server_FireSerpveilPreset_Implementation(
+    bool bIsMain, int32 PresetIndex, float ChargeFraction)
+{
+    UWTBRSerpveilTrigger* SerpveilTrigger = GetActiveSerpveilTrigger(bIsMain);
+    if (!IsValid(SerpveilTrigger))
+    {
+        return;
+    }
+    // Index bounds and range are both re-derived server-side inside here.
+    SerpveilTrigger->FireSelectedPreset(
+        PresetIndex, FMath::Clamp(ChargeFraction, 0.0f, 1.0f), bIsMain);
+}
+
 void AWTBRCharacter::ComputeEscudoAnchor(
     const UWTBREscudoTrigger* EscudoTrigger, FVector& OutLocation,
     FRotator& OutRotation, FVector& OutSurfaceNormal) const
@@ -1044,6 +1439,7 @@ void AWTBRCharacter::TickEscudoGhostPreview()
         // CancelEscudoPresetFlow — abort cleanly instead of previewing
         // against a stale/wrong Trigger.
         CancelEscudoPresetFlow();
+        CancelSerpveilPresetFlow();
         return;
     }
 
@@ -1154,6 +1550,7 @@ void AWTBRCharacter::TryConfirmEscudoPlacement()
     if (!IsValid(EscudoTrigger))
     {
         CancelEscudoPresetFlow();
+        CancelSerpveilPresetFlow();
         return;
     }
 
@@ -1387,6 +1784,7 @@ void AWTBRCharacter::HandleCancelInput()
     if (EscudoFlowState != EWTBREscudoPresetFlowState::Idle)
     {
         CancelEscudoPresetFlow();
+        CancelSerpveilPresetFlow();
         return;
     }
 
@@ -1626,6 +2024,7 @@ void AWTBRCharacter::EndTriggerSetSelect(bool bIsMain)
     // (owner-locked design) — this is the single point where a slot actually
     // changes, whether via tap-cycle or a wheel commit, for either set.
     CancelEscudoPresetFlow();
+    CancelSerpveilPresetFlow();
 
     if (IsValid(TriggerWheelWidgetInstance) && TriggerWheelWidgetInstance->IsWheelOpen())
     {
@@ -5082,6 +5481,7 @@ void AWTBRCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLi
     DOREPLIFETIME(AWTBRCharacter, CharacterStance);
     DOREPLIFETIME(AWTBRCharacter, bIsHangingOnNexilWire);
     DOREPLIFETIME(AWTBRCharacter, bSerpveilChargeTelegraphActive);
+    DOREPLIFETIME(AWTBRCharacter, bSerpveilChargeFromMainHand);
     DOREPLIFETIME(AWTBRCharacter, bLacernExtendTelegraphActive);
     DOREPLIFETIME(AWTBRCharacter, bLacernExtendDualWield);
     DOREPLIFETIME_CONDITION(AWTBRCharacter, IncomingMarkPing, COND_OwnerOnly);
@@ -5154,9 +5554,27 @@ void AWTBRCharacter::OnRep_bIsHangingOnNexilWire()
     OnHangingOnNexilWireChanged(bIsHangingOnNexilWire);
 }
 
-void AWTBRCharacter::SetSerpveilChargeTelegraphActive(bool bActive)
+FName AWTBRCharacter::ResolveSerpveilHandSocket(bool bIsMainSlot)
+{
+    return bIsMainSlot ? FName(TEXT("hand_r")) : FName(TEXT("hand_l"));
+}
+
+FName AWTBRCharacter::GetSerpveilChargeHandSocket() const
+{
+    return ResolveSerpveilHandSocket(bSerpveilChargeFromMainHand);
+}
+
+void AWTBRCharacter::SetSerpveilChargeTelegraphActive(bool bActive, bool bFromMainHand)
 {
     if (!HasAuthority()) return;
+
+    // Updated before the unchanged-value early-out below: re-charging from the
+    // other hand while the flag is already true must not leave a stale socket.
+    if (bActive)
+    {
+        bSerpveilChargeFromMainHand = bFromMainHand;
+    }
+
     if (bSerpveilChargeTelegraphActive == bActive) return;
 
     bSerpveilChargeTelegraphActive = bActive;

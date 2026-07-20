@@ -114,7 +114,7 @@ void UWTBRSerpveilTrigger::OnTriggerActivated_Implementation(
     bModeIsPreset = false;
     bWindupReady = false;
     CommittedReach = FMath::Max(DataAsset->SerpveilParams.SerpveilMaxRange, 0.0f);
-    OwnerCharacter->SetSerpveilChargeTelegraphActive(true);
+    OwnerCharacter->SetSerpveilChargeTelegraphActive(true, bCachedIsMain);
 
     const float SplitDelay = FMath::Max(Params.SerpveilSplitDelay, 0.0f);
     WTBR_VALIDATION_LOG(Verbose,
@@ -199,6 +199,43 @@ void UWTBRSerpveilTrigger::HandleReleaseAtElapsed(float Elapsed)
     }
 }
 
+void UWTBRSerpveilTrigger::FireSelectedPreset(
+    int32 PresetIndex, float ChargeFraction, bool bIsMain)
+{
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return;
+    if (!IsValid(DataAsset)) return;
+
+    const FWTBRSerpveilParams& Params = DataAsset->SerpveilParams;
+
+    // Server owns the index bounds check — a client asking for preset 999 gets
+    // the legacy single path, never an out-of-range read.
+    SelectedPresetIndex = Params.SerpveilPresets.IsValidIndex(PresetIndex)
+        ? PresetIndex : INDEX_NONE;
+
+    // Range is re-derived from the server's own numbers; the client only says
+    // "how charged", never "how far".
+    const float BasicRange = FMath::Max(Params.SerpveilMaxRange, 0.0f);
+    const float PresetMaxRange = FMath::Max(Params.SerpveilPresetMaxRange, BasicRange);
+    CommittedReach = FMath::Lerp(
+        BasicRange, PresetMaxRange, FMath::Clamp(ChargeFraction, 0.0f, 1.0f));
+
+    bCachedIsMain = bIsMain;
+    bModeIsPreset = true;
+    bIsCharging = true;      // ExecuteSplitVolley's own guards expect a live charge
+    bButtonReleased = true;
+
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("[Serpveil Hold] FireSelectedPreset | Owner=%s | RequestedIndex=%d | ResolvedIndex=%d | Charge=%.2f | Reach=%.1f | IsMain=%s"),
+        *GetNameSafe(OwnerCharacter.Get()),
+        PresetIndex,
+        SelectedPresetIndex,
+        ChargeFraction,
+        CommittedReach,
+        bIsMain ? TEXT("true") : TEXT("false"));
+
+    ExecuteSplitVolley();
+}
+
 float UWTBRSerpveilTrigger::ComputeReachForElapsed(float Elapsed) const
 {
     if (!IsValid(DataAsset)) return 0.0f;
@@ -264,6 +301,7 @@ bool UWTBRSerpveilTrigger::CancelCharge()
     bModeIsPreset = false;
     bWindupReady = false;
     CommittedReach = 0.0f;
+    SelectedPresetIndex = INDEX_NONE;
     StopChargeTracking();
 
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil S1] WindupCanceled | Owner=%s | Main=%s | Elapsed=%.3f | NoFire=true | NoVaelConsume=true"),
@@ -379,7 +417,10 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
     OwnerCharacter->GetActorEyesViewPoint(EyeLocation, AimRotation);
     AimRotation.Roll = 0.0f;
 
-    static const FName HandSocketName(TEXT("hand_r"));
+    // Main conjures from the right hand, Sub from the left. This only decides
+    // where the single big cube is conjured (the telegraph) — the post-split
+    // cubes are scattered about the BODY centre below, not about the hand.
+    const FName HandSocketName = AWTBRCharacter::ResolveSerpveilHandSocket(bCachedIsMain);
     FVector SpawnOrigin;
     if (const USkeletalMeshComponent* CharacterMesh = OwnerCharacter->GetMesh();
         IsValid(CharacterMesh) && CharacterMesh->DoesSocketExist(HandSocketName))
@@ -390,23 +431,32 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
     {
         SpawnOrigin = EyeLocation + AimRotation.Vector() * 100.0f;
         UE_LOG(LogTemp, Warning,
-            TEXT("[Serpveil S1] HandSocketFallback | Owner=%s | Socket=%s | Reason=MeshMissingOrSocketAbsent"),
+            TEXT("[Serpveil S1] HandSocketFallback | Owner=%s | Socket=%s | IsMain=%s | Reason=MeshMissingOrSocketAbsent"),
             *GetNameSafe(OwnerCharacter.Get()),
-            *HandSocketName.ToString());
+            *HandSocketName.ToString(),
+            bCachedIsMain ? TEXT("true") : TEXT("false"));
     }
 
+    // Scatter centre for the split. Deliberately the body, not the hand — Main's
+    // and Sub's spheres therefore overlap, and it is the even/odd parity inside
+    // the scatter that keeps their cubes apart, not the hand split.
+    // The height offset is applied in WORLD space, not aim space: the sphere's
+    // own offsets rotate with aim, but "up" must stay up or aiming down would
+    // drive the lower cubes back into the floor.
+    const FVector ScatterCentre = OwnerCharacter->GetActorLocation()
+        + FVector(0.0f, 0.0f, FMath::Max(Params.SerpveilScatterHeightOffset, 0.0f));
+
     const float MaxRange = FMath::Max(CommittedReach, 0.0f);
-    const float FormationSpacing = FMath::Max(Params.SerpveilFormationSpacing, 0.0f);
-    const float FormationStagger = FMath::Max(Params.SerpveilFormationStagger, 0.0f);
+    const float ScatterRadius = FMath::Max(Params.SerpveilScatterRadius, 0.0f);
     const FRotationMatrix AimMatrix(AimRotation);
     int32 SpawnedCount = 0;
 
-    WTBR_VALIDATION_LOG(Verbose,
-        TEXT("[Serpveil S1] VolleySpawnStart | Owner=%s | Cubes=%d | FormationSpacing=%.1f | FormationStagger=%.1f | Pitch=%.1f | Range=%.1f | Speed=%.1f | PerCubeDamage=%.1f"),
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("[Serpveil S1] VolleySpawnStart | Owner=%s | Cubes=%d | ScatterRadius=%.1f | IsMain=%s | Pitch=%.1f | Range=%.1f | Speed=%.1f | PerCubeDamage=%.1f"),
         *GetNameSafe(OwnerCharacter.Get()),
         CubeCount,
-        FormationSpacing,
-        FormationStagger,
+        ScatterRadius,
+        bCachedIsMain ? TEXT("true") : TEXT("false"),
         AimRotation.Pitch,
         MaxRange,
         Params.SerpveilSpeed,
@@ -423,6 +473,9 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
         // Preserve the existing BP event signature until S2 replaces shape presets.
         OnSerpveilFired(Params.PresetShape);
         OwnerCharacter->SetSerpveilChargeTelegraphActive(false);
+        // A wheel selection is consumed by the shot that used it — the next
+        // volley must not silently inherit it.
+        SelectedPresetIndex = INDEX_NONE;
 
         WTBR_VALIDATION_LOG(Verbose,
             TEXT("[Serpveil S1] VolleyComplete | Owner=%s | Requested=%d | Spawned=%d | VaelCost=%.2f | NewVael=%.2f | TelegraphOff=true"),
@@ -436,8 +489,16 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
     if (bModeIsPreset)
     {
         TArray<TArray<FVector>> CubeWorldPaths;
+        // Wheel selection wins; falling back to the legacy single path keeps the
+        // pre-wheel auto-fire route behaving exactly as it did.
+        const FWTBRPathPreset& ChosenPreset =
+            Params.SerpveilPresets.IsValidIndex(SelectedPresetIndex)
+                ? Params.SerpveilPresets[SelectedPresetIndex]
+                : Params.SerpveilPresetPath;
+
         UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
-            Params.SerpveilPresetPath, SpawnOrigin, AimRotation, MaxRange, CubeWorldPaths);
+            ChosenPreset, ScatterCentre, AimRotation, MaxRange, CubeWorldPaths,
+            ScatterRadius, bCachedIsMain);
 
         if (CubeWorldPaths.Num() > 0)
         {
@@ -476,13 +537,15 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
 
     for (int32 CubeIndex = 0; CubeIndex < CubeCount; ++CubeIndex)
     {
-        // Saw-tooth launch formation (▲▼▲): cubes line up sideways, centred on
-        // the aim line, with even cubes raised and odd cubes lowered. Every
-        // cube then flies straight and parallel along the aim direction.
-        const float LateralOffset = (CubeIndex - (CubeCount - 1) * 0.5f) * FormationSpacing;
-        const float VerticalOffset = ((CubeIndex % 2 == 0) ? 0.5f : -0.5f) * FormationStagger;
-        const FVector CubeOrigin = SpawnOrigin
-            + AimMatrix.TransformVector(FVector(0.0f, LateralOffset, VerticalOffset));
+        // Cubes appear spread over a sphere around the caster's body, then each
+        // flies straight and parallel along the aim direction from wherever it
+        // surfaced. Even indices are Main's, odd are Sub's, so the two slots'
+        // spheres interleave rather than collide.
+        const int32 FibIndex = CubeIndex * 2 + (bCachedIsMain ? 0 : 1);
+        const FVector ScatterOffset =
+            UWTBRCompositeRegistryDataAsset::ComputeFibonacciSphereOffset(
+                FibIndex, CubeCount * 2, ScatterRadius);
+        const FVector CubeOrigin = ScatterCentre + AimMatrix.TransformVector(ScatterOffset);
         const FTransform SpawnTransform(AimRotation, CubeOrigin);
 
         AWTBRProjectileBase* Projectile = World->SpawnActorDeferred<AWTBRProjectileBase>(
@@ -522,13 +585,13 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
             OwnerCharacter.Get());
 
         ++SpawnedCount;
-        WTBR_VALIDATION_LOG(Verbose,
-            TEXT("[Serpveil S1] CubeSpawned | Owner=%s | Cube=%d | Projectile=%s | LateralOffset=%.1f | VerticalOffset=%.1f | Damage=%.1f | CubeSplitCount=%d"),
+        WTBR_VALIDATION_LOG(Log,
+            TEXT("[Serpveil S1] CubeSpawned | Owner=%s | Cube=%d | Projectile=%s | FibIndex=%d | Offset=%s | Damage=%.1f | CubeSplitCount=%d"),
             *GetNameSafe(OwnerCharacter.Get()),
             CubeIndex,
             *GetNameSafe(Projectile),
-            LateralOffset,
-            VerticalOffset,
+            FibIndex,
+            *ScatterOffset.ToString(),
             Params.SerpveilPerCubeDamage,
             Projectile->CubeSplitCount);
     }

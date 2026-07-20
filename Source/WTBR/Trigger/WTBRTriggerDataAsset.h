@@ -1018,8 +1018,10 @@ struct FWTBRSerpveilParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Combat", meta = (ClampMin = "0.0"))
     float SerpveilDamage = 35.0f;
 
+    // Low per-cube damage is deliberate — the Fibonacci scatter pass raised
+    // SerpveilCubeSplitCount to 20, so total volley damage stays comparable.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Combat", meta = (ClampMin = "0.0"))
-    float SerpveilPerCubeDamage = 15.0f;
+    float SerpveilPerCubeDamage = 3.5f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile", meta = (ClampMin = "100.0"))
     float SerpveilSpeed = 2800.0f;
@@ -1074,8 +1076,57 @@ struct FWTBRSerpveilParams
     float SerpveilPresetMaxRange = 2200.0f;
 
     // ⚠ PLAYTEST PENDING: authored curved path for Preset mode. Empty lanes fall back to straight fire.
+    // Used only when the hold flow did not select from SerpveilPresets below.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path")
     FWTBRPathPreset SerpveilPresetPath;
+
+    // Choices offered by the hold wheel. Seeded below with obvious placeholders
+    // purely so the flow is testable before any real authoring — designing the
+    // actual paths is the owner's job, not code's (same rule as EscudoPresets).
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path")
+    TArray<FWTBRPathPreset> SerpveilPresets;
+
+    FWTBRSerpveilParams()
+    {
+        // ⚠ PLACEHOLDER TEST DATA, NOT GAME DESIGN. Three obviously-different
+        // shapes so the hold→wheel→charge→fire flow can be judged by feel.
+        // Waypoints are fractions of the committed range, X forward / Y lateral
+        // / Z vertical, and each lane's cubes ride the shape in parallel.
+        auto MakeLane = [](const TArray<FVector>& Waypoints, int32 CubeCount)
+        {
+            FWTBRPathLane Lane;
+            Lane.NormalizedWaypoints = Waypoints;
+            Lane.CubeCount = CubeCount;
+            return Lane;
+        };
+
+        FWTBRPathPreset Straight;
+        Straight.PresetId = FName(TEXT("Straight"));
+        Straight.DisplayName = FText::FromString(TEXT("Straight"));
+        Straight.Lanes.Add(MakeLane({FVector::ZeroVector, FVector(1.0f, 0.0f, 0.0f)}, 15));
+        SerpveilPresets.Add(Straight);
+
+        FWTBRPathPreset HookLeft;
+        HookLeft.PresetId = FName(TEXT("HookLeft"));
+        HookLeft.DisplayName = FText::FromString(TEXT("Hook Left"));
+        HookLeft.Lanes.Add(MakeLane({
+            FVector::ZeroVector,
+            FVector(0.40f, -0.10f, 0.05f),
+            FVector(0.70f, -0.35f, 0.10f),
+            FVector(1.00f, -0.70f, 0.00f)}, 15));
+        SerpveilPresets.Add(HookLeft);
+
+        FWTBRPathPreset SplitFan;
+        SplitFan.PresetId = FName(TEXT("SplitFan"));
+        SplitFan.DisplayName = FText::FromString(TEXT("Split Fan"));
+        SplitFan.Lanes.Add(MakeLane({
+            FVector::ZeroVector, FVector(0.50f, -0.20f, 0.05f), FVector(1.00f, -0.45f, 0.00f)}, 5));
+        SplitFan.Lanes.Add(MakeLane({
+            FVector::ZeroVector, FVector(0.50f, 0.00f, 0.10f), FVector(1.00f, 0.00f, 0.00f)}, 5));
+        SplitFan.Lanes.Add(MakeLane({
+            FVector::ZeroVector, FVector(0.50f, 0.20f, 0.05f), FVector(1.00f, 0.45f, 0.00f)}, 5));
+        SerpveilPresets.Add(SplitFan);
+    }
 
     // ⚠ PLAYTEST PENDING: true fires immediately at full charge; false waits for release.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Windup")
@@ -1087,27 +1138,50 @@ struct FWTBRSerpveilParams
         meta = (ClampMin = "0.0"))
     float SerpveilTapSpreadDeg = 24.0f;
 
+    // DEAD for Viper since the Fibonacci scatter pass — both offsets are now
+    // produced by ComputeFibonacciSphereOffset instead. Kept (not deleted, not
+    // marked DeprecatedProperty) purely so authored DA values are not silently
+    // lost if the scatter is ever reverted.
     // Sideways gap between neighbouring cubes in the launch formation
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Serpveil | Path",
         meta = (ClampMin = "0.0"))
     float SerpveilFormationSpacing = 25.0f;
 
+    // DEAD for Viper — see SerpveilFormationSpacing above.
     // Vertical saw-tooth offset: even cubes sit up, odd cubes sit down (▲▼▲)
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Serpveil | Path",
         meta = (ClampMin = "0.0"))
     float SerpveilFormationStagger = 20.0f;
 
+    // Radius of the Fibonacci sphere the split cubes appear on, centred on the
+    // caster's body (NOT the conjure hand). ⚠ PLAYTEST PENDING — PIE-tunable.
+    // Character capsule is r=42, so 135 clears the body by ~93uu.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Serpveil | Path",
+        meta = (ClampMin = "0.0"))
+    float SerpveilScatterRadius = 135.0f;
+
+    // Lifts the scatter sphere above the capsule centre so its underside does not
+    // sink through the floor. Capsule half-height is 96, so with the default
+    // radius the sphere's lowest cube sits at -50 from centre — about knee level.
+    // Keep >= (SerpveilScatterRadius - 96) or cubes spawn underground.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Serpveil | Path",
+        meta = (ClampMin = "0.0"))
+    float SerpveilScatterHeightOffset = 85.0f;
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Serpveil | Resources",
         meta = (ClampMin = "0.0"))
     float SerpveilVaelCostPerShot = 6.0f;
 
+    // 20 is the locked Viper count (per slot — Main + Sub firing together is 40).
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Serpveil | Path",
         meta = (ClampMin = "1"))
-    int32 SerpveilCubeSplitCount = 3;
+    int32 SerpveilCubeSplitCount = 20;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
