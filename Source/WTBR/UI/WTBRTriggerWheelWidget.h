@@ -20,6 +20,13 @@ class AWTBRCharacter;
  * switching input mode) for a hold-to-open wheel would fight the camera. The player
  * flicks in a direction; the segment under that direction highlights; releasing the
  * key commits it. This is how weapon wheels in shooters behave.
+ *
+ * Camera rotation IS frozen while this wheel is open (AWTBRCharacter::
+ * SetLookInputFrozen, driven from OpenTriggerWheel/EndTriggerSetSelect) —
+ * owner's call 2026-07-20, matching the Escudo preset wheel. Note this widget
+ * reads raw mouse delta itself via GetInputMouseDelta, which is unaffected by
+ * that freeze (the freeze only gates the Enhanced Input Look path feeding
+ * AddControllerYaw/PitchInput), so selection still works normally.
  */
 UCLASS()
 class WTBR_API UWTBRTriggerWheelWidget : public UUserWidget

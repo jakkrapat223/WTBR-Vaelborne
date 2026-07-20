@@ -149,6 +149,13 @@ void UWTBRInputGestureComponent::OnLook_Triggered(const FInputActionValue& Value
     AWTBRCharacter* Char = Cast<AWTBRCharacter>(GetOwner());
     if (!IsValid(Char)) return;
 
+    // Escudo preset wheel freezes the camera while open (owner-locked design;
+    // deliberately different from the Trigger Wheel, which does NOT freeze —
+    // see AWTBRCharacter::IsLookInputFrozen's doc comment for why). The wheel
+    // widget still reads raw mouse delta itself for selection, independent of
+    // this Enhanced Input path, so freezing this alone is sufficient.
+    if (Char->IsLookInputFrozen()) return;
+
     const FVector2D LookAxis = Value.Get<FVector2D>();
 
     // X = Yaw (left/right camera), Y = Pitch (up/down camera)

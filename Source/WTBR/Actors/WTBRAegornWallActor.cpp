@@ -45,6 +45,29 @@ AWTBRAegornWallActor::AWTBRAegornWallActor()
     WallMesh->SetGenerateOverlapEvents(false);
 }
 
+FVector AWTBRAegornWallActor::ComputeIntendedCollisionExtent() const
+{
+    if (IsValid(WallMesh) && IsValid(WallMesh->GetStaticMesh()))
+    {
+        const FVector MeshExtent = WallMesh->GetStaticMesh()->GetBoundingBox().GetExtent();
+        // GetRelativeScale3D, not GetComponentScale() — GetComponentScale reads
+        // ComponentToWorld, which is only ever computed when a component
+        // registers. A Class Default Object never registers its components, so
+        // that call silently returned identity (1,1,1) and threw away whatever
+        // scale the Blueprint authored on WallMesh. The bug it caused: a wall
+        // whose BP scale is (0.2, 3.0, 2.0) computed as a 128-cube instead of a
+        // thin 25.6-deep panel, so the anti-trap box reached back far enough to
+        // always swallow the placing character — every placement, tap or preset,
+        // read as invalid and the ghost preview was permanently red.
+        // RelativeScale3D is plain serialized property data and is correct on a CDO.
+        const FVector MeshScale = WallMesh->GetRelativeScale3D();
+        return MeshExtent * MeshScale;
+    }
+    // No mesh assigned (shouldn't happen on a real BP) — fall back to
+    // whatever WallCollision already has rather than guessing.
+    return IsValid(WallCollision) ? WallCollision->GetUnscaledBoxExtent() : FVector(10.0f, 150.0f, 150.0f);
+}
+
 void AWTBRAegornWallActor::BeginPlay()
 {
     Super::BeginPlay();
@@ -61,6 +84,23 @@ void AWTBRAegornWallActor::BeginPlay()
         WallCollision->SetCollisionResponseToAllChannels(ECR_Block);
         WallCollision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
         WallCollision->SetGenerateOverlapEvents(true);
+
+        // Auto-fit the collision box to whatever static mesh + scale
+        // BP_WTBRAegornWallActor actually uses for WallMesh, instead of a
+        // hardcoded C++ size that can silently drift out of sync with what
+        // the player visually sees. Every gameplay use of this box (Escudo's
+        // ValidatePanelPlacement anti-trap overlap check, SpawnOnePanel's
+        // erupted spawn height, the ghost-preview footprint) now automatically
+        // tracks a resize made purely by adjusting WallMesh's scale in the
+        // Blueprint — that single change is enough, nothing else needs
+        // touching to keep the wall's look and its hitbox matching.
+        WallCollision->SetBoxExtent(ComputeIntendedCollisionExtent());
+        WTBR_VALIDATION_LOG(Log, TEXT("[Escudo Test] CollisionAutoFit | Wall=%s | Mesh=%s | MeshScale=%s | ComputedExtent=%s"),
+            *GetNameSafe(this),
+            *GetNameSafe(IsValid(WallMesh) ? WallMesh->GetStaticMesh() : nullptr),
+            IsValid(WallMesh) ? *WallMesh->GetComponentScale().ToString() : TEXT("n/a"),
+            *WallCollision->GetUnscaledBoxExtent().ToString());
+
         FVector WallExtent = WallCollision->GetUnscaledBoxExtent();
         if (WallExtent.X < 20.0f)
         {
@@ -129,7 +169,7 @@ void AWTBRAegornWallActor::InitializeWall(float InMaxHP, float InDuration)
 }
 
 void AWTBRAegornWallActor::BeginEscudoEruption(const FVector& InFinalLocation, float InBuildTime,
-    float InAllyPushImpulse, float InEnemyLaunchImpulse)
+    float InEruptionImpulse, float InClearanceRatio)
 {
     ensure(HasAuthority());
     if (!HasAuthority()) return;
@@ -138,8 +178,8 @@ void AWTBRAegornWallActor::BeginEscudoEruption(const FVector& InFinalLocation, f
     EruptFinalLocation   = InFinalLocation;
     EruptDuration        = FMath::Max(InBuildTime, 0.01f);
     EruptElapsed         = 0.0f;
-    EruptAllyPushImpulse = InAllyPushImpulse;
-    EruptEnemyLaunchImpulse = InEnemyLaunchImpulse;
+    EruptImpulse         = InEruptionImpulse;
+    EruptClearanceRatio  = InClearanceRatio;
     EruptDisplacedCharacters.Empty();
     EruptDisplacedProps.Empty();
     bIsErupting = true;
@@ -183,11 +223,17 @@ void AWTBRAegornWallActor::ApplyEruptionDisplacement(const FVector& SweepFrom, c
 {
     if (!IsValid(WallCollision) || !GetWorld()) return;
 
+    // Grown along the box's LOCAL Z (its grow axis) by however far the wall
+    // actually travelled this frame, and centred on the midpoint of that
+    // travel. Written against world Z originally, which only held while every
+    // Escudo erupted straight up; a wall- or ceiling-anchored panel now rises
+    // along its surface normal instead, and the old math would have swept a
+    // box that missed the volume the wall really passed through.
     const FVector BaseExtent = WallCollision->GetScaledBoxExtent();
-    const float DeltaZ = FMath::Abs(SweepTo.Z - SweepFrom.Z);
+    const FVector Travel = SweepTo - SweepFrom;
     FVector SweepExtent = BaseExtent;
-    SweepExtent.Z += DeltaZ * 0.5f;
-    const FVector SweepCenter(SweepTo.X, SweepTo.Y, (SweepFrom.Z + SweepTo.Z) * 0.5f);
+    SweepExtent.Z += Travel.Size() * 0.5f;
+    const FVector SweepCenter = (SweepFrom + SweepTo) * 0.5f;
 
     FCollisionObjectQueryParams ObjectParams;
     ObjectParams.AddObjectTypesToQuery(ECC_Pawn);
@@ -196,11 +242,13 @@ void AWTBRAegornWallActor::ApplyEruptionDisplacement(const FVector& SweepFrom, c
     FCollisionQueryParams QueryParams;
     QueryParams.AddIgnoredActor(this);
 
+    // The caster is deliberately NOT ignored (owner's call, 2026-07-20).
+    // Everyone the rising wall passes through gets hit — caster, ally, enemy.
+    // Standing on your own panel to ride it up is a movement tech, and it is
+    // also what makes it safe for UWTBREscudoTrigger::ValidatePanelPlacement to
+    // have dropped its trap check: nothing can be trapped by a wall that
+    // displaces every character it touches.
     AWTBRCharacter* CasterCharacter = Cast<AWTBRCharacter>(GetOwner());
-    if (IsValid(CasterCharacter))
-    {
-        QueryParams.AddIgnoredActor(CasterCharacter);
-    }
 
     TArray<FOverlapResult> Overlaps;
     GetWorld()->OverlapMultiByObjectType(
@@ -219,6 +267,30 @@ void AWTBRAegornWallActor::ApplyEruptionDisplacement(const FVector& SweepFrom, c
             : TowardOwner.GetSafeNormal();
     }
 
+    // Everything is thrown along the direction the wall is GROWING — its local
+    // +Z, which UWTBREscudoTrigger::ComputeSurfaceAlignedRotation aligned to
+    // the surface normal. Out of a floor that is straight up, exactly as
+    // before; out of a wall it is horizontal, which reads as the car-hit shove
+    // the owner asked for; out of a ceiling it drives the target into the
+    // ground.
+    const FVector GrowAxis = GetActorQuat().GetAxisZ();
+
+    // A near-vertical eruption throws the target straight up and gravity drops
+    // them back onto the footprint the wall has meanwhile finished filling —
+    // they land embedded in it. An outward nudge clears them off it first. A
+    // horizontal eruption already carries them clear and gravity does not undo
+    // it, so this fades out as the grow axis tips over.
+    //
+    // The ratio is DataAsset-driven (EscudoEruptionClearanceRatio) rather than
+    // a constant here: it is a pure feel value still pending playtest, and the
+    // project's rule is that those stay tunable without a recompile.
+    const float Verticality = FMath::Abs(GrowAxis.Z);
+    auto BuildImpulse = [&](float Magnitude)
+    {
+        return GrowAxis * Magnitude
+            + (-TowardOwner) * (Magnitude * EruptClearanceRatio * Verticality);
+    };
+
     for (const FOverlapResult& Overlap : Overlaps)
     {
         AActor* OtherActor = Overlap.GetActor();
@@ -226,34 +298,22 @@ void AWTBRAegornWallActor::ApplyEruptionDisplacement(const FVector& SweepFrom, c
 
         if (AWTBRCharacter* Char = Cast<AWTBRCharacter>(OtherActor))
         {
-            if (Char == CasterCharacter) continue;
             if (EruptDisplacedCharacters.Contains(Char)) continue;
             EruptDisplacedCharacters.Add(Char);
 
-            const bool bAlly = IsValid(CasterCharacter) && Char->IsSameTeamAs(CasterCharacter);
-            if (bAlly)
-            {
-                Char->LaunchCharacter(
-                    TowardOwner * EruptAllyPushImpulse + FVector(0.0f, 0.0f, EruptAllyPushImpulse * 0.25f),
-                    true, true);
-            }
-            else
-            {
-                // Pure-vertical launch used to land the enemy right back on the
-                // same X/Y the instant gravity pulled them down — by then the
-                // wall had finished erupting there, so they landed embedded in
-                // it. Add an outward (away-from-caster) horizontal component so
-                // they clear the footprint before coming back down.
-                Char->LaunchCharacter(
-                    (-TowardOwner) * (EruptEnemyLaunchImpulse * 0.3f) + FVector(0.0f, 0.0f, EruptEnemyLaunchImpulse),
-                    true, true);
-            }
+            // No team branch at all: caster, ally and enemy take the identical
+            // hit (owner's call, 2026-07-20). Allies used to be shunted
+            // sideways behind the caster at a weaker impulse and the caster was
+            // skipped outright; both special cases are gone. Damage stays 0 for
+            // everyone regardless — Escudo Slam is displacement, never damage.
+            Char->LaunchCharacter(BuildImpulse(EruptImpulse), true, true);
 
-            WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] EruptDisplacement | Wall=%s | Target=%s | Relation=%s | Impulse=%.1f"),
+            WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] EruptDisplacement | Wall=%s | Target=%s | Relation=%s | Impulse=%.1f | GrowAxis=%s"),
                 *GetNameSafe(this),
                 *GetNameSafe(Char),
-                bAlly ? TEXT("Ally->PushBehind") : TEXT("Enemy->LaunchUp"),
-                bAlly ? EruptAllyPushImpulse : EruptEnemyLaunchImpulse);
+                (Char == CasterCharacter) ? TEXT("Caster") : TEXT("Other"),
+                EruptImpulse,
+                *GrowAxis.ToString());
             continue;
         }
 
@@ -262,19 +322,16 @@ void AWTBRAegornWallActor::ApplyEruptionDisplacement(const FVector& SweepFrom, c
         {
             if (EruptDisplacedProps.Contains(HitComp)) continue;
             EruptDisplacedProps.Add(HitComp);
-            // Same outward-plus-vertical fix as the enemy-character branch
-            // above: a pure vertical impulse lets the prop fall straight back
-            // down into the now-solid wall footprint (WallCollision is
-            // QueryOnly, so nothing in the physics engine would ever push it
-            // back out once embedded).
-            HitComp->AddImpulse(
-                (-TowardOwner) * (EruptEnemyLaunchImpulse * 0.3f) + FVector(0.0f, 0.0f, EruptEnemyLaunchImpulse),
-                NAME_None, /*bVelChange=*/true);
+            // Same grow-axis impulse the characters get. The outward component
+            // matters just as much here: WallCollision is QueryOnly, so once a
+            // prop falls back into the finished footprint nothing in the
+            // physics engine would ever push it out again.
+            HitComp->AddImpulse(BuildImpulse(EruptImpulse), NAME_None, /*bVelChange=*/true);
 
             WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] EruptDisplacement | Wall=%s | Prop=%s | Impulse=%.1f"),
                 *GetNameSafe(this),
                 *GetNameSafe(HitComp),
-                EruptEnemyLaunchImpulse);
+                EruptImpulse);
         }
     }
 }

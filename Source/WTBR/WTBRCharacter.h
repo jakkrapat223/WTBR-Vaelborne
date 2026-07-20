@@ -25,6 +25,9 @@ class UWTBRRadarWidget;
 class UWTBRSniperScopeWidget;
 class UWTBRTriggerWheelWidget;
 class UWTBRMarkPingHUDWidget;
+class UWTBREscudoPresetWheelWidget;
+class UWTBREscudoTrigger;
+class AWTBRAegornWallActor;
 class UTexture2D;
 class UNiagaraComponent;
 class UNiagaraSystem;
@@ -41,6 +44,18 @@ enum class EWTBRCharacterStance : uint8
     Standing UMETA(DisplayName = "Standing"),
     Crouching UMETA(DisplayName = "Crouching"),
     Prone UMETA(DisplayName = "Prone"),
+};
+
+// Escudo Hold/Preset flow (client-local only — see
+// wtbr-escudo-hold-preset-design-lock project memory for the full design and
+// why none of this can live inside UWTBREscudoTrigger::Activate_Implementation).
+UENUM(BlueprintType)
+enum class EWTBREscudoPresetFlowState : uint8
+{
+    Idle UMETA(DisplayName = "Idle"),
+    WaitingForHoldDecision UMETA(DisplayName = "Waiting For Hold Decision"),
+    WheelOpen UMETA(DisplayName = "Wheel Open"),
+    GhostPreview UMETA(DisplayName = "Ghost Preview"),
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FWTBRHUDHintsChanged);
@@ -311,6 +326,9 @@ public:
 
     UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
     TObjectPtr<UWTBRMarkPingHUDWidget> MarkPingHUDWidgetInstance;
+
+    UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
+    TObjectPtr<UWTBREscudoPresetWheelWidget> EscudoPresetWheelWidgetInstance;
 
     // Seconds Q/E must be held before the selection wheel opens. Below this the
     // release is treated as a tap and cycles the slot, preserving the existing
@@ -733,6 +751,42 @@ public:
     UFUNCTION(BlueprintPure, Category="WTBR | Mark Ping")
     TArray<AWTBRCharacter*> GetMarkPingRecipients() const;
 
+    // ─── Camera freeze (Escudo preset wheel; see below) ────────────────────────
+    // Checked by UWTBRInputGestureComponent::OnLook_Triggered before forwarding
+    // mouse delta into AddControllerYaw/PitchInput. Not reused by the Trigger
+    // Wheel — that dialog deliberately does NOT freeze the camera (its own doc
+    // comment: dual-purposing the same delta so the camera keeps turning while
+    // flicking a selection). Escudo's preset wheel needs an actual freeze
+    // instead (owner-confirmed design), so this is a separate mechanism.
+    UFUNCTION(BlueprintPure, Category = "WTBR | Input")
+    bool IsLookInputFrozen() const { return bLookInputFrozen; }
+
+    void SetLookInputFrozen(bool bNewFrozen) { bLookInputFrozen = bNewFrozen; }
+
+    // ─── Escudo Hold/Preset flow ────────────────────────────────────────────────
+    // Design: [[wtbr-escudo-hold-preset-design-lock]]. Entirely client-local
+    // until TryConfirmEscudoPlacement's RPC — the server never sees a
+    // work-in-progress preset choice or ghost preview, only a final confirm.
+    // Cancellable for free at any point past the tap threshold via
+    // CancelEscudoPresetFlow (wired into the existing Cancel/slot-switch paths).
+    UFUNCTION(BlueprintPure, Category = "WTBR | Escudo")
+    EWTBREscudoPresetFlowState GetEscudoPresetFlowState() const { return EscudoFlowState; }
+
+    // Safe to call unconditionally (e.g. from Cancel/slot-switch handlers) —
+    // a no-op when no Escudo flow is in progress.
+    void CancelEscudoPresetFlow();
+
+    // Ghost preview VFX hooks — C++ owns all placement/validity logic (see
+    // ComputeEscudoPanelTransforms/TickEscudoGhostPreview), Blueprint owns the
+    // actual translucent panel meshes it spawns/updates in response, same
+    // split as UWTBRNexilTrigger's OnNexilGhostPreviewUpdated/Hidden (no AI
+    // edits to .uasset content). PanelValid.Num() == PanelTransforms.Num().
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Escudo | VFX")
+    void OnEscudoGhostPreviewUpdated(const TArray<FTransform>& PanelTransforms, const TArray<bool>& PanelValid);
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Escudo | VFX")
+    void OnEscudoGhostPreviewHidden();
+
     // Finds the closest-to-crosshair living enemy in range, inside the supplied
     // aim cone, with an unobstructed visibility trace. Used by homing attacks.
     static AWTBRCharacter* FindBestHomingTarget(
@@ -908,6 +962,89 @@ protected:
     // Shared by both binding paths above.
     void RequestMarkPingFromLocalAim();
 
+    // ── Escudo Hold/Preset (client-local; see EWTBREscudoPresetFlowState) ──────
+    // Called from the top of FireMain/FireMainReleased/FireSub/FireSubReleased.
+    // Return true = fully consumed this press/release, the caller must skip its
+    // normal Server_Fire call for it. Return false = not Escudo, or not
+    // mid-flow — caller proceeds exactly as it always has. This is the entire
+    // surface touched on that shared input path; nothing else in those four
+    // functions changes.
+    bool HandleEscudoFirePressed(bool bIsMain);
+    bool HandleEscudoFireReleased(bool bIsMain);
+
+    UFUNCTION()
+    void OnEscudoHoldThresholdReached();
+
+    void OpenEscudoPresetWheel();
+
+    // Release while the wheel is open: locks whatever is highlighted (or
+    // cancels for free if nothing was — dead zone counts as "changed your
+    // mind", not "pick something at random").
+    void LockEscudoPresetAndEnterGhostPreview();
+
+    UFUNCTION()
+    void TickEscudoGhostPreview();
+
+    // Draws the ghost preview directly from C++ (green = placeable, red =
+    // rejected), so the preview is visible without depending on a Blueprint
+    // graph existing to respond to OnEscudoGhostPreviewUpdated. Same lesson
+    // UWTBRNexilTrigger already learned the hard way — its preview was moved
+    // to C++ ownership after repeated BP graph-wiring breakages.
+    //
+    // ⚠ Uses DrawDebug, which is compiled out in Shipping (ENABLE_DRAW_DEBUG).
+    // This is a working stopgap that makes the feature usable and provable
+    // NOW, not the final shipping visual — a real translucent-mesh preview
+    // (spawned actors, like Nexil's GhostPreviewActorClass) is still needed
+    // before this ships, and belongs with the deferred visual-polish pass.
+    void DrawEscudoGhostPreview(
+        const UWTBREscudoTrigger* EscudoTrigger,
+        const TArray<FTransform>& PanelTransforms,
+        const TArray<bool>& PanelValid) const;
+
+    // A fresh press (not the same hold) while in GhostPreview state, all
+    // panels currently valid. No-op otherwise (can't confirm an invalid or
+    // nonexistent preview).
+    void TryConfirmEscudoPlacement();
+
+    UWTBREscudoTrigger* GetActiveEscudoTrigger(bool bIsMain) const;
+
+    // Aim-to-place anchor a preset is centered on (GDD §5.8: "Aim-to-Place +
+    // Ghost Preview UI ก่อนวาง"). Traces the player's aim out to
+    // EscudoPlacementRange and anchors the preset wherever it lands, so a
+    // preset can be placed anywhere in range rather than at one fixed distance
+    // in front — floors, walls and ceilings all count, and OutSurfaceNormal
+    // reports which, so ComputeSurfaceAlignedRotation can sprout the panels
+    // perpendicular to it.
+    //
+    // Aiming past every surface (at open sky) drops the anchor at max range and
+    // probes downward, so sweeping across open ground still previews on the
+    // floor instead of blinking out. With genuinely nothing under it either,
+    // the normal comes back zero and every panel validates as invalid.
+    //
+    // Unlike Tap's fixed actor-forward offset (unchanged, still used by
+    // Activate_Implementation), this is what makes the ghost preview actually
+    // follow the crosshair.
+    void ComputeEscudoAnchor(
+        const UWTBREscudoTrigger* EscudoTrigger, FVector& OutLocation,
+        FRotator& OutRotation, FVector& OutSurfaceNormal) const;
+
+    // Computes every panel's placement for PresetIndex anchored at
+    // AnchorLocation/Rotation: geometry (lateral/vertical offset from the
+    // anchor, rotated to match AnchorRotation) plus, per panel, whether
+    // EscudoTrigger->ValidatePanelPlacement currently accepts it — ground-
+    // snapped when valid, raw (un-snapped) when not, so the preview never
+    // just vanishes. Called identically from the client-local ghost-preview
+    // tick (advisory) and the server confirm handler (authoritative) — the
+    // sole source of truth for "where does panel N actually end up," so the
+    // two can never silently disagree.
+    void ComputeEscudoPanelPlacements(
+        const UWTBREscudoTrigger* EscudoTrigger, int32 PresetIndex,
+        const FVector& AnchorLocation, const FRotator& AnchorRotation,
+        TArray<FTransform>& OutPanelTransforms, TArray<bool>& OutPanelValid) const;
+
+    UFUNCTION(Server, Reliable)
+    void Server_ConfirmEscudoPreset(bool bIsMain, int32 PresetIndex, FVector AnchorLocation, FRotator AnchorRotation);
+
     // IA_Cancel handler: closes any open local UI panel (e.g. Bag/Loot) if one is
     // open; otherwise falls back to the existing CancelCurrentAction() trigger-
     // charge cancel. Presentation-only routing — no new gameplay mutation, no
@@ -991,6 +1128,27 @@ private:
     // entries fall off rather than growing unbounded.
     UPROPERTY(Transient)
     TArray<FWTBRActiveMarkPing> ActiveMarkPings;
+
+    // ── Escudo Hold/Preset state (client-local only, never replicated) ─────────
+    bool bLookInputFrozen = false;
+    EWTBREscudoPresetFlowState EscudoFlowState = EWTBREscudoPresetFlowState::Idle;
+    bool bEscudoFlowIsMainSlot = true;
+    int32 EscudoLockedPresetIndex = INDEX_NONE;
+    FTimerHandle EscudoHoldThresholdTimer;
+    FTimerHandle EscudoGhostPreviewTimer;
+    static constexpr float ESCUDO_HOLD_THRESHOLD = 0.2f;
+    // 20Hz (0.05s) was visibly steppy against a smoothly-moving 60fps camera
+    // while running — owner-found: "ตอนกด preview แล้ววิ่ง ตัว preview จะกระตุกๆ".
+    // ~60Hz reads as smooth; a full per-frame Tick() would be smoother still
+    // but isn't worth adding permanent tick overhead to AWTBRCharacter for a
+    // state that's only active during an Escudo placement flow.
+    static constexpr float ESCUDO_GHOST_TICK_INTERVAL = 0.0167f;
+    // Slack allowed when the server re-checks a confirm RPC's claimed anchor
+    // against EscudoPlacementRange. The client aims from a camera the server
+    // only knows about a round-trip late, so an exact comparison would reject
+    // honest placements made while turning or running; this is wide enough to
+    // absorb that but far too tight to place a preset across the map.
+    static constexpr float ESCUDO_SERVER_RANGE_TOLERANCE = 1.25f;
 
     UFUNCTION()
     void OnRep_RadarCloaked();

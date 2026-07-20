@@ -429,6 +429,30 @@ struct FWTBRAegornParams
 
 };
 
+// One entry in an Escudo hold-mode preset: a named group of panels, each
+// placed at a lateral(right)/vertical(up) offset from the placement anchor,
+// in the plane perpendicular to the placement aim direction. Owner-authored
+// in the DataAsset (see FWTBREscudoParams::EscudoPresets) — Claude does not
+// design preset shapes, only the data structure and the system that uses it
+// (wtbr-escudo-hold-preset-design-lock project memory).
+USTRUCT(BlueprintType)
+struct FWTBREscudoPreset
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Escudo | Preset")
+    FText PresetName;
+
+    // One entry per panel, in world units, on the GROUND PLANE relative to the
+    // placement anchor: X = lateral (local right), Y = forward (local
+    // forward). Deliberately not a vertical axis — Escudo panels must sprout
+    // from a supporting surface (EscudoSurfaceSnapRange), so a stacked/
+    // floating panel could never validate anyway, and a ground-plane layout
+    // is what the on-floor placement preview shows.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Escudo | Preset")
+    TArray<FVector2D> PanelOffsets;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // FWTBREscudoParams — Escudo (กำแพง Trion แข็ง วางตรึงจุด, แยกจาก Aegorn/Shield
 // ตาม canon: Escudo วางแล้วขยับไม่ได้ ทนทานกว่า Shield มาก กิน Vael สูง)
@@ -452,7 +476,8 @@ struct FWTBREscudoParams
         meta = (ClampMin = "1.0"))
     float EscudoWallDuration = 15.0f;
 
-    // ระยะ line-trace หาพื้นรองรับใต้จุดวาง — ไม่เจอพื้นในระยะนี้ = วางไม่ได้ ไม่เสีย Vael
+    // ระยะ line-trace หาพื้นผิวรองรับจุดวาง (ยิงสวนทางกับ normal ของพื้นผิว ไม่ใช่ลงล่าง
+    // อย่างเดียว) — ไม่เจอพื้นผิวในระยะนี้ = วางไม่ได้ ไม่เสีย Vael
     // (canon: Escudo ต้องงอกจากพื้นผิว ห้ามลอยกลางอากาศ)
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
@@ -460,20 +485,45 @@ struct FWTBREscudoParams
         meta = (ClampMin = "50.0"))
     float EscudoSurfaceSnapRange = 300.0f;
 
-    // แรงผลักเพื่อนร่วมทีมที่ยืนขวางจุดวาง ให้มาอยู่ฝั่งหลังกำแพง (แนวนอน, u/s)
-    // ⚠ PLAYTEST PENDING
+    // ระยะเล็ง Aim-to-Place สูงสุดของ Hold/Preset mode (GDD §5.8 "Aim-to-Place +
+    // Ghost Preview UI ก่อนวาง"). Tap ไม่ใช้ค่านี้ — Tap วางหน้าตัวละครระยะคงที่เสมอ
+    //
+    // ⚠ PLAYTEST PENDING — canon ไม่เคยระบุระยะ Escudo เป็นตัวเลข ค่านี้ประมาณจาก
+    // Map Metrics ใน GDD: ครอบคลุม CQC zone ทั้งช่วง (0-800u) บวกระยะเผื่อให้ปิด
+    // Choke Point (120-200u) ได้ก่อนศัตรูเข้าถึง แต่ไม่ยาวถึง Mid-range (800-3,000u)
+    // ซึ่งเกินบทบาท Escudo ที่เป็นเครื่องมือป้องกันระยะประชิด-กลาง
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
-        Category = "Escudo | Displacement",
-        meta = (ClampMin = "0.0"))
-    float EscudoAllyPushImpulse = 600.0f;
+        Category = "Escudo | Placement",
+        meta = (ClampMin = "100.0"))
+    float EscudoPlacementRange = 1200.0f;
 
-    // แรงดีดศัตรูที่ยืนขวางจุดวางขึ้นฟ้า (แนวตั้ง, u/s) — canon: Hyuse ดีด Ikoma
+    // แรงกระแทกตอนกำแพงงอก (u/s) — canon: Hyuse ดีด Ikoma
     // damage = 0 เสมอ (Escudo Slam lock: displacement, NOT damage)
+    //
+    // ใช้ค่าเดียวกับทุกคนที่โดนกำแพงงอกผ่าน ทั้งตัวเอง เพื่อน และศัตรู
+    // (owner's call 2026-07-20) — เดิมแยกเป็น EscudoAllyPushImpulse (600) กับ
+    // EscudoEnemyLaunchImpulse (1200) ตอนที่เพื่อนถูกผลักไปหลังกำแพงแทนที่จะถูกดีด
+    // พอทุกคนโดนเหมือนกันหมดแล้ว การมีสองค่าก็ไม่มีความหมาย
+    //
+    // ทิศทางไม่ได้ตายตัวเป็นแนวตั้ง — มันวิ่งตามแนวที่กำแพงงอกออกมา (surface normal)
+    // งอกจากพื้น = ดีดขึ้นฟ้า, งอกจากกำแพง = กระแทกแนวนอนเหมือนรถชน, งอกจากเพดาน = อัดลงพื้น
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Escudo | Displacement",
         meta = (ClampMin = "0.0"))
-    float EscudoEnemyLaunchImpulse = 1200.0f;
+    float EscudoEruptionImpulse = 1200.0f;
+
+    // สัดส่วนแรงผลักออกด้านข้าง เทียบกับ EscudoEruptionImpulse (0 = ไม่ผลักออกเลย)
+    //
+    // จำเป็นเฉพาะตอนกำแพงงอกขึ้นแนวตั้ง เพราะแรงโน้มถ่วงจะดึงเป้าหมายกลับลงมา
+    // ตกใส่กำแพงที่งอกเสร็จแล้วพอดี (ฝังอยู่ในกำแพง) แรงผลักออกช่วยให้พ้นแนวกำแพงก่อนตก
+    // ตอนงอกแนวนอนไม่ต้องใช้ เพราะเป้าหมายลอยพ้นไปแล้วและแรงโน้มถ่วงไม่ดึงกลับ —
+    // โค้ดจึงลดค่านี้ลงอัตโนมัติตามความชันของแนวที่กำแพงงอก
+    // ⚠ PLAYTEST PENDING — ลดจาก 0.3 เพราะ owner พบว่าดีดไปไกลเกินไป (2026-07-20)
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Escudo | Displacement",
+        meta = (ClampMin = "0.0"))
+    float EscudoEruptionClearanceRatio = 0.12f;
 
     // เวลาสร้างกำแพง (วินาที)
     // ⚠ PLAYTEST PENDING
@@ -488,14 +538,60 @@ struct FWTBREscudoParams
         Category = "Escudo | Wall")
     FVector2D EscudoWallSize = FVector2D(300.0f, 200.0f);
 
-    // ระยะห่างขั้นต่ำ (แนวราบ X/Y) จากกำแพง Escudo/Aegorn ที่มีอยู่แล้ว — วางใกล้
+    // ระยะห่างขั้นต่ำ (3 มิติ) จากกำแพง Escudo/Aegorn ที่มีอยู่แล้ว — วางใกล้
     // กว่านี้ = วางไม่ได้ ไม่เสีย Vael (anti-abuse: ป้องกันการวางกำแพงซ้อนกันจน
     // ล้อมตัวเองเป็นที่หลบซ่อนถาวร). วางเรียงข้างกันแบบไม่ทับกันยังทำได้ตามปกติ
+    // วัดแบบ 3 มิติ ไม่ใช่แนวราบ — พอรองรับการวางบนกำแพง/เพดานแล้ว การวัดแนวราบ
+    // จะทำให้แผงบนเพดานบล็อกแผงบนพื้นที่อยู่ใต้มันพอดี ทั้งที่ห่างกันคนละชั้น
     // ⚠ PLAYTEST PENDING
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
         Category = "Escudo | Wall",
         meta = (ClampMin = "0.0"))
     float EscudoMinWallSpacing = 300.0f;
+
+    // Hold-mode preset library (radial wheel, see wtbr-escudo-hold-preset-
+    // design-lock project memory). Owner-authored in the DataAsset — the
+    // shapes/layouts are a design decision, not something this array
+    // hardcodes. Seeded with exactly one default entry (below) purely so the
+    // hold→wheel→ghost-preview→confirm pipeline is testable before the owner
+    // designs real presets.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+        Category = "Escudo | Preset")
+    TArray<FWTBREscudoPreset> EscudoPresets;
+
+    FWTBREscudoParams()
+    {
+        FWTBREscudoPreset SinglePanel;
+        SinglePanel.PresetName = FText::FromString(TEXT("Single Panel"));
+        SinglePanel.PanelOffsets.Add(FVector2D::ZeroVector);
+        EscudoPresets.Add(SinglePanel);
+
+        // Temporary test presets (owner's own request, 2026-07-20, to prove
+        // the wheel/ghost-preview/confirm pipeline end-to-end with more than
+        // one preset before designing real ones) — NOT final game design.
+        // 220 units of lateral spacing sits panels roughly edge-to-edge for
+        // the default 200-wide EscudoWallSize. Panels within one preset are
+        // never spacing-checked against each other (ValidatePanelPlacement
+        // only compares against already-SPAWNED walls, and none of a
+        // preset's own panels exist yet at validation time) — worth knowing
+        // when authoring real presets, since a too-tight preset can still
+        // spawn visibly overlapping panels.
+        FWTBREscudoPreset LineOfThree;
+        LineOfThree.PresetName = FText::FromString(TEXT("Line of 3"));
+        LineOfThree.PanelOffsets = { FVector2D(-220.0f, 0.0f), FVector2D(0.0f, 0.0f), FVector2D(220.0f, 0.0f) };
+        EscudoPresets.Add(LineOfThree);
+
+        // Ground-plane L: two panels across the front, one turning back along
+        // the right side. NOTE all panels in a preset currently share the
+        // anchor's single facing rotation, so the side panel faces the same
+        // way as the front ones rather than turning to face outward — a real
+        // per-panel rotation would be needed for a true wrap-around corner.
+        // Flagging as a known limitation for whoever designs the real presets.
+        FWTBREscudoPreset LShape;
+        LShape.PresetName = FText::FromString(TEXT("L Shape"));
+        LShape.PanelOffsets = { FVector2D(-110.0f, 0.0f), FVector2D(110.0f, 0.0f), FVector2D(110.0f, -220.0f) };
+        EscudoPresets.Add(LShape);
+    }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

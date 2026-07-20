@@ -50,22 +50,38 @@ public:
     UFUNCTION(BlueprintCallable, Category = "WTBR | Aegorn Wall")
     void TakeDamageFromProjectile(float DamageAmount);
 
-    // Escudo-only: begin a ground-eruption animation from underground up to
-    // InFinalLocation over InBuildTime seconds (server-only, matches canon
-    // "sprouts from the ground"). While erupting, any AWTBRCharacter or
-    // physics-simulated prop newly swept by the rising collision is displaced
-    // once — ally gets pushed behind the caster, enemy/prop gets launched
-    // vertically — reusing Escudo's existing displacement impulse values.
+    // Escudo-only: begin an eruption animation from behind the anchoring
+    // surface out to InFinalLocation over InBuildTime seconds (server-only,
+    // matches canon "sprouts from the surface"). While erupting, every
+    // AWTBRCharacter and physics-simulated prop newly swept by the rising
+    // collision is displaced once, at InEruptionImpulse — caster, ally and
+    // enemy alike, all thrown along the wall's grow axis. InClearanceRatio
+    // scales the sideways nudge that keeps a straight-up launch from dropping
+    // the target back onto the finished wall.
     // Not used by Aegorn Shield, which has its own hold-tracking tick on the
     // Trigger side (UWTBRAegornTrigger::TickHeldShield).
     void BeginEscudoEruption(const FVector& InFinalLocation, float InBuildTime,
-        float InAllyPushImpulse, float InEnemyLaunchImpulse);
+        float InEruptionImpulse, float InClearanceRatio);
 
     UFUNCTION(BlueprintCallable, Category = "WTBR | Aegorn Wall | Status")
     void ApplyBrittle(float DamageMultiplier, float Duration);
 
     UFUNCTION(BlueprintPure, Category = "WTBR | Aegorn Wall")
     float GetWallHPPercent() const;
+
+    // Half-extents WallCollision should have for THIS class's WallMesh
+    // (static mesh + Blueprint-authored component scale), independent of
+    // whether BeginPlay has ever run. Safe to call on a Class Default Object
+    // — mesh/scale are Blueprint-construction-time data, not runtime state.
+    // This exists so pre-placement code that only ever has a CDO (Escudo's
+    // ValidatePanelPlacement anti-trap check, the ghost-preview footprint)
+    // can compute the exact same size BeginPlay will end up applying to a
+    // real spawned instance's WallCollision, instead of the two silently
+    // disagreeing (the bug this fixes: BeginPlay's own auto-fit only ever
+    // touched an actually-spawned instance's collision, which nothing that
+    // reads GetDefaultObject() ever sees).
+    UFUNCTION(BlueprintPure, Category = "WTBR | Aegorn Wall")
+    FVector ComputeIntendedCollisionExtent() const;
 
     bool HandleProjectileContact(AActor* OtherActor, const TCHAR* Source);
 
@@ -123,8 +139,8 @@ private:
     FVector EruptFinalLocation = FVector::ZeroVector;
     float EruptElapsed = 0.0f;
     float EruptDuration = 0.0f;
-    float EruptAllyPushImpulse = 0.0f;
-    float EruptEnemyLaunchImpulse = 0.0f;
+    float EruptImpulse = 0.0f;
+    float EruptClearanceRatio = 0.0f;
 
     UPROPERTY()
     TSet<TObjectPtr<AWTBRCharacter>> EruptDisplacedCharacters;

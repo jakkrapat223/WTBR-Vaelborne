@@ -60,6 +60,11 @@
 #include "UI/WTBRSniperScopeWidget.h"
 #include "UI/WTBRTriggerWheelWidget.h"
 #include "UI/WTBRMarkPingHUDWidget.h"
+#include "UI/WTBREscudoPresetWheelWidget.h"
+#include "Trigger/WTBREscudoTrigger.h"
+#include "Actors/WTBRAegornWallActor.h"
+#include "Components/BoxComponent.h"
+#include "DrawDebugHelpers.h"
 #include "Trigger/WTBRVoltisLaunchTrigger.h"
 #include "UI/WTBRInputBindingDisplayLibrary.h"
 #include "NiagaraComponent.h"
@@ -584,6 +589,7 @@ void AWTBRCharacter::FireMain(const FInputActionValue& Value)
         *ClientMoveInputDir.ToString());
     if (InputGestureComponent) InputGestureComponent->NotifyMainPressed();
     UpdateSniperZoom(true, true);
+    if (HandleEscudoFirePressed(true)) return;
     Server_Fire(true, true, ClientMoveInputDir);
 }
 
@@ -596,6 +602,7 @@ void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifyMainReleased();
     UpdateSniperZoom(true, false);
+    if (HandleEscudoFireReleased(true)) return;
     Server_Fire(true, false, FVector::ZeroVector);
 }
 
@@ -610,6 +617,7 @@ void AWTBRCharacter::FireSub(const FInputActionValue& Value)
         *ClientMoveInputDir.ToString());
     if (InputGestureComponent) InputGestureComponent->NotifySubPressed();
     UpdateSniperZoom(false, true);
+    if (HandleEscudoFirePressed(false)) return;
     Server_Fire(false, true, ClientMoveInputDir);
 }
 
@@ -622,6 +630,7 @@ void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifySubReleased();
     UpdateSniperZoom(false, false);
+    if (HandleEscudoFireReleased(false)) return;
     Server_Fire(false, false, FVector::ZeroVector);
 }
 
@@ -716,6 +725,570 @@ void AWTBRCharacter::UpdateSniperZoom(bool bIsMain, bool bZoomIn)
         SNIPER_ZOOM_TICK_INTERVAL, true);
 }
 
+// ─── Escudo Hold/Preset ───────────────────────────────────────────────────────
+// Design: wtbr-escudo-hold-preset-design-lock project memory. Entirely
+// client-local until TryConfirmEscudoPlacement's RPC.
+
+UWTBREscudoTrigger* AWTBRCharacter::GetActiveEscudoTrigger(bool bIsMain) const
+{
+    if (!TriggerSetComponent)
+    {
+        return nullptr;
+    }
+    UWTBRTriggerBase* Trigger = bIsMain
+        ? TriggerSetComponent->GetActiveMainTrigger()
+        : TriggerSetComponent->GetActiveSubTrigger();
+    return Cast<UWTBREscudoTrigger>(Trigger);
+}
+
+bool AWTBRCharacter::HandleEscudoFirePressed(bool bIsMain)
+{
+    // Confirm press: a fresh press while already showing a ghost preview for
+    // this same slot.
+    if (EscudoFlowState == EWTBREscudoPresetFlowState::GhostPreview && bEscudoFlowIsMainSlot == bIsMain)
+    {
+        TryConfirmEscudoPlacement();
+        return true;
+    }
+
+    // Mid-flow on a different slot, or genuinely idle elsewhere — not this
+    // press's concern.
+    if (EscudoFlowState != EWTBREscudoPresetFlowState::Idle)
+    {
+        return false;
+    }
+
+    if (!IsValid(GetActiveEscudoTrigger(bIsMain)))
+    {
+        return false;
+    }
+
+    // Don't yet know tap vs hold — suppress Server_Fire unconditionally until
+    // the threshold resolves it. A tap replays both calls itself once
+    // released (see HandleEscudoFireReleased), so it still goes through the
+    // exact same Server_Fire -> Activate_Implementation route as every other
+    // Trigger, unchanged.
+    bEscudoFlowIsMainSlot = bIsMain;
+    EscudoFlowState = EWTBREscudoPresetFlowState::WaitingForHoldDecision;
+    GetWorldTimerManager().SetTimer(
+        EscudoHoldThresholdTimer, this,
+        &AWTBRCharacter::OnEscudoHoldThresholdReached,
+        ESCUDO_HOLD_THRESHOLD, false);
+    return true;
+}
+
+bool AWTBRCharacter::HandleEscudoFireReleased(bool bIsMain)
+{
+    if (EscudoFlowState == EWTBREscudoPresetFlowState::Idle || bEscudoFlowIsMainSlot != bIsMain)
+    {
+        return false;
+    }
+
+    switch (EscudoFlowState)
+    {
+    case EWTBREscudoPresetFlowState::WaitingForHoldDecision:
+    {
+        // Released before the threshold fired — this was a Tap. Replay the
+        // press/release pair the normal path would have sent.
+        GetWorldTimerManager().ClearTimer(EscudoHoldThresholdTimer);
+        EscudoFlowState = EWTBREscudoPresetFlowState::Idle;
+        const FVector ClientMoveInputDir = GetClientMoveInputDirectionForTrigger();
+        Server_Fire(bIsMain, true, ClientMoveInputDir);
+        Server_Fire(bIsMain, false, FVector::ZeroVector);
+        return true;
+    }
+    case EWTBREscudoPresetFlowState::WheelOpen:
+        LockEscudoPresetAndEnterGhostPreview();
+        return true;
+    default:
+        // GhostPreview: releasing does nothing by itself — confirm is a
+        // fresh press (HandleEscudoFirePressed), not a release. Preview
+        // keeps running.
+        return true;
+    }
+}
+
+void AWTBRCharacter::OnEscudoHoldThresholdReached()
+{
+    if (EscudoFlowState != EWTBREscudoPresetFlowState::WaitingForHoldDecision)
+    {
+        return;
+    }
+    OpenEscudoPresetWheel();
+}
+
+void AWTBRCharacter::OpenEscudoPresetWheel()
+{
+    const UWTBREscudoTrigger* EscudoTrigger = GetActiveEscudoTrigger(bEscudoFlowIsMainSlot);
+    if (!IsValid(EscudoTrigger) || !IsValid(EscudoTrigger->DataAsset) || !IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        EscudoFlowState = EWTBREscudoPresetFlowState::Idle;
+        return;
+    }
+
+    const TArray<FWTBREscudoPreset>& Presets = EscudoTrigger->DataAsset->EscudoParams.EscudoPresets;
+    if (Presets.Num() == 0)
+    {
+        EscudoFlowState = EWTBREscudoPresetFlowState::Idle;
+        return;
+    }
+
+    const float CurrentVael = IsValid(VaelComponent) ? VaelComponent->GetCurrentVael() : 0.0f;
+    const float CostPerPanel = EscudoTrigger->DataAsset->VaelCostPerUse;
+
+    // "If even the cheapest preset is unaffordable, the dialog does not open
+    // at all" (owner-locked, 2026-07-13 audit memory) — the HUD's existing
+    // low-Vael warning covers the feedback for that case.
+    float CheapestCost = TNumericLimits<float>::Max();
+    for (const FWTBREscudoPreset& Preset : Presets)
+    {
+        CheapestCost = FMath::Min(CheapestCost, Preset.PanelOffsets.Num() * CostPerPanel);
+    }
+    if (CurrentVael < CheapestCost)
+    {
+        EscudoFlowState = EWTBREscudoPresetFlowState::Idle;
+        return;
+    }
+
+    TArray<FWTBREscudoPresetWheelOption> Options;
+    Options.Reserve(Presets.Num());
+    for (const FWTBREscudoPreset& Preset : Presets)
+    {
+        FWTBREscudoPresetWheelOption Option;
+        Option.Name = Preset.PresetName;
+        Option.bAffordable = CurrentVael >= (Preset.PanelOffsets.Num() * CostPerPanel);
+        Options.Add(Option);
+    }
+
+    EscudoFlowState = EWTBREscudoPresetFlowState::WheelOpen;
+    SetLookInputFrozen(true);
+    EscudoPresetWheelWidgetInstance->OpenWheel(Options);
+}
+
+void AWTBRCharacter::LockEscudoPresetAndEnterGhostPreview()
+{
+    SetLookInputFrozen(false);
+
+    const int32 SelectedIndex = IsValid(EscudoPresetWheelWidgetInstance)
+        ? EscudoPresetWheelWidgetInstance->GetHighlightedPresetIndex()
+        : INDEX_NONE;
+
+    if (IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        EscudoPresetWheelWidgetInstance->CloseWheel();
+    }
+
+    // Log (not Verbose): LogTemp's default verbosity is Log, so a Verbose line
+    // never prints even with wtbr.Debug.ValidationLogs on — which silently made
+    // the first version of this diagnostic useless.
+    WTBR_VALIDATION_LOG(Log, TEXT("[Escudo Test] LockPreset | Owner=%s | SelectedIndex=%d"),
+        *GetNameSafe(this), SelectedIndex);
+
+    // Dead zone on release = changed their mind, not "pick something at
+    // random" — free cancel, same as RMB.
+    if (SelectedIndex == INDEX_NONE)
+    {
+        EscudoFlowState = EWTBREscudoPresetFlowState::Idle;
+        return;
+    }
+
+    EscudoLockedPresetIndex = SelectedIndex;
+    EscudoFlowState = EWTBREscudoPresetFlowState::GhostPreview;
+    GetWorldTimerManager().SetTimer(
+        EscudoGhostPreviewTimer, this,
+        &AWTBRCharacter::TickEscudoGhostPreview,
+        ESCUDO_GHOST_TICK_INTERVAL, true);
+    TickEscudoGhostPreview();
+}
+
+void AWTBRCharacter::ComputeEscudoAnchor(
+    const UWTBREscudoTrigger* EscudoTrigger, FVector& OutLocation,
+    FRotator& OutRotation, FVector& OutSurfaceNormal) const
+{
+    FVector EyeLocation = FVector::ZeroVector;
+    FRotator EyeRotation = FRotator::ZeroRotator;
+    GetActorEyesViewPoint(EyeLocation, EyeRotation);
+    const FVector AimDirection = EyeRotation.Vector();
+
+    const UWorld* World = GetWorld();
+    if (!World || !IsValid(EscudoTrigger) || !IsValid(EscudoTrigger->DataAsset))
+    {
+        OutLocation = EyeLocation + AimDirection * 150.0f;
+        OutRotation = FRotator::ZeroRotator;
+        OutSurfaceNormal = FVector::ZeroVector;
+        return;
+    }
+
+    const FWTBREscudoParams& Params = EscudoTrigger->DataAsset->EscudoParams;
+    const FVector AimEnd = EyeLocation + AimDirection * Params.EscudoPlacementRange;
+
+    FCollisionQueryParams AimParams;
+    AimParams.AddIgnoredActor(this);
+
+    // Object-type query, not a channel trace. ECC_WorldStatic as a TRACE
+    // channel matches anything that BLOCKS that channel — which a character
+    // capsule does — so aiming at someone anchored the whole preset to their
+    // body and it floated along with them (owner-found: panels hovering at
+    // chest height on another player). As an object-type query only real level
+    // geometry answers, and characters are invisible to it. WorldDynamic is
+    // included so movers and placed props still count as surfaces.
+    FCollisionObjectQueryParams SurfaceObjects;
+    SurfaceObjects.AddObjectTypesToQuery(ECC_WorldStatic);
+    SurfaceObjects.AddObjectTypesToQuery(ECC_WorldDynamic);
+
+    FHitResult AimHit;
+    if (World->LineTraceSingleByObjectType(AimHit, EyeLocation, AimEnd, SurfaceObjects, AimParams))
+    {
+        // Aim landed on real geometry — that IS the anchor surface, whatever
+        // its orientation. This is the floor/wall/ceiling case in one branch.
+        OutLocation = AimHit.ImpactPoint;
+        OutSurfaceNormal = AimHit.ImpactNormal;
+    }
+    else
+    {
+        // Aiming over open ground or at the sky: fall back to the ground under
+        // the max-range point, so sweeping the crosshair across a courtyard
+        // keeps previewing on the floor rather than dropping out entirely.
+        FHitResult DropHit;
+        if (World->LineTraceSingleByObjectType(
+                DropHit, AimEnd,
+                AimEnd - FVector(0.0f, 0.0f, Params.EscudoSurfaceSnapRange),
+                SurfaceObjects, AimParams))
+        {
+            OutLocation = DropHit.ImpactPoint;
+            OutSurfaceNormal = DropHit.ImpactNormal;
+        }
+        else
+        {
+            // Genuinely nothing to sprout from. Leave the anchor where the
+            // player is pointing so the preview still draws (red), and hand
+            // back a zero normal, which ValidatePanelPlacement rejects.
+            OutLocation = AimEnd;
+            OutSurfaceNormal = FVector::ZeroVector;
+        }
+    }
+
+    OutRotation = UWTBREscudoTrigger::ComputeSurfaceAlignedRotation(OutSurfaceNormal, AimDirection);
+}
+
+void AWTBRCharacter::ComputeEscudoPanelPlacements(
+    const UWTBREscudoTrigger* EscudoTrigger, int32 PresetIndex,
+    const FVector& AnchorLocation, const FRotator& AnchorRotation,
+    TArray<FTransform>& OutPanelTransforms, TArray<bool>& OutPanelValid) const
+{
+    OutPanelTransforms.Reset();
+    OutPanelValid.Reset();
+
+    if (!IsValid(EscudoTrigger) || !IsValid(EscudoTrigger->DataAsset))
+    {
+        return;
+    }
+    const TArray<FWTBREscudoPreset>& Presets = EscudoTrigger->DataAsset->EscudoParams.EscudoPresets;
+    if (!Presets.IsValidIndex(PresetIndex))
+    {
+        return;
+    }
+
+    // Loaded once and reused for every panel — LoadSynchronous on an
+    // already-cached soft class is cheap, but no need to repeat it per panel.
+    // A null class (unassigned/unloadable) is not itself a validation
+    // failure here — ValidatePanelPlacement treats it as "skip the
+    // character-overlap check" and still validates surface/spacing, since
+    // the confirm handler independently re-checks the class exists before
+    // ever reaching this point.
+    const TSubclassOf<AWTBRAegornWallActor> WallClass = EscudoTrigger->LoadWallActorClass();
+
+    const FMatrix AnchorBasis = FRotationMatrix(AnchorRotation);
+    const FVector RightDir = AnchorBasis.GetUnitAxis(EAxis::Y);
+    const FVector ForwardDir = AnchorBasis.GetUnitAxis(EAxis::X);
+    // Local +Z is the surface normal by construction (see
+    // ComputeSurfaceAlignedRotation), so the anchor rotation alone carries
+    // everything the panels need — no separate normal has to be threaded
+    // through the confirm RPC, and client preview and server re-validation
+    // cannot drift apart on it.
+    const FVector SurfaceNormal = AnchorBasis.GetUnitAxis(EAxis::Z);
+
+    for (const FVector2D& Offset : Presets[PresetIndex].PanelOffsets)
+    {
+        // Offsets lie in the SURFACE plane (X = lateral, Y = forward), which
+        // RightDir/ForwardDir already span because both are perpendicular to
+        // the normal. On a floor that reads exactly as before; on a wall the
+        // same preset spreads horizontally along the wall face instead.
+        const FVector RawLocation = AnchorLocation + RightDir * Offset.X + ForwardDir * Offset.Y;
+
+        // SurfacePoint comes back filled whenever a surface was found, even
+        // for a rejected panel, so a red preview still sits on the surface
+        // instead of floating at aim height. Only fall back to the raw point
+        // when there was no surface at all.
+        FVector SurfacePoint = RawLocation;
+        const bool bValid = EscudoTrigger->ValidatePanelPlacement(
+            WallClass, RawLocation, SurfaceNormal, AnchorRotation, SurfacePoint);
+        OutPanelTransforms.Add(FTransform(AnchorRotation, SurfacePoint));
+        OutPanelValid.Add(bValid);
+    }
+}
+
+void AWTBRCharacter::TickEscudoGhostPreview()
+{
+    if (EscudoFlowState != EWTBREscudoPresetFlowState::GhostPreview)
+    {
+        GetWorldTimerManager().ClearTimer(EscudoGhostPreviewTimer);
+        return;
+    }
+
+    UWTBREscudoTrigger* EscudoTrigger = GetActiveEscudoTrigger(bEscudoFlowIsMainSlot);
+    if (!IsValid(EscudoTrigger))
+    {
+        // The active Trigger on this slot changed out from under an active
+        // preview via some path that didn't route through
+        // CancelEscudoPresetFlow — abort cleanly instead of previewing
+        // against a stale/wrong Trigger.
+        CancelEscudoPresetFlow();
+        return;
+    }
+
+    FVector AnchorLocation;
+    FRotator AnchorRotation;
+    FVector AnchorNormal;
+    ComputeEscudoAnchor(EscudoTrigger, AnchorLocation, AnchorRotation, AnchorNormal);
+
+    TArray<FTransform> PanelTransforms;
+    TArray<bool> PanelValid;
+    ComputeEscudoPanelPlacements(
+        EscudoTrigger, EscudoLockedPresetIndex, AnchorLocation, AnchorRotation, PanelTransforms, PanelValid);
+
+    // Fires every tick (~20Hz) while previewing, so it stays gated behind
+    // wtbr.Debug.ValidationLogs (off by default, no spam). At Log level, not
+    // Verbose — LogTemp's default verbosity is Log, so a Verbose line never
+    // prints even with the CVar on, which is what silently made the first
+    // version of this diagnostic useless.
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("[Escudo Test] TickGhostPreview | Owner=%s | Preset=%d | PanelCount=%d | AllValid=%s | Anchor=%s"),
+        *GetNameSafe(this), EscudoLockedPresetIndex, PanelTransforms.Num(),
+        (PanelValid.Num() > 0 && !PanelValid.Contains(false)) ? TEXT("true") : TEXT("false"),
+        *AnchorLocation.ToString());
+
+    DrawEscudoGhostPreview(EscudoTrigger, PanelTransforms, PanelValid);
+
+    // Kept firing for any Blueprint that wants to add a nicer mesh-based
+    // preview on top later — but C++ no longer DEPENDS on a BP graph existing
+    // for the preview to be visible at all (see DrawEscudoGhostPreview).
+    OnEscudoGhostPreviewUpdated(PanelTransforms, PanelValid);
+}
+
+void AWTBRCharacter::DrawEscudoGhostPreview(
+    const UWTBREscudoTrigger* EscudoTrigger,
+    const TArray<FTransform>& PanelTransforms,
+    const TArray<bool>& PanelValid) const
+{
+#if ENABLE_DRAW_DEBUG
+    UWorld* World = GetWorld();
+    if (!World || !IsValid(EscudoTrigger))
+    {
+        return;
+    }
+
+    // Half-height of the flat ground marker slab.
+    constexpr float GroundMarkerThickness = 3.0f;
+
+    // Real collision extent of the actual wall that would spawn, so the
+    // preview footprint matches the true wall rather than a guessed size.
+    // Fallback below is only reached if WallClass fails to load — matches
+    // AWTBRAegornWallActor's own constructor default
+    // (WallCollision->SetBoxExtent(FVector(10, 150, 150))): X = thin facing/
+    // depth axis, Y = width, Z = height, all half-extents.
+    FVector BoxExtent(10.0f, 150.0f, 150.0f);
+    const TSubclassOf<AWTBRAegornWallActor> WallClass = EscudoTrigger->LoadWallActorClass();
+    if (IsValid(WallClass))
+    {
+        // ComputeIntendedCollisionExtent, not WallCollision->
+        // GetScaledBoxExtent() — see the matching comment in
+        // UWTBREscudoTrigger::ValidatePanelPlacement. The CDO's raw
+        // WallCollision never receives BeginPlay's mesh-based auto-fit.
+        if (const AWTBRAegornWallActor* WallCDO = WallClass->GetDefaultObject<AWTBRAegornWallActor>())
+        {
+            BoxExtent = WallCDO->ComputeIntendedCollisionExtent();
+        }
+    }
+
+    // Slightly longer than the tick interval so consecutive frames overlap and
+    // the preview reads as steady rather than strobing.
+    const float PreviewLifetime = ESCUDO_GHOST_TICK_INTERVAL * 1.6f;
+
+    // Owner's ask 2026-07-20: "ขอแบบเป็นพื้นเรืองแสงก็พอ เหมือนบอกว่าวางตรงนี้นะ"
+    // — a lit-up patch on the FLOOR marking where each panel would go, rather
+    // than a full-height 3D box outline (which read as clutter floating in
+    // the air). So: a flat filled slab at the panel's ground point, sized to
+    // the wall's real footprint, plus a thin outline for a crisp edge.
+    const FVector FootprintExtent(BoxExtent.X, BoxExtent.Y, GroundMarkerThickness);
+
+    for (int32 Index = 0; Index < PanelTransforms.Num(); ++Index)
+    {
+        const bool bValid = PanelValid.IsValidIndex(Index) && PanelValid[Index];
+        const FQuat PanelRotation = PanelTransforms[Index].GetRotation();
+        // Lift a hair off the surface so the marker doesn't z-fight it — along
+        // the panel's own grow axis, not world up, or a wall/ceiling marker
+        // would be nudged sideways into the geometry it is marking.
+        const FVector GroundCenter = PanelTransforms[Index].GetLocation()
+            + PanelRotation.GetAxisZ() * (GroundMarkerThickness + 1.0f);
+
+        const FColor FillColor = bValid ? FColor(40, 255, 90, 140) : FColor(255, 50, 50, 140);
+        const FColor EdgeColor = bValid ? FColor::Green : FColor::Red;
+
+        DrawDebugSolidBox(World, GroundCenter, FootprintExtent, PanelRotation, FillColor,
+            /*bPersistentLines=*/false, PreviewLifetime, /*DepthPriority=*/0);
+        DrawDebugBox(World, GroundCenter, FootprintExtent, PanelRotation, EdgeColor,
+            /*bPersistentLines=*/false, PreviewLifetime, /*DepthPriority=*/0, /*Thickness=*/2.0f);
+    }
+#endif
+}
+
+void AWTBRCharacter::TryConfirmEscudoPlacement()
+{
+    if (EscudoFlowState != EWTBREscudoPresetFlowState::GhostPreview)
+    {
+        return;
+    }
+
+    UWTBREscudoTrigger* EscudoTrigger = GetActiveEscudoTrigger(bEscudoFlowIsMainSlot);
+    if (!IsValid(EscudoTrigger))
+    {
+        CancelEscudoPresetFlow();
+        return;
+    }
+
+    FVector AnchorLocation;
+    FRotator AnchorRotation;
+    FVector AnchorNormal;
+    ComputeEscudoAnchor(EscudoTrigger, AnchorLocation, AnchorRotation, AnchorNormal);
+
+    TArray<FTransform> PanelTransforms;
+    TArray<bool> PanelValid;
+    ComputeEscudoPanelPlacements(
+        EscudoTrigger, EscudoLockedPresetIndex, AnchorLocation, AnchorRotation, PanelTransforms, PanelValid);
+
+    const bool bAllValid = PanelValid.Num() > 0 && !PanelValid.Contains(false);
+    if (!bAllValid)
+    {
+        // All-or-nothing: any red panel blocks confirm entirely. Stay in
+        // GhostPreview — the player can keep moving to find a valid spot, or
+        // cancel via RMB/slot-switch.
+        return;
+    }
+
+    Server_ConfirmEscudoPreset(bEscudoFlowIsMainSlot, EscudoLockedPresetIndex, AnchorLocation, AnchorRotation);
+
+    // Optimistic: hide the preview immediately rather than waiting on the RPC
+    // round trip. If the server rejects it (e.g. lost a race for the spot),
+    // the player simply doesn't see a wall appear — no rollback UX for this
+    // MVP pass.
+    EscudoFlowState = EWTBREscudoPresetFlowState::Idle;
+    GetWorldTimerManager().ClearTimer(EscudoGhostPreviewTimer);
+    OnEscudoGhostPreviewHidden();
+}
+
+void AWTBRCharacter::CancelEscudoPresetFlow()
+{
+    if (EscudoFlowState == EWTBREscudoPresetFlowState::Idle)
+    {
+        return;
+    }
+
+    GetWorldTimerManager().ClearTimer(EscudoHoldThresholdTimer);
+    GetWorldTimerManager().ClearTimer(EscudoGhostPreviewTimer);
+    SetLookInputFrozen(false);
+
+    if (IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        EscudoPresetWheelWidgetInstance->CloseWheel();
+    }
+
+    const bool bWasPreviewing = EscudoFlowState == EWTBREscudoPresetFlowState::GhostPreview;
+    EscudoFlowState = EWTBREscudoPresetFlowState::Idle;
+    EscudoLockedPresetIndex = INDEX_NONE;
+
+    if (bWasPreviewing)
+    {
+        OnEscudoGhostPreviewHidden();
+    }
+}
+
+void AWTBRCharacter::Server_ConfirmEscudoPreset_Implementation(
+    bool bIsMain, int32 PresetIndex, FVector AnchorLocation, FRotator AnchorRotation)
+{
+    if (!HasAuthority())
+    {
+        return;
+    }
+
+    UWTBREscudoTrigger* EscudoTrigger = GetActiveEscudoTrigger(bIsMain);
+    if (!IsValid(EscudoTrigger) || !IsValid(EscudoTrigger->DataAsset))
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] ConfirmPreset Abort | Owner=%s | Reason=NoActiveEscudo"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    const TArray<FWTBREscudoPreset>& Presets = EscudoTrigger->DataAsset->EscudoParams.EscudoPresets;
+    if (!Presets.IsValidIndex(PresetIndex))
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] ConfirmPreset Abort | Owner=%s | Reason=InvalidPresetIndex=%d"),
+            *GetNameSafe(this), PresetIndex);
+        return;
+    }
+
+    // Aim-to-place means the client now chooses WHERE, not just which preset,
+    // so the server has to bound that choice — otherwise a tampered client
+    // could confirm an anchor anywhere on the map. The per-panel re-validation
+    // below already re-derives geometry independently; this is the one thing
+    // it cannot catch, since a far-away spot can be perfectly valid geometry.
+    const float MaxAnchorDistance =
+        EscudoTrigger->DataAsset->EscudoParams.EscudoPlacementRange * ESCUDO_SERVER_RANGE_TOLERANCE;
+    const float AnchorDistance = FVector::Dist(GetActorLocation(), AnchorLocation);
+    if (AnchorDistance > MaxAnchorDistance)
+    {
+        WTBR_VALIDATION_LOG(Log, TEXT("[Escudo Test] ConfirmPreset Abort | Owner=%s | Reason=AnchorOutOfRange | Distance=%.1f | Max=%.1f"),
+            *GetNameSafe(this), AnchorDistance, MaxAnchorDistance);
+        return;
+    }
+
+    // Never trust the client's panel transforms — re-derive and re-validate
+    // every panel independently, same "validate everything before spending
+    // Vael" rule Tap has always used, just looped across a whole preset.
+    TSubclassOf<AWTBRAegornWallActor> WallClass = EscudoTrigger->LoadWallActorClass();
+    if (!IsValid(WallClass))
+    {
+        return;
+    }
+
+    TArray<FTransform> PanelTransforms;
+    TArray<bool> PanelValid;
+    ComputeEscudoPanelPlacements(EscudoTrigger, PresetIndex, AnchorLocation, AnchorRotation, PanelTransforms, PanelValid);
+
+    if (PanelValid.Num() == 0 || PanelValid.Contains(false))
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] ConfirmPreset Abort | Owner=%s | Reason=NotAllPanelsValid | PanelCount=%d"),
+            *GetNameSafe(this), PanelValid.Num());
+        return;
+    }
+
+    const float TotalCost = PanelTransforms.Num() * EscudoTrigger->DataAsset->VaelCostPerUse;
+    if (!IsValid(VaelComponent) || !VaelComponent->TryConsumeVael(TotalCost))
+    {
+        WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] ConfirmPreset ConsumeFail | Owner=%s | Cost=%.2f"),
+            *GetNameSafe(this), TotalCost);
+        return;
+    }
+
+    for (const FTransform& PanelTransform : PanelTransforms)
+    {
+        EscudoTrigger->SpawnOnePanel(WallClass, PanelTransform.GetLocation(), PanelTransform.Rotator());
+    }
+
+    WTBR_VALIDATION_LOG(Verbose, TEXT("[Escudo Test] ConfirmPreset Success | Owner=%s | PanelCount=%d | TotalCost=%.2f"),
+        *GetNameSafe(this), PanelTransforms.Num(), TotalCost);
+}
+
 void AWTBRCharacter::SetSniperScopeView(bool bActive)
 {
     if (bActive == bSniperScopeViewActive) return;
@@ -806,6 +1379,14 @@ void AWTBRCharacter::HandleCancelInput()
 {
     if (!IsLocallyControlled())
     {
+        return;
+    }
+
+    // RMB cancels an in-progress Escudo preset flow for free (owner-locked
+    // design), same priority tier as closing an open local UI panel below.
+    if (EscudoFlowState != EWTBREscudoPresetFlowState::Idle)
+    {
+        CancelEscudoPresetFlow();
         return;
     }
 
@@ -1035,6 +1616,17 @@ void AWTBRCharacter::EndTriggerSetSelect(bool bIsMain)
 {
     GetWorldTimerManager().ClearTimer(TriggerWheelHoldTimer);
 
+    // Always lift the wheel's camera freeze on release, even if the wheel was
+    // never actually opened (a tap) — SetLookInputFrozen(false) is harmless
+    // when it was never set, and this way no early-return path below can
+    // leave the camera stuck frozen.
+    SetLookInputFrozen(false);
+
+    // Slot-switch cancels an in-progress Escudo preset flow for free
+    // (owner-locked design) — this is the single point where a slot actually
+    // changes, whether via tap-cycle or a wheel commit, for either set.
+    CancelEscudoPresetFlow();
+
     if (IsValid(TriggerWheelWidgetInstance) && TriggerWheelWidgetInstance->IsWheelOpen())
     {
         // INDEX_NONE means the player never flicked far enough, or aimed at an empty
@@ -1067,6 +1659,12 @@ void AWTBRCharacter::OpenTriggerWheel()
         return;
     }
 
+    // Freeze camera rotation while the wheel is up, matching the Escudo
+    // preset wheel (owner's ask 2026-07-20: "wheel ตอน Trigger มุมกล้องหันตาม
+    // ทำให้เป็นแบบ wheel escudo"). The widget reads raw mouse delta directly
+    // for its own selection, so freezing the Look input path doesn't affect
+    // picking a slot — it only stops the camera turning underneath it.
+    SetLookInputFrozen(true);
     TriggerWheelWidgetInstance->OpenWheel(bTriggerWheelPendingIsMain);
 }
 
@@ -4279,6 +4877,21 @@ void AWTBRCharacter::CreateLocalPlayerUI()
             MarkPingHUDWidgetInstance->SetAlignmentInViewport(FVector2D::ZeroVector);
         }
     }
+
+    if (!IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        EscudoPresetWheelWidgetInstance =
+            CreateWidget<UWTBREscudoPresetWheelWidget>(PC, UWTBREscudoPresetWheelWidget::StaticClass());
+        if (IsValid(EscudoPresetWheelWidgetInstance))
+        {
+            // Same layer as the Trigger Wheel (3) — the two are mutually
+            // exclusive (see HandleEscudoFirePressed), never shown together.
+            EscudoPresetWheelWidgetInstance->AddToViewport(3);
+            EscudoPresetWheelWidgetInstance->SetAnchorsInViewport(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+            EscudoPresetWheelWidgetInstance->SetAlignmentInViewport(FVector2D::ZeroVector);
+            EscudoPresetWheelWidgetInstance->SetVisibility(ESlateVisibility::Collapsed);
+        }
+    }
 }
 
 void AWTBRCharacter::DestroyLocalPlayerUI()
@@ -4318,6 +4931,12 @@ void AWTBRCharacter::DestroyLocalPlayerUI()
         MarkPingHUDWidgetInstance->RemoveFromParent();
     }
     MarkPingHUDWidgetInstance = nullptr;
+
+    if (IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        EscudoPresetWheelWidgetInstance->RemoveFromParent();
+    }
+    EscudoPresetWheelWidgetInstance = nullptr;
 
     // The hold watch outlives the widget otherwise and would fire into a dead pointer.
     GetWorldTimerManager().ClearTimer(TriggerWheelHoldTimer);
