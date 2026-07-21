@@ -90,6 +90,16 @@ namespace
         Definition.CompositeType = EWTBRCompositeBulletType::Catarix;
         Definition.ProjectileClass = AWTBRProjectileBase::StaticClass();
         Definition.TotalDamageBudget = 160.0f;
+
+        // Solgrix and Catarix became path-driven when Meteo presets landed, so their
+        // fixtures need a lane the way the Viper composites' always did. Pinned to a
+        // single straight cube so these tests keep measuring explosion lifecycle and
+        // damage delivery rather than volley size.
+        FWTBRPathLane& Lane = Definition.PathPreset.Lanes.AddDefaulted_GetRef();
+        Lane.NormalizedWaypoints = {FVector::ZeroVector, FVector(1.0f, 0.0f, 0.0f)};
+        Lane.CubeCount = 1;
+        Lane.FormationOffset = FVector::ZeroVector;
+        Definition.CubeCount = 1;
         Definition.ProjectileSpeed = 2200.0f;
         Definition.ExplosionParams.bExplodes = true;
         Definition.ExplosionParams.ExplosionRadius = 150.0f;
@@ -118,6 +128,16 @@ namespace
         Definition.ProjectileClass = AWTBRProjectileBase::StaticClass();
         Definition.BehaviorClass = UWTBRCatarixCompositeBehavior::StaticClass();
         Definition.TotalDamageBudget = 160.0f;
+
+        // Solgrix and Catarix became path-driven when Meteo presets landed, so their
+        // fixtures need a lane the way the Viper composites' always did. Pinned to a
+        // single straight cube so these tests keep measuring explosion lifecycle and
+        // damage delivery rather than volley size.
+        FWTBRPathLane& Lane = Definition.PathPreset.Lanes.AddDefaulted_GetRef();
+        Lane.NormalizedWaypoints = {FVector::ZeroVector, FVector(1.0f, 0.0f, 0.0f)};
+        Lane.CubeCount = 1;
+        Lane.FormationOffset = FVector::ZeroVector;
+        Definition.CubeCount = 1;
         Definition.ProjectileSpeed = 2200.0f;
         Definition.ExplosionParams.bExplodes = true;
         Definition.ExplosionParams.ExplosionRadius = 150.0f;

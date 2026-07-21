@@ -753,9 +753,15 @@ bool AWTBRProjectileBase::IsLocationWithinShapedChargeCone(const FVector& Target
     const FVector ToTarget = TargetLocation - GetActorLocation();
     if (ToTarget.IsNearlyZero()) return true;
 
+    // Fire-time direction when one was supplied, so the cone is identical on every
+    // machine regardless of where exactly the projectile stopped.
+    const FVector ConeAxis = ShapedChargeDirection.IsNearlyZero()
+        ? GetActorForwardVector()
+        : ShapedChargeDirection.GetSafeNormal();
+
     const float ConeDotThreshold = FMath::Cos(FMath::DegreesToRadians(
         FMath::Clamp(ShapedChargeConeHalfAngleDegrees, 0.0f, 180.0f)));
-    return FVector::DotProduct(GetActorForwardVector(), ToTarget.GetSafeNormal()) >= ConeDotThreshold;
+    return FVector::DotProduct(ConeAxis, ToTarget.GetSafeNormal()) >= ConeDotThreshold;
 }
 
 EWTBRHitZone AWTBRProjectileBase::ClassifyHitZone(const FVector& CapsuleCenter, float CapsuleHalfHeight,

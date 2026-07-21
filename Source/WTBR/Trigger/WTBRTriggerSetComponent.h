@@ -273,6 +273,11 @@ public:
     UFUNCTION(BlueprintPure, Category = "WTBR | Composite")
     bool HasReadyComposite() const { return ReadyCompositeType != EWTBRCompositeBulletType::None; }
 
+    // Registry definition for the composite currently held ready, or null. Lets
+    // callers ask what the composite IS (its archetypes, its balance) without
+    // needing their own handle on the registry asset.
+    const FWTBRCompositeDefinition* FindReadyCompositeDefinition() const;
+
     UFUNCTION(BlueprintPure, Category = "WTBR | Composite")
     EWTBRCompositeBulletType GetReadyCompositeType() const { return ReadyCompositeType; }
 

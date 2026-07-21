@@ -29,31 +29,53 @@ bool UWTBRCatarixCompositeBehavior::ExecuteComposite(
     const FVector SpawnLocation = EyeLocation + AimDirection * 100.0f;
     const FTransform SpawnTransform(AimRotation, SpawnLocation);
 
-    AWTBRProjectileBase* Projectile = World->SpawnActorDeferred<AWTBRProjectileBase>(
-        Definition.ProjectileClass,
-        SpawnTransform,
-        OwningCharacter,
-        OwningCharacter,
-        ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-    if (!IsValid(Projectile)) return false;
+    TArray<TArray<FVector>> CubeWorldPaths;
+    ResolveCompositeCubePaths(
+        OwningCharacter, Definition, SpawnLocation, AimRotation, CubeWorldPaths);
+    if (CubeWorldPaths.Num() == 0) return false;
 
-    Projectile->InitializeProjectile(
-        FirstBlastDamage,
-        Definition.ProjectileSpeed,
-        ETriggerCategory::Gunner,
-        false,
-        Definition.ExplosionParams.bExplodes,
-        Definition.ExplosionParams.ExplosionRadius);
-    if (Definition.ExplosionParams.bHasSecondBlast)
+    // Both beats are split across the volley, so the two-beat total still equals
+    // TotalDamageBudget no matter how many cubes the preset asked for.
+    const float CubeCountF = static_cast<float>(CubeWorldPaths.Num());
+    const float PerCubeFirstBlast = FirstBlastDamage / CubeCountF;
+    const float PerCubeSecondBlast = SecondBlastDamage / CubeCountF;
+
+    bool bAnySpawned = false;
+    for (const TArray<FVector>& PathPoints : CubeWorldPaths)
     {
-        Projectile->bHasDelayedSecondExplosion = true;
-        Projectile->SecondExplosionDelay = Definition.ExplosionParams.SecondBlastDelay;
-        Projectile->SecondExplosionRadius = Definition.ExplosionParams.SecondBlastRadius;
-        Projectile->SecondExplosionDamage = SecondBlastDamage;
+        if (PathPoints.Num() < 2) continue;
+
+        // Spawn on THIS cube's own path start — a shared spawn point makes the
+        // volley overlap and destroy itself before it can move.
+        const FTransform CubeSpawnTransform(AimRotation, PathPoints[0]);
+
+        AWTBRProjectileBase* Projectile = World->SpawnActorDeferred<AWTBRProjectileBase>(
+            Definition.ProjectileClass,
+            CubeSpawnTransform,
+            OwningCharacter,
+            OwningCharacter,
+            ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+        if (!IsValid(Projectile)) continue;
+
+        Projectile->InitializeProjectile(
+            PerCubeFirstBlast,
+            Definition.ProjectileSpeed,
+            ETriggerCategory::Gunner,
+            false,
+            Definition.ExplosionParams.bExplodes,
+            Definition.ExplosionParams.ExplosionRadius);
+        if (Definition.ExplosionParams.bHasSecondBlast)
+        {
+            Projectile->bHasDelayedSecondExplosion = true;
+            Projectile->SecondExplosionDelay = Definition.ExplosionParams.SecondBlastDelay;
+            Projectile->SecondExplosionRadius = Definition.ExplosionParams.SecondBlastRadius;
+            Projectile->SecondExplosionDamage = PerCubeSecondBlast;
+        }
+        // Per-composite look from the registry — keeps one shared projectile BP viable.
+        Projectile->ApplyVFXConfig(Definition.VFX);
+        Projectile->FinishSpawning(CubeSpawnTransform);
+        Projectile->InitializePathMovement(PathPoints, Definition.ProjectileSpeed, OwningCharacter);
+        bAnySpawned = true;
     }
-    // Per-composite look from the registry — keeps one shared projectile BP viable.
-    Projectile->ApplyVFXConfig(Definition.VFX);
-    Projectile->FinishSpawning(SpawnTransform);
-    Projectile->Launch(AimDirection, OwningCharacter);
-    return true;
+    return bAnySpawned;
 }

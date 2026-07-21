@@ -953,6 +953,76 @@ struct FWTBRFulgrixParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Explosion", meta = (ClampMin = "50.0"))
     float FulgrixExplosionRadius = 300.0f;
 
+    // ⚠ PLACEHOLDER TEST DATA, NOT GAME DESIGN. Meteor's hold presets are about
+    // DIRECTION and ANGLE (the design lock's "front-2/back-2"), not about the
+    // curving trajectory control Viper owns — waypoints are 3D, so a lane can send
+    // its cubes behind the caster just as easily as ahead.
+    //
+    // Consumed by the Meteo composites (Solgrix, Catarix) through the same
+    // FWTBRPathPreset resolver Viper uses. Keep FormationOffset at zero: every
+    // lane's waypoints are measured from its own cube origin, so a non-zero offset
+    // turns shared waypoints into parallel copies that can never meet.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Presets")
+    TArray<FWTBRPathPreset> FulgrixPresets;
+
+    FWTBRFulgrixParams()
+    {
+        auto MakeLane = [](const TArray<FVector>& Waypoints, int32 Weight)
+        {
+            FWTBRPathLane Lane;
+            Lane.NormalizedWaypoints = Waypoints;
+            Lane.CubeCount = Weight;
+            return Lane;
+        };
+
+        // All cubes are conjured at one point and fly OUTWARD from it — the lanes are
+        // launch directions, not curves. Viper owns trajectory shaping; Meteor owns
+        // where the blasts land.
+        //
+        // ⚠ These SPREADING shapes suit Catarix (round blasts, area denial) far
+        // better than Solgrix. Solgrix is a shaped charge: its cone points along
+        // each cube's own travel and only damages what is AHEAD of that blast, so
+        // cubes fanned past a target explode with it 60-95 degrees off-axis and deal
+        // nothing. A real shaped charge fires forward, it does not sweep across.
+        // Solgrix wants shapes that CONVERGE on the aim point — exactly what its own
+        // tap already does. Confirmed in PIE 2026-07-21: the cone was rejecting
+        // correctly, the preset was just the wrong tool for that composite.
+        FWTBRPathPreset Spread;
+        Spread.PresetId = FName(TEXT("WideSpread"));
+        Spread.DisplayName = FText::FromString(TEXT("Wide Spread"));
+        Spread.Lanes.Add(MakeLane({FVector::ZeroVector, FVector(1.0f, -0.45f, 0.0f)}, 1));
+        Spread.Lanes.Add(MakeLane({FVector::ZeroVector, FVector(1.0f,  0.00f, 0.0f)}, 1));
+        Spread.Lanes.Add(MakeLane({FVector::ZeroVector, FVector(1.0f,  0.45f, 0.0f)}, 1));
+        FulgrixPresets.Add(Spread);
+
+        // The canon shot from the owner's reference: cubes are conjured at one point,
+        // then half fire FORWARD and half fire BACKWARD to catch enemies on both
+        // sides at once. This is the design lock's "front-2/back-2", generalised —
+        // at CubeCount 8 the four equal lanes give exactly 4 ahead and 4 behind.
+        //
+        // Each side keeps a slight fan so the blasts cover ground instead of stacking
+        // on one line. Only the sign of X separates the two halves.
+        FWTBRPathPreset Pincer;
+        Pincer.PresetId = FName(TEXT("Pincer"));
+        Pincer.DisplayName = FText::FromString(TEXT("Pincer (front and back)"));
+        Pincer.Lanes.Add(MakeLane({FVector::ZeroVector, FVector( 1.0f, -0.20f, 0.0f)}, 1));
+        Pincer.Lanes.Add(MakeLane({FVector::ZeroVector, FVector( 1.0f,  0.20f, 0.0f)}, 1));
+        Pincer.Lanes.Add(MakeLane({FVector::ZeroVector, FVector(-1.0f, -0.20f, 0.0f)}, 1));
+        Pincer.Lanes.Add(MakeLane({FVector::ZeroVector, FVector(-1.0f,  0.20f, 0.0f)}, 1));
+        FulgrixPresets.Add(Pincer);
+
+        // Same idea turned into a full ring — every direction at once, for being
+        // surrounded rather than pinched from two sides.
+        FWTBRPathPreset Ring;
+        Ring.PresetId = FName(TEXT("Ring"));
+        Ring.DisplayName = FText::FromString(TEXT("Ring"));
+        Ring.Lanes.Add(MakeLane({FVector::ZeroVector, FVector( 1.0f,  0.0f, 0.0f)}, 1));
+        Ring.Lanes.Add(MakeLane({FVector::ZeroVector, FVector( 0.0f,  1.0f, 0.0f)}, 1));
+        Ring.Lanes.Add(MakeLane({FVector::ZeroVector, FVector(-1.0f,  0.0f, 0.0f)}, 1));
+        Ring.Lanes.Add(MakeLane({FVector::ZeroVector, FVector( 0.0f, -1.0f, 0.0f)}, 1));
+        FulgrixPresets.Add(Ring);
+    }
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile")
     TSubclassOf<AWTBRProjectileBase> FulgrixProjectileClass;
 

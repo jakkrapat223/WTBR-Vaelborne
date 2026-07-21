@@ -934,38 +934,48 @@ const TArray<FWTBRPathPreset>* AWTBRCharacter::GetReadyCompositePresets() const
 {
     if (!TriggerSetComponent || !TriggerSetComponent->HasReadyComposite()) return nullptr;
 
-    // Archetype precedence, owner-specified: Viper's trajectory control wins over
-    // Hound's, which wins over Meteo's. Solux contributes no presets at all, so a
-    // Solux+Solux composite (Dualux) legitimately resolves to nothing and stays
-    // tap-only.
-    //
-    // Resolved through the live Trigger objects, NOT through the slot's
-    // GetActive*DataAsset(): those return a soft pointer's .Get(), which is null
-    // whenever the asset is not resolved right then. A Trigger's own DataAsset is a
-    // hard reference and is guaranteed valid for as long as the Trigger exists.
+    // Which family this composite may draw from is decided by ITS OWN archetypes,
+    // not by whatever happens to be equipped. Every UWTBRTriggerDataAsset carries a
+    // seeded SerpveilParams, so scanning the equipped assets for "any Serpveil
+    // presets" handed a Viper wheel to composites with no Viper in them at all —
+    // Catarix (Fulgrix+Fulgrix) included.
+    const FWTBRCompositeDefinition* Definition = TriggerSetComponent->FindReadyCompositeDefinition();
+    if (!Definition) return nullptr;
+
+    // Owner-set precedence: Serpveil > Venyx > Fulgrix. Solux contributes nothing,
+    // so Dualux (Solux+Solux) legitimately resolves to none and stays tap-only.
+    const auto HasArchetype = [Definition](EWTBRBulletArchetype Archetype)
+    {
+        return Definition->RequiredArchetypeA == Archetype
+            || Definition->RequiredArchetypeB == Archetype;
+    };
+
+    // Read from the live Trigger objects rather than the slot's GetActive*DataAsset():
+    // those return a soft pointer's .Get(), which is null whenever the asset is not
+    // resolved right then. A Trigger's own DataAsset is a hard reference.
     for (const bool bIsMain : {true, false})
     {
-        const UWTBRSerpveilTrigger* Trigger = GetActiveSerpveilTrigger(bIsMain);
-        if (IsValid(Trigger) && IsValid(Trigger->DataAsset)
-            && Trigger->DataAsset->SerpveilParams.SerpveilPresets.Num() > 0)
-        {
-            return &Trigger->DataAsset->SerpveilParams.SerpveilPresets;
-        }
-    }
+        const UWTBRTriggerBase* Trigger = bIsMain
+            ? TriggerSetComponent->GetActiveMainTrigger()
+            : TriggerSetComponent->GetActiveSubTrigger();
+        const UWTBRTriggerDataAsset* DA = IsValid(Trigger) ? Trigger->DataAsset : nullptr;
+        if (!IsValid(DA)) continue;
 
-    // Fallback for slots whose runtime Trigger is not a Serpveil (a composite only
-    // needs ONE Viper half, so the other slot legitimately holds something else).
-    for (const UWTBRTriggerDataAsset* DA :
-        {TriggerSetComponent->GetActiveMainDataAsset(), TriggerSetComponent->GetActiveSubDataAsset()})
-    {
-        if (IsValid(DA) && DA->SerpveilParams.SerpveilPresets.Num() > 0)
+        if (HasArchetype(EWTBRBulletArchetype::Serpveil)
+            && DA->SerpveilParams.SerpveilPresets.Num() > 0)
         {
             return &DA->SerpveilParams.SerpveilPresets;
         }
+        if (HasArchetype(EWTBRBulletArchetype::Fulgrix)
+            && DA->FulgrixParams.FulgrixPresets.Num() > 0)
+        {
+            return &DA->FulgrixParams.FulgrixPresets;
+        }
     }
 
-    // Legitimately empty for a Solux+Solux pair (Dualux) — the caller degrades to a
-    // straight shot rather than opening an empty wheel.
+    // Legitimately empty for Dualux, and for the Hound composites until VenyxPresets
+    // exist — the caller degrades to a straight shot rather than opening a wheel
+    // whose choices would not change anything.
     return nullptr;
 }
 

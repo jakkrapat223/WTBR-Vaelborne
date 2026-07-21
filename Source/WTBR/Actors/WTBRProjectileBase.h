@@ -109,6 +109,23 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     float ShapedChargeConeHalfAngleDegrees = 45.0f;
 
+    // Which way the shaped-charge cone points. Set once at fire time and never
+    // changed, rather than read back from GetActorForwardVector().
+    //
+    // The actor's own facing is not a safe source: a path-driven projectile keeps
+    // whatever rotation it spawned with (InterpToMovement translates, it does not
+    // turn the actor), and even a launched one only faces its travel direction by
+    // side effect. Worse, the cone is evaluated at the instant of impact, when the
+    // projectile and its target are practically overlapping — so the vector to the
+    // target is nearly arbitrary and a fractional difference in impact position
+    // flips the dot product past the threshold. That made damage land or not land
+    // depending on which machine fired the shot.
+    //
+    // Zero falls back to the old actor-forward behaviour for any caller that has
+    // not opted in.
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    FVector ShapedChargeDirection = FVector::ZeroVector;
+
     // Ventryx (Black Trigger) — non-zero launches hit character away from impact point
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     float KnockbackForce = 0.0f;

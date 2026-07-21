@@ -1566,6 +1566,22 @@ void UWTBRTriggerSetComponent::DiscardReadyComposite()
     ReadyCompositeMainSlotIndex = INDEX_NONE;
 }
 
+const FWTBRCompositeDefinition* UWTBRTriggerSetComponent::FindReadyCompositeDefinition() const
+{
+    if (ReadyCompositeType == EWTBRCompositeBulletType::None) return nullptr;
+
+    UWTBRCompositeRegistryDataAsset* Registry = CompositeRegistryAsset.LoadSynchronous();
+    if (!Registry) return nullptr;
+
+    // Returns a pointer INTO the registry's array rather than a copy, so callers can
+    // hand out references to the presets it names without another lookup.
+    for (const FWTBRCompositeDefinition& Definition : Registry->Definitions)
+    {
+        if (Definition.CompositeType == ReadyCompositeType) return &Definition;
+    }
+    return nullptr;
+}
+
 void UWTBRTriggerSetComponent::OnReadyCompositeExpired()
 {
     if (!HasServerAuthority() || ReadyCompositeType == EWTBRCompositeBulletType::None) return;
