@@ -46,6 +46,8 @@ bool UWTBRSolgrixCompositeBehavior::ExecuteComposite(
         Projectile->ShapedChargeConeHalfAngleDegrees =
             Definition.ExplosionParams.ShapedChargeConeHalfAngleDegrees;
     }
+    // Per-composite look from the registry — keeps one shared projectile BP viable.
+    Projectile->ApplyVFXConfig(Definition.VFX);
     Projectile->FinishSpawning(SpawnTransform);
     Projectile->Launch(AimDirection, OwningCharacter);
     return true;

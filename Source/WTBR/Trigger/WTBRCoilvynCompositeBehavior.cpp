@@ -27,53 +27,71 @@ bool UWTBRCoilvynCompositeBehavior::ExecuteComposite(
     const FTransform SpawnTransform(SpawnRotation, SpawnLocation);
 
     TArray<TArray<FVector>> CubeWorldPaths;
-    UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
-        Definition.PathPreset, SpawnLocation, SpawnRotation, Definition.PathRange, CubeWorldPaths);
+    ResolveCompositeCubePaths(
+        OwningCharacter, Definition, SpawnLocation, SpawnRotation, CubeWorldPaths);
     if (CubeWorldPaths.Num() == 0) return false;
 
-    const TArray<FVector>& PathPoints = CubeWorldPaths[0];
+    // Budget is SPLIT across cubes, never multiplied.
+    const float PerCubeDamage =
+        Definition.TotalDamageBudget / static_cast<float>(CubeWorldPaths.Num());
 
-    AWTBRProjectileBase* Projectile = World->SpawnActorDeferred<AWTBRProjectileBase>(
-        Definition.ProjectileClass,
-        SpawnTransform,
-        OwningCharacter,
-        OwningCharacter,
-        ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
-    if (!IsValid(Projectile)) return false;
-
-    Projectile->InitializeProjectile(
-        Definition.TotalDamageBudget,
-        Definition.ProjectileSpeed,
-        ETriggerCategory::Gunner,
-        false,
-        false,
-        0.0f);
-
+    // Acquired ONCE for the whole volley, not per cube: the design lock says
+    // Coilvyn homes on one target with no reacquire, so every cube must converge
+    // on the same body. Re-querying per cube could split the volley across
+    // targets as the first cubes travel.
+    AWTBRCharacter* HomingTarget = nullptr;
     if (Definition.HomingParams.bEnableHoming)
     {
-        if (AWTBRCharacter* Target = AWTBRCharacter::FindBestHomingTarget(
+        HomingTarget = AWTBRCharacter::FindBestHomingTarget(
             OwningCharacter,
             Definition.HomingParams.TargetAcquisitionRange,
-            Definition.HomingParams.AimConeHalfAngleDegrees))
+            Definition.HomingParams.AimConeHalfAngleDegrees);
+    }
+
+    bool bAnySpawned = false;
+    for (const TArray<FVector>& PathPoints : CubeWorldPaths)
+    {
+        if (PathPoints.Num() < 2) continue;
+
+        AWTBRProjectileBase* Projectile = World->SpawnActorDeferred<AWTBRProjectileBase>(
+            Definition.ProjectileClass,
+            SpawnTransform,
+            OwningCharacter,
+            OwningCharacter,
+            ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+        if (!IsValid(Projectile)) continue;
+
+        Projectile->InitializeProjectile(
+            PerCubeDamage,
+            Definition.ProjectileSpeed,
+            ETriggerCategory::Gunner,
+            false,
+            false,
+            0.0f);
+
+        if (IsValid(HomingTarget))
         {
+            // Per-lane continue direction — each cube peels toward the target
+            // from wherever its own path ended, which is what makes a multi-lane
+            // preset converge instead of all turning the same way.
             FVector ContinueDirection = AimDirection;
-            if (PathPoints.Num() >= 2)
+            const FVector LastSegment = PathPoints.Last() - PathPoints[PathPoints.Num() - 2];
+            if (!LastSegment.IsNearlyZero())
             {
-                const FVector LastSegment = PathPoints.Last() - PathPoints[PathPoints.Num() - 2];
-                if (!LastSegment.IsNearlyZero())
-                {
-                    ContinueDirection = LastSegment.GetSafeNormal();
-                }
+                ContinueDirection = LastSegment.GetSafeNormal();
             }
 
             Projectile->bHomeAfterPathEnd = true;
-            Projectile->PathEndHomingTarget = Target->GetRootComponent();
+            Projectile->PathEndHomingTarget = HomingTarget->GetRootComponent();
             Projectile->PathEndHomingAcceleration = Definition.HomingParams.HomingAcceleration;
             Projectile->PathEndContinueDirection = ContinueDirection;
         }
-    }
 
-    Projectile->FinishSpawning(SpawnTransform);
-    Projectile->InitializePathMovement(PathPoints, Definition.ProjectileSpeed, OwningCharacter);
-    return true;
+        // Per-composite look from the registry — keeps one shared projectile BP viable.
+        Projectile->ApplyVFXConfig(Definition.VFX);
+        Projectile->FinishSpawning(SpawnTransform);
+        Projectile->InitializePathMovement(PathPoints, Definition.ProjectileSpeed, OwningCharacter);
+        bAnySpawned = true;
+    }
+    return bAnySpawned;
 }

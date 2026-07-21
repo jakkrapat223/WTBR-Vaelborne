@@ -589,6 +589,7 @@ void AWTBRCharacter::FireMain(const FInputActionValue& Value)
         *ClientMoveInputDir.ToString());
     if (InputGestureComponent) InputGestureComponent->NotifyMainPressed();
     UpdateSniperZoom(true, true);
+    if (HandleReadyCompositeFirePressed(true)) return;
     if (HandleEscudoFirePressed(true)) return;
     if (HandleSerpveilFirePressed(true)) return;
     Server_Fire(true, true, ClientMoveInputDir);
@@ -603,6 +604,7 @@ void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifyMainReleased();
     UpdateSniperZoom(true, false);
+    if (HandleReadyCompositeFireReleased(true)) return;
     if (HandleEscudoFireReleased(true)) return;
     if (HandleSerpveilFireReleased(true)) return;
     Server_Fire(true, false, FVector::ZeroVector);
@@ -619,6 +621,7 @@ void AWTBRCharacter::FireSub(const FInputActionValue& Value)
         *ClientMoveInputDir.ToString());
     if (InputGestureComponent) InputGestureComponent->NotifySubPressed();
     UpdateSniperZoom(false, true);
+    if (HandleReadyCompositeFirePressed(false)) return;
     if (HandleEscudoFirePressed(false)) return;
     if (HandleSerpveilFirePressed(false)) return;
     Server_Fire(false, true, ClientMoveInputDir);
@@ -633,6 +636,7 @@ void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
         IsLocallyControlled() ? TEXT("true") : TEXT("false"));
     if (InputGestureComponent) InputGestureComponent->NotifySubReleased();
     UpdateSniperZoom(false, false);
+    if (HandleReadyCompositeFireReleased(false)) return;
     if (HandleEscudoFireReleased(false)) return;
     if (HandleSerpveilFireReleased(false)) return;
     Server_Fire(false, false, FVector::ZeroVector);
@@ -924,6 +928,208 @@ bool AWTBRCharacter::IsAnySerpveilSlotCharging() const
     return bSerpveilChargingSlot[SERPVEIL_SLOT_MAIN] || bSerpveilChargingSlot[SERPVEIL_SLOT_SUB];
 }
 
+// ─── Ready-composite Tap/Hold flow (client-local) ────────────────────────────
+
+const TArray<FWTBRPathPreset>* AWTBRCharacter::GetReadyCompositePresets() const
+{
+    if (!TriggerSetComponent || !TriggerSetComponent->HasReadyComposite()) return nullptr;
+
+    // Archetype precedence, owner-specified: Viper's trajectory control wins over
+    // Hound's, which wins over Meteo's. Solux contributes no presets at all, so a
+    // Solux+Solux composite (Dualux) legitimately resolves to nothing and stays
+    // tap-only.
+    const UWTBRTriggerDataAsset* MainDA = TriggerSetComponent->GetActiveMainDataAsset();
+    const UWTBRTriggerDataAsset* SubDA  = TriggerSetComponent->GetActiveSubDataAsset();
+
+    for (const UWTBRTriggerDataAsset* DA : {MainDA, SubDA})
+    {
+        if (IsValid(DA) && DA->SerpveilParams.SerpveilPresets.Num() > 0)
+        {
+            return &DA->SerpveilParams.SerpveilPresets;
+        }
+    }
+    return nullptr;
+}
+
+bool AWTBRCharacter::HandleReadyCompositeFirePressed(bool bIsMain)
+{
+    if (!TriggerSetComponent || !TriggerSetComponent->HasReadyComposite()) return false;
+
+    // Stage 2: a preset is armed, this press starts the charge that sets reach.
+    if (ReadyCompositeArmedPresetIndex != INDEX_NONE)
+    {
+        bReadyCompositeCharging = true;
+        ReadyCompositeChargeStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+        return true;
+    }
+
+    // Stage 1: tap or hold is still unknown. Suppress until the threshold decides,
+    // exactly like the Serpveil flow — a tap replays itself on release.
+    bReadyCompositeFlowIsMainSlot = bIsMain;
+    ReadyCompositeFlowState = EWTBRSerpveilPresetFlowState::WaitingForHoldDecision;
+    GetWorldTimerManager().SetTimer(
+        ReadyCompositeHoldThresholdTimer, this,
+        &AWTBRCharacter::OnReadyCompositeHoldThresholdReached,
+        SERPVEIL_HOLD_THRESHOLD, false);
+    return true;
+}
+
+bool AWTBRCharacter::HandleReadyCompositeFireReleased(bool bIsMain)
+{
+    if (!TriggerSetComponent || !TriggerSetComponent->HasReadyComposite()) return false;
+
+    // Stage 2 release — fire with the armed preset and however far it charged.
+    if (bReadyCompositeCharging)
+    {
+        const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+        const float ChargeFraction = FMath::Clamp(
+            (Now - ReadyCompositeChargeStartTime) / GetSerpveilFullChargeSeconds(), 0.0f, 1.0f);
+
+        const int32 FiredIndex = ReadyCompositeArmedPresetIndex;
+        CancelReadyCompositeFlow();
+        Server_FireReadyComposite(FiredIndex, ChargeFraction);
+        return true;
+    }
+
+    switch (ReadyCompositeFlowState)
+    {
+    case EWTBRSerpveilPresetFlowState::WaitingForHoldDecision:
+    {
+        // Released before the threshold — a TAP. Straight, full reach, no wheel.
+        // INDEX_NONE is what tells the server "straight", so this stays reliable
+        // even when the composite has a preset family available.
+        GetWorldTimerManager().ClearTimer(ReadyCompositeHoldThresholdTimer);
+        ReadyCompositeFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        Server_FireReadyComposite(WTBR_COMPOSITE_PRESET_TAP, 1.0f);
+        return true;
+    }
+    case EWTBRSerpveilPresetFlowState::WheelOpen:
+        ArmReadyCompositePresetAndAwaitCharge();
+        return true;
+    default:
+        return true;
+    }
+}
+
+void AWTBRCharacter::OnReadyCompositeHoldThresholdReached()
+{
+    if (ReadyCompositeFlowState != EWTBRSerpveilPresetFlowState::WaitingForHoldDecision) return;
+    OpenReadyCompositePresetWheel();
+}
+
+void AWTBRCharacter::OpenReadyCompositePresetWheel()
+{
+    const TArray<FWTBRPathPreset>* Presets = GetReadyCompositePresets();
+
+    // No preset family (Dualux) or no wheel widget: hold degrades to the same
+    // straight shot a tap gives rather than trapping the player in a dead state.
+    if (!Presets || Presets->Num() == 0 || !IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        ReadyCompositeFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        Server_FireReadyComposite(WTBR_COMPOSITE_PRESET_TAP, 1.0f);
+        return;
+    }
+
+    TArray<FWTBREscudoPresetWheelOption> Options;
+    for (const FWTBRPathPreset& Preset : *Presets)
+    {
+        FWTBREscudoPresetWheelOption Option;
+        Option.Name = Preset.DisplayName;
+        Option.bAffordable = true;
+        Options.Add(Option);
+    }
+
+    ReadyCompositeFlowState = EWTBRSerpveilPresetFlowState::WheelOpen;
+    SetLookInputFrozen(true);
+    EscudoPresetWheelWidgetInstance->OpenWheel(Options);
+}
+
+void AWTBRCharacter::ArmReadyCompositePresetAndAwaitCharge()
+{
+    SetLookInputFrozen(false);
+
+    const int32 SelectedIndex = IsValid(EscudoPresetWheelWidgetInstance)
+        ? EscudoPresetWheelWidgetInstance->GetHighlightedPresetIndex()
+        : INDEX_NONE;
+
+    if (IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        EscudoPresetWheelWidgetInstance->CloseWheel();
+    }
+
+    // Dead zone = free cancel, same rule as Escudo and Serpveil. The composite is
+    // NOT discarded here — the player keeps it and can tap or hold again.
+    if (SelectedIndex == INDEX_NONE)
+    {
+        ReadyCompositeFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        return;
+    }
+
+    // Back to Idle with an index set. "Armed, waiting for the stage-2 press" is
+    // carried by ReadyCompositeArmedPresetIndex, exactly the way the Serpveil flow
+    // does it — no extra enum value needed.
+    ReadyCompositeArmedPresetIndex = SelectedIndex;
+    ReadyCompositeFlowState = EWTBRSerpveilPresetFlowState::Idle;
+}
+
+void AWTBRCharacter::CancelReadyCompositeFlow()
+{
+    GetWorldTimerManager().ClearTimer(ReadyCompositeHoldThresholdTimer);
+    if (ReadyCompositeFlowState == EWTBRSerpveilPresetFlowState::WheelOpen)
+    {
+        SetLookInputFrozen(false);
+        if (IsValid(EscudoPresetWheelWidgetInstance))
+        {
+            EscudoPresetWheelWidgetInstance->CloseWheel();
+        }
+    }
+    ReadyCompositeFlowState = EWTBRSerpveilPresetFlowState::Idle;
+    ReadyCompositeArmedPresetIndex = INDEX_NONE;
+    bReadyCompositeCharging = false;
+}
+
+void AWTBRCharacter::Server_FireReadyComposite_Implementation(
+    int32 PresetIndex, float ChargeFraction)
+{
+    if (!TriggerSetComponent || !TriggerSetComponent->HasReadyComposite()) return;
+
+    // Server owns the bounds check — a client asking for preset 999 gets the
+    // straight tap path, never an out-of-range read. Note this resolves to the TAP
+    // sentinel rather than INDEX_NONE: a malformed request must fire the same shape
+    // a tap would, not silently pick up the definition's authored fallback path.
+    const TArray<FWTBRPathPreset>* Presets = GetReadyCompositePresets();
+    PendingCompositePresetIndex = (Presets && Presets->IsValidIndex(PresetIndex))
+        ? PresetIndex : WTBR_COMPOSITE_PRESET_TAP;
+    PendingCompositeChargeFraction = FMath::Clamp(ChargeFraction, 0.0f, 1.0f);
+
+    TriggerSetComponent->FireReadyComposite();
+
+    PendingCompositePresetIndex = INDEX_NONE;
+    PendingCompositeChargeFraction = 1.0f;
+}
+
+bool AWTBRCharacter::GetArmedSerpveilPathPreset(FWTBRPathPreset& OutPreset) const
+{
+    // One armed index is shared by both slots (see SerpveilArmedPresetIndex), so
+    // a dual-Viper player cannot end up with two different trajectories fighting
+    // over one composite.
+    if (SerpveilArmedPresetIndex == INDEX_NONE) return false;
+
+    for (const bool bIsMain : {true, false})
+    {
+        const UWTBRSerpveilTrigger* Trigger = GetActiveSerpveilTrigger(bIsMain);
+        if (!IsValid(Trigger) || !IsValid(Trigger->DataAsset)) continue;
+
+        const TArray<FWTBRPathPreset>& Presets =
+            Trigger->DataAsset->SerpveilParams.SerpveilPresets;
+        if (!Presets.IsValidIndex(SerpveilArmedPresetIndex)) continue;
+
+        OutPreset = Presets[SerpveilArmedPresetIndex];
+        return true;
+    }
+    return false;
+}
+
 float AWTBRCharacter::GetSerpveilFullChargeSeconds() const
 {
     // Whichever slot answers first: a linked charge shares one duration, and the
@@ -942,6 +1148,14 @@ float AWTBRCharacter::GetSerpveilFullChargeSeconds() const
 
 bool AWTBRCharacter::HandleSerpveilFirePressed(bool bIsMain)
 {
+    // A ready composite owns the fire buttons entirely (see
+    // HandleReadyCompositeFirePressed, which runs before this). Bail so the two
+    // flows can never both claim the same press.
+    if (TriggerSetComponent && TriggerSetComponent->HasReadyComposite())
+    {
+        return false;
+    }
+
     // Stage 2, with a preset armed. One button charges ONLY its own slot, so a
     // dual-Viper player is never forced to spend both slots' Vael on a shot they
     // wanted from one hand. Pressing the other button during the charge opts

@@ -61,6 +61,8 @@ bool UWTBRVenspireCompositeBehavior::ExecuteComposite(
             false,
             Definition.ExplosionParams.bExplodes,
             Definition.ExplosionParams.ExplosionRadius);
+        // Per-composite look from the registry — keeps one shared projectile BP viable.
+        Projectile->ApplyVFXConfig(Definition.VFX);
         Projectile->FinishSpawning(SpawnTransform);
         Projectile->Launch(AimDirection, OwningCharacter);
 

@@ -74,7 +74,8 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
     float Range,
     TArray<TArray<FVector>>& OutCubeWorldPaths,
     float ScatterRadius,
-    bool bIsMainSlot)
+    bool bIsMainSlot,
+    int32 TotalCubeOverride)
 {
     OutCubeWorldPaths.Reset();
     if (Range <= 0.0f) return;
@@ -82,15 +83,68 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
     const FRotationMatrix AimMatrix(AimRotation);
     const bool bUseScatter = ScatterRadius > 0.0f;
 
+    // Per-lane cube counts. Normally the authored numbers are used as-is; a
+    // composite instead passes ONE total and the authored numbers become weights,
+    // so "set 8, get 8" holds no matter how many lanes the chosen preset has while
+    // an authored 3:1 split still lands 3:1. Largest-remainder keeps the sum exact.
+    TArray<int32> LaneCubeCounts;
+    LaneCubeCounts.SetNumZeroed(Preset.Lanes.Num());
+    {
+        int32 WeightSum = 0;
+        for (int32 i = 0; i < Preset.Lanes.Num(); ++i)
+        {
+            if (Preset.Lanes[i].NormalizedWaypoints.Num() < 2) continue;
+            LaneCubeCounts[i] = FMath::Max(1, Preset.Lanes[i].CubeCount);
+            WeightSum += LaneCubeCounts[i];
+        }
+
+        if (TotalCubeOverride > 0 && WeightSum > 0)
+        {
+            TArray<float> Remainders;
+            Remainders.SetNumZeroed(Preset.Lanes.Num());
+            int32 Assigned = 0;
+            for (int32 i = 0; i < LaneCubeCounts.Num(); ++i)
+            {
+                if (LaneCubeCounts[i] <= 0) continue;
+                const float Exact =
+                    static_cast<float>(TotalCubeOverride) * LaneCubeCounts[i] / WeightSum;
+                const int32 Floor = FMath::Max(1, FMath::FloorToInt(Exact));
+                Remainders[i] = Exact - Floor;
+                LaneCubeCounts[i] = Floor;
+                Assigned += Floor;
+            }
+            // Hand out (or claw back) the rounding difference, biggest remainder first.
+            while (Assigned != TotalCubeOverride)
+            {
+                int32 Best = INDEX_NONE;
+                for (int32 i = 0; i < LaneCubeCounts.Num(); ++i)
+                {
+                    if (LaneCubeCounts[i] <= 0) continue;
+                    if (Assigned > TotalCubeOverride && LaneCubeCounts[i] <= 1) continue;
+                    if (Best == INDEX_NONE
+                        || (Assigned < TotalCubeOverride ? Remainders[i] > Remainders[Best]
+                                                         : Remainders[i] < Remainders[Best]))
+                    {
+                        Best = i;
+                    }
+                }
+                if (Best == INDEX_NONE) break;
+                const int32 Step = (Assigned < TotalCubeOverride) ? 1 : -1;
+                LaneCubeCounts[Best] += Step;
+                Remainders[Best] += Step;
+                Assigned += Step;
+            }
+        }
+    }
+
     // Main takes the even indices of a double-sized sphere, Sub the odd ones, so
     // a simultaneous Main+Sub volley interleaves instead of spawning into itself.
     int32 ScatterTotal = 0;
     if (bUseScatter)
     {
-        for (const FWTBRPathLane& Lane : Preset.Lanes)
+        for (const int32 Count : LaneCubeCounts)
         {
-            if (Lane.NormalizedWaypoints.Num() < 2) continue;
-            ScatterTotal += FMath::Max(1, Lane.CubeCount);
+            ScatterTotal += FMath::Max(0, Count);
         }
         ScatterTotal *= 2;
     }
@@ -103,7 +157,8 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
         ++LaneIndex;
         if (Lane.NormalizedWaypoints.Num() < 2) continue;
 
-        const int32 CubeCount = FMath::Max(1, Lane.CubeCount);
+        const int32 CubeCount = LaneCubeCounts[LaneIndex];
+        if (CubeCount <= 0) continue;
         for (int32 CubeIndex = 0; CubeIndex < CubeCount; ++CubeIndex)
         {
             FVector CubeOrigin;

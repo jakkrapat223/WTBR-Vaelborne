@@ -9,6 +9,8 @@
 #include "Trigger/WTBRTriggerSetComponent.h"   // EWTBRDualWieldState, ETriggerCategory
 #include "WTBRCharacter.generated.h"
 
+struct FWTBRPathPreset;
+
 class USpringArmComponent;
 class UCameraComponent;
 class UInputMappingContext;
@@ -418,6 +420,13 @@ public:
     // press/release.
     UFUNCTION(BlueprintPure, Category="WTBR | HUD")
     float GetSniperZoomAlphaForHUD() const;
+
+    // Serpveil preset the player currently has armed, if any. Composites built
+    // from a Serpveil inherit this trajectory instead of their own authored one
+    // — that is what makes them read as "Viper, upgraded" rather than a separate
+    // weapon. Returns false when no Serpveil is held or nothing is armed, and
+    // the caller falls back to the registry definition's own PathPreset.
+    bool GetArmedSerpveilPathPreset(FWTBRPathPreset& OutPreset) const;
 
     UFUNCTION(BlueprintPure, Category="WTBR | HUD | Input")
     UInputMappingContext* GetDefaultMappingContext() const { return DefaultMappingContext; }
@@ -1014,6 +1023,28 @@ protected:
     bool HandleEscudoFirePressed(bool bIsMain);
     bool HandleEscudoFireReleased(bool bIsMain);
 
+    // ── Ready-composite Tap/Hold (client-local; runs BEFORE the Escudo/Serpveil
+    // pairs, because a paid-for composite outranks every per-Trigger flow) ─────
+    //
+    // Follows the project's universal input rule rather than inventing one:
+    //   Tap  = fire straight immediately at full reach (the reliable panic answer)
+    //   Hold = preset wheel -> arm -> press to charge -> release to fire
+    // Hold only opens a wheel for composites that actually have a preset family
+    // to draw from; the rest simply fire, matching "a Trigger with no hold
+    // behavior = no-op".
+    bool HandleReadyCompositeFirePressed(bool bIsMain);
+    bool HandleReadyCompositeFireReleased(bool bIsMain);
+
+    UFUNCTION()
+    void OnReadyCompositeHoldThresholdReached();
+
+    void OpenReadyCompositePresetWheel();
+    void ArmReadyCompositePresetAndAwaitCharge();
+    void CancelReadyCompositeFlow();
+
+    UFUNCTION(Server, Reliable)
+    void Server_FireReadyComposite(int32 PresetIndex, float ChargeFraction);
+
     // ── Serpveil Hold/Preset (client-local; same contract as the Escudo pair) ──
     bool HandleSerpveilFirePressed(bool bIsMain);
     bool HandleSerpveilFireReleased(bool bIsMain);
@@ -1240,6 +1271,34 @@ private:
     static constexpr int32 SERPVEIL_SLOT_SUB = 1;
     static constexpr int32 SERPVEIL_SLOT_COUNT = 2;
     static int32 SerpveilSlotIndex(bool bIsMain) { return bIsMain ? SERPVEIL_SLOT_MAIN : SERPVEIL_SLOT_SUB; }
+
+    // Ready-composite Tap/Hold flow. Reuses EWTBRSerpveilPresetFlowState rather
+    // than declaring a parallel enum — the state machine is identical and the two
+    // flows are mutually exclusive (a ready composite suppresses the Serpveil one).
+    EWTBRSerpveilPresetFlowState ReadyCompositeFlowState = EWTBRSerpveilPresetFlowState::Idle;
+    bool bReadyCompositeFlowIsMainSlot = true;
+    int32 ReadyCompositeArmedPresetIndex = INDEX_NONE;
+    bool bReadyCompositeCharging = false;
+    float ReadyCompositeChargeStartTime = 0.0f;
+    FTimerHandle ReadyCompositeHoldThresholdTimer;
+
+    // Server-side only: what the fire RPC asked for, read back by
+    // UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths when the behavior
+    // builds its cube paths. INDEX_NONE means "tap" — fire straight.
+    int32 PendingCompositePresetIndex = INDEX_NONE;
+    float PendingCompositeChargeFraction = 1.0f;
+
+public:
+    // All three read by the composite behaviors while ExecuteComposite runs.
+    int32 GetPendingCompositePresetIndex() const { return PendingCompositePresetIndex; }
+    float GetPendingCompositeChargeFraction() const { return PendingCompositeChargeFraction; }
+
+    // Presets the ready composite may choose from, by archetype precedence
+    // (Serpveil > Venyx > Fulgrix). Null when the composite has no preset family
+    // — Dualux (Solux+Solux) is the only such pair, and stays tap-only.
+    const TArray<FWTBRPathPreset>* GetReadyCompositePresets() const;
+
+private:
 
     EWTBRSerpveilPresetFlowState SerpveilFlowState = EWTBRSerpveilPresetFlowState::Idle;
     bool bSerpveilFlowIsMainSlot = true;

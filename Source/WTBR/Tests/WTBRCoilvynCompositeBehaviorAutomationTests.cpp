@@ -102,6 +102,11 @@ namespace
             FVector(1.0f, 0.0f, 0.0f),
         };
         Lane.CubeCount = 1;
+        // Pinned so these tests stay about path movement and damage, not volley size.
+        // Definition.CubeCount now drives BOTH tap and hold and defaults to 5, which
+        // would otherwise split the budget across 5 cubes and change what "full
+        // damage budget" means here.
+        Definition.CubeCount = 1;
         Lane.FormationOffset = FVector::ZeroVector;
         return Definition;
     }

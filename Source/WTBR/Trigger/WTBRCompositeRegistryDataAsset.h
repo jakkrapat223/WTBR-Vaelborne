@@ -95,6 +95,14 @@ struct FWTBRCompositeExplosionParams
     float DamageFalloffExponent = 1.0f;
 };
 
+// Sentinel for AWTBRCharacter::GetPendingCompositePresetIndex(): this shot is a
+// TAP and must fly straight. Distinct from INDEX_NONE, which means "no
+// ready-composite flow set anything" and falls back to the definition's own
+// authored PathPreset — that separation is what keeps direct FireComposite calls
+// (legacy paths, automation fixtures) behaving exactly as they did before the
+// Tap/Hold flow existed.
+static constexpr int32 WTBR_COMPOSITE_PRESET_TAP = -2;
+
 /** One DataAsset-authored composite recipe. Values are intentionally unbalanced placeholders. */
 USTRUCT(BlueprintType)
 struct FWTBRCompositeDefinition
@@ -154,9 +162,32 @@ struct FWTBRCompositeDefinition
     FWTBRPathPreset PathPreset;
 
     // ⚠ PLAYTEST PENDING: scales PathPreset's NormalizedWaypoints into world-space distance —
-    // passed as ResolvePathPreset's Range parameter.
+    // passed as ResolvePathPreset's Range parameter. This is the FULL-charge reach.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "0.0"))
     float PathRange = 1000.0f;
+
+    // ⚠ PLAYTEST PENDING: how many cubes this composite conjures, for BOTH tap and
+    // hold. One number on purpose — "set 8, get 8" either way, so the player never
+    // has to learn that one mode quietly spawns a different volley than the other.
+    //
+    // Tap spends them on a straight converging volley. Hold spreads them across the
+    // chosen preset's lanes, using each lane's own CubeCount as a WEIGHT rather than
+    // a literal count, so an authored 3:1 split stays 3:1 at any total.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "1"))
+    int32 CubeCount = 5;
+
+    // ⚠ PLAYTEST PENDING: spawn spread for a TAP volley, matching Serpveil's own
+    // SerpveilScatterRadius convention. Zero spawns them all on one point.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "0.0"))
+    float TapScatterRadius = 135.0f;
+
+    // ⚠ PLAYTEST PENDING: reach at zero charge. A held composite lerps PathRangeMin ->
+    // PathRange by charge, mirroring Serpveil's own SerpveilMaxRange -> SerpveilPresetMaxRange.
+    // A TAP always uses the full PathRange: tap is the reliable panic answer, so making it
+    // short as well as straight would leave the player with no usable option under pressure.
+    // Values <= 0 mean "no charge scaling" and every shot uses PathRange.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "0.0"))
+    float PathRangeMin = 0.0f;
 
     // ⚠ PLAYTEST PENDING: generic homing values are authored per definition.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Homing")
@@ -165,6 +196,15 @@ struct FWTBRCompositeDefinition
     // ⚠ PLAYTEST PENDING: generic explosion values are authored per definition.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Explosion")
     FWTBRCompositeExplosionParams ExplosionParams;
+
+    // Per-composite look, applied to the spawned projectile at fire time exactly
+    // like the Sniper DAs already do (see UWTBRSniperTrigger's ApplyVFXConfig
+    // call). This is what lets every composite share ONE projectile Blueprint:
+    // damage/speed/explosion/path are already runtime-driven from this struct, so
+    // the only thing a per-composite Blueprint could still carry was its visuals
+    // — and now those live here too, next to the balance they belong with.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | VFX")
+    FWTBRProjectileVFXConfig VFX;
 };
 
 /** Central, DataAsset-authored source of composite definitions. */
@@ -200,6 +240,10 @@ public:
     // It is opt-in and defaults OFF so the composite behaviours that share this
     // resolver — Coilvyn, Ignivex, Solveil — keep their existing layout
     // untouched until Composite Bullet ships.
+    // TotalCubeOverride > 0 redistributes that many cubes across the preset's lanes,
+    // treating each lane's authored CubeCount as a relative weight. Zero (the
+    // default) uses the authored counts literally, which is what Serpveil's own
+    // presets rely on — composites pass their single Definition.CubeCount instead.
     static void ResolvePathPreset(
         const FWTBRPathPreset& Preset,
         const FVector& SpawnOrigin,
@@ -207,5 +251,6 @@ public:
         float Range,
         TArray<TArray<FVector>>& OutCubeWorldPaths,
         float ScatterRadius = 0.0f,
-        bool bIsMainSlot = true);
+        bool bIsMainSlot = true,
+        int32 TotalCubeOverride = 0);
 };

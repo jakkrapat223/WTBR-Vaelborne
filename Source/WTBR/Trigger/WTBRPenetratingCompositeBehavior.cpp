@@ -41,6 +41,8 @@ bool UWTBRPenetratingCompositeBehavior::ExecuteComposite(
         false,
         0.0f);
     Projectile->bCanPenetrate = Definition.bCanPenetrate;
+    // Per-composite look from the registry — keeps one shared projectile BP viable.
+    Projectile->ApplyVFXConfig(Definition.VFX);
     Projectile->FinishSpawning(SpawnTransform);
     Projectile->Launch(AimDirection, OwningCharacter);
     return true;
