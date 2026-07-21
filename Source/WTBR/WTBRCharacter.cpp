@@ -938,16 +938,34 @@ const TArray<FWTBRPathPreset>* AWTBRCharacter::GetReadyCompositePresets() const
     // Hound's, which wins over Meteo's. Solux contributes no presets at all, so a
     // Solux+Solux composite (Dualux) legitimately resolves to nothing and stays
     // tap-only.
-    const UWTBRTriggerDataAsset* MainDA = TriggerSetComponent->GetActiveMainDataAsset();
-    const UWTBRTriggerDataAsset* SubDA  = TriggerSetComponent->GetActiveSubDataAsset();
+    //
+    // Resolved through the live Trigger objects, NOT through the slot's
+    // GetActive*DataAsset(): those return a soft pointer's .Get(), which is null
+    // whenever the asset is not resolved right then. A Trigger's own DataAsset is a
+    // hard reference and is guaranteed valid for as long as the Trigger exists.
+    for (const bool bIsMain : {true, false})
+    {
+        const UWTBRSerpveilTrigger* Trigger = GetActiveSerpveilTrigger(bIsMain);
+        if (IsValid(Trigger) && IsValid(Trigger->DataAsset)
+            && Trigger->DataAsset->SerpveilParams.SerpveilPresets.Num() > 0)
+        {
+            return &Trigger->DataAsset->SerpveilParams.SerpveilPresets;
+        }
+    }
 
-    for (const UWTBRTriggerDataAsset* DA : {MainDA, SubDA})
+    // Fallback for slots whose runtime Trigger is not a Serpveil (a composite only
+    // needs ONE Viper half, so the other slot legitimately holds something else).
+    for (const UWTBRTriggerDataAsset* DA :
+        {TriggerSetComponent->GetActiveMainDataAsset(), TriggerSetComponent->GetActiveSubDataAsset()})
     {
         if (IsValid(DA) && DA->SerpveilParams.SerpveilPresets.Num() > 0)
         {
             return &DA->SerpveilParams.SerpveilPresets;
         }
     }
+
+    // Legitimately empty for a Solux+Solux pair (Dualux) — the caller degrades to a
+    // straight shot rather than opening an empty wheel.
     return nullptr;
 }
 

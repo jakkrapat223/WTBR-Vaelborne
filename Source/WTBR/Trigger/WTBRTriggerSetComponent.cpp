@@ -1470,6 +1470,25 @@ void UWTBRTriggerSetComponent::OnMergeCompleteCallback()
     ReadyCompositeType = Snapshot.CompositeType;
     ReadyCompositeMainSlotIndex = Snapshot.MainSlotIndex;
 
+    // A ready composite is already paid for, so it must not be free to carry
+    // around indefinitely as a standing threat. Expiry discards it WITHOUT a
+    // refund — same no-refund rule every other discard path already follows.
+    if (UWTBRCompositeRegistryDataAsset* Registry = CompositeRegistryAsset.LoadSynchronous())
+    {
+        FWTBRCompositeDefinition Definition;
+        if (Registry->FindDefinition(Snapshot.CompositeType, Definition)
+            && Definition.ReadyCompositeHoldSeconds > 0.0f
+            && GetWorld())
+        {
+            GetWorld()->GetTimerManager().SetTimer(
+                ReadyCompositeExpiryTimer,
+                this,
+                &UWTBRTriggerSetComponent::OnReadyCompositeExpired,
+                Definition.ReadyCompositeHoldSeconds,
+                false);
+        }
+    }
+
     if (GEngine && WTBRShouldLogValidation())
     {
         GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Green,
@@ -1536,8 +1555,29 @@ void UWTBRTriggerSetComponent::DiscardReadyComposite()
             FString::Printf(TEXT("[CompositeMerge] DISCARD Owner=%s"), *GetNameSafe(GetOwner())));
     }
 
+    // Cleared here rather than at each call site, so every existing discard path
+    // (slot switch, match restart, EndPlay, fire) drops the timer for free.
+    if (GetWorld())
+    {
+        GetWorld()->GetTimerManager().ClearTimer(ReadyCompositeExpiryTimer);
+    }
+
     ReadyCompositeType = EWTBRCompositeBulletType::None;
     ReadyCompositeMainSlotIndex = INDEX_NONE;
+}
+
+void UWTBRTriggerSetComponent::OnReadyCompositeExpired()
+{
+    if (!HasServerAuthority() || ReadyCompositeType == EWTBRCompositeBulletType::None) return;
+
+    if (GEngine && WTBRShouldLogValidation())
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Orange,
+            FString::Printf(TEXT("[CompositeMerge] EXPIRED (no refund) Owner=%s"),
+                *GetNameSafe(GetOwner())));
+    }
+
+    DiscardReadyComposite();
 }
 
 void UWTBRTriggerSetComponent::FireComposite(EWTBRCompositeBulletType Type, int32 MainSlotIndex)

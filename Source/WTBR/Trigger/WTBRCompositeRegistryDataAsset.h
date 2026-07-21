@@ -176,8 +176,20 @@ struct FWTBRCompositeDefinition
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "1"))
     int32 CubeCount = 5;
 
-    // ⚠ PLAYTEST PENDING: spawn spread for a TAP volley, matching Serpveil's own
-    // SerpveilScatterRadius convention. Zero spawns them all on one point.
+    // ⚠ PLAYTEST PENDING: seconds a READY composite survives before it is discarded
+    // with NO refund. Holding a loaded composite is meant to cost something — long
+    // enough to find cover or wait out a peek, short enough that it cannot be
+    // carried around all match as a free standing threat. Zero disables expiry.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Timing", meta = (ClampMin = "0.0"))
+    float ReadyCompositeHoldSeconds = 8.0f;
+
+    // ⚠ PLAYTEST PENDING: how far apart the cubes are conjured around the caster,
+    // for BOTH tap and hold, matching Serpveil's own SerpveilScatterRadius.
+    //
+    // This is not only cosmetic. Spawning every cube of a volley on one point makes
+    // them overlap and destroy each other on contact — which is exactly what broke
+    // hold-fired composites until they were given the same spread tap already had.
+    // Keep it comfortably above the projectile's own collision extent.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "0.0"))
     float TapScatterRadius = 135.0f;
 

@@ -46,12 +46,13 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
     // HOLD: fly the preset the player picked from the wheel, at a reach scaled by
     // how long they charged — the same bargain Serpveil itself offers.
     const TArray<FWTBRPathPreset>* Presets = OwningCharacter->GetReadyCompositePresets();
+
     if (!Presets || !Presets->IsValidIndex(PresetIndex))
     {
         UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
             Definition.PathPreset, SpawnLocation, SpawnRotation,
             Definition.PathRange, OutCubePaths,
-            /*ScatterRadius=*/0.0f, /*bIsMainSlot=*/true,
+            /*ScatterRadius=*/Definition.TapScatterRadius, /*bIsMainSlot=*/true,
             /*TotalCubeOverride=*/FMath::Max(1, Definition.CubeCount));
         return;
     }
@@ -62,8 +63,11 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
     const float Range = FMath::Lerp(
         MinRange, Definition.PathRange, OwningCharacter->GetPendingCompositeChargeFraction());
 
+    // Scatter matters here for the same reason it does on a tap: without it every
+    // cube is conjured on one point, they overlap, and they destroy each other
+    // before InitializePathMovement ever runs.
     UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
         (*Presets)[PresetIndex], SpawnLocation, SpawnRotation, Range, OutCubePaths,
-        /*ScatterRadius=*/0.0f, /*bIsMainSlot=*/true,
+        /*ScatterRadius=*/Definition.TapScatterRadius, /*bIsMainSlot=*/true,
         /*TotalCubeOverride=*/FMath::Max(1, Definition.CubeCount));
 }

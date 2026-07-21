@@ -421,6 +421,14 @@ private:
     // sourced from the registry Definition's CompositeCooldown; gates a NEW merge attempt.
     FTimerHandle CompositeCooldownTimer;
 
+    // Discards a READY composite that was never fired, with no refund. Started when
+    // the merge completes, cleared inside DiscardReadyComposite so every existing
+    // discard path tears it down without needing its own call.
+    FTimerHandle ReadyCompositeExpiryTimer;
+
+    UFUNCTION()
+    void OnReadyCompositeExpired();
+
     void OnCompositeCooldownExpired();
 
     // Replicated alongside CurrentMergeState so OnRep_MergeState can distinguish

@@ -40,9 +40,14 @@ bool UWTBRSolveilCompositeBehavior::ExecuteComposite(
     {
         if (PathPoints.Num() < 2) continue;
 
+        // Spawn on THIS cube own path start, not a shared muzzle point. Conjuring
+        // every cube of a volley on one spot makes them overlap and destroy each
+        // other before InitializePathMovement ever runs.
+        const FTransform CubeSpawnTransform(SpawnRotation, PathPoints[0]);
+
         AWTBRProjectileBase* Projectile = World->SpawnActorDeferred<AWTBRProjectileBase>(
             Definition.ProjectileClass,
-            SpawnTransform,
+            CubeSpawnTransform,
             OwningCharacter,
             OwningCharacter,
             ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
@@ -58,7 +63,7 @@ bool UWTBRSolveilCompositeBehavior::ExecuteComposite(
         Projectile->bCanPenetrate = Definition.bCanPenetrate;
         // Per-composite look from the registry — keeps one shared projectile BP viable.
         Projectile->ApplyVFXConfig(Definition.VFX);
-        Projectile->FinishSpawning(SpawnTransform);
+        Projectile->FinishSpawning(CubeSpawnTransform);
         Projectile->InitializePathMovement(PathPoints, Definition.ProjectileSpeed, OwningCharacter);
         bAnySpawned = true;
     }
