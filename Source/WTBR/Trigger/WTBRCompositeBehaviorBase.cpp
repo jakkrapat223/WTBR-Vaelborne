@@ -18,16 +18,28 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
 
     const int32 PresetIndex = OwningCharacter->GetPendingCompositePresetIndex();
 
-    // TAP (INDEX_NONE): a straight two-point path at FULL reach, built here rather
-    // than read from data. Tap exists to be the reliable answer when someone is
-    // already on top of you, so it must land where the player is aiming — an
-    // authored curve would defeat the only reason it exists. Identity still comes
-    // through, because the payload (explode / home / penetrate) is unchanged.
+    // Reach at zero charge, and what a TAP always fires at. Falls back to PathRange
+    // when unset, so a definition that never opts into charge scaling behaves
+    // exactly as it did before charge existed.
+    const float MinRange = (Definition.PathRangeMin > 0.0f)
+        ? FMath::Min(Definition.PathRangeMin, Definition.PathRange)
+        : Definition.PathRange;
+
+    // TAP: a straight two-point path at the UNCHARGED reach, built here rather than
+    // read from data. Tap exists to be the reliable answer when someone is already
+    // on top of you, so it must land where the player is aiming — an authored curve
+    // would defeat the only reason it exists. Identity still comes through, because
+    // the payload (explode / home / penetrate) is unchanged.
+    //
+    // It fires at MinRange, not PathRange, so that a barely-charged hold is never
+    // WORSE than a tap — the design lock's "MinReach = BasicRange, MaxReach >
+    // BasicRange" rule. Tap trades reach for being instant; hold buys reach and
+    // shape by committing time.
     if (PresetIndex == WTBR_COMPOSITE_PRESET_TAP)
     {
         const FRotationMatrix AimMatrix(SpawnRotation);
         const FVector EndPoint =
-            SpawnLocation + AimMatrix.GetUnitAxis(EAxis::X) * Definition.PathRange;
+            SpawnLocation + AimMatrix.GetUnitAxis(EAxis::X) * MinRange;
 
         // Every cube starts somewhere on a sphere around the caster and ends on the
         // SAME aim point. That keeps tap perfectly reliable — whatever the spread
@@ -57,9 +69,6 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
         return;
     }
 
-    const float MinRange = (Definition.PathRangeMin > 0.0f)
-        ? FMath::Min(Definition.PathRangeMin, Definition.PathRange)
-        : Definition.PathRange;
     const float Range = FMath::Lerp(
         MinRange, Definition.PathRange, OwningCharacter->GetPendingCompositeChargeFraction());
 

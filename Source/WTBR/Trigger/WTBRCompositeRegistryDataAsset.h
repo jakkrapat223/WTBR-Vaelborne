@@ -193,10 +193,13 @@ struct FWTBRCompositeDefinition
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "0.0"))
     float TapScatterRadius = 135.0f;
 
-    // ⚠ PLAYTEST PENDING: reach at zero charge. A held composite lerps PathRangeMin ->
-    // PathRange by charge, mirroring Serpveil's own SerpveilMaxRange -> SerpveilPresetMaxRange.
-    // A TAP always uses the full PathRange: tap is the reliable panic answer, so making it
-    // short as well as straight would leave the player with no usable option under pressure.
+    // ⚠ PLAYTEST PENDING: the UNCHARGED reach — what a tap fires at, and where a hold
+    // starts before charging. A held composite lerps this -> PathRange by charge,
+    // mirroring Serpveil's own SerpveilMaxRange -> SerpveilPresetMaxRange.
+    //
+    // Tap deliberately uses this rather than the full PathRange, so a barely-charged
+    // hold is never WORSE than just tapping (the design lock's "MinReach =
+    // BasicRange, MaxReach > BasicRange"). Tap trades reach for being instant.
     // Values <= 0 mean "no charge scaling" and every shot uses PathRange.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "0.0"))
     float PathRangeMin = 0.0f;
