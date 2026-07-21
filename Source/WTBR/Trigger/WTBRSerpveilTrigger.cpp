@@ -302,7 +302,6 @@ bool UWTBRSerpveilTrigger::CancelCharge()
     bWindupReady = false;
     CommittedReach = 0.0f;
     SelectedPresetIndex = INDEX_NONE;
-    StopChargeTracking();
 
     WTBR_VALIDATION_LOG(Verbose, TEXT("[Serpveil S1] WindupCanceled | Owner=%s | Main=%s | Elapsed=%.3f | NoFire=true | NoVaelConsume=true"),
         *GetNameSafe(OwnerCharacter.Get()),
@@ -690,24 +689,8 @@ TArray<FVector> UWTBRSerpveilTrigger::BuildPathPoints(
     return WorldPts;
 }
 
-// ─── Charge progress helpers ──────────────────────────────────────────────────
-
-void UWTBRSerpveilTrigger::UpdateChargeProgress()
-{
-    if (!OwnerCharacter.IsValid() || !IsValid(DataAsset)) return;
-
-    const float Elapsed    = OwnerCharacter->GetWorld()->GetTimeSeconds() - ChargeStartTime;
-    const float MaxTime    = FMath::Max(DataAsset->SerpveilParams.SerpveilChargeTime, 0.01f);
-    const float ChargePct  = FMath::Clamp(Elapsed / MaxTime, 0.0f, 1.0f);
-
-    OnSerpveilCharging(ChargePct);
-
-    if (ChargePct >= 1.0f)
-        StopChargeTracking();
-}
-
-void UWTBRSerpveilTrigger::StopChargeTracking()
-{
-    if (!OwnerCharacter.IsValid()) return;
-    OwnerCharacter->GetWorld()->GetTimerManager().ClearTimer(ChargeUpdateTimer);
-}
+// UpdateChargeProgress/StopChargeTracking/ChargeUpdateTimer and the
+// OnSerpveilCharging BP event lived here and were entirely dead: the timer was
+// only ever cleared, never set, so nothing called UpdateChargeProgress and no
+// Blueprint implemented the event. Stage-2 charge progress is owned by
+// AWTBRCharacter (see GetSerpveilFullChargeSeconds).

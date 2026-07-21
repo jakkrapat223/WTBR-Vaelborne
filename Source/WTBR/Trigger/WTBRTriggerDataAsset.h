@@ -1023,8 +1023,12 @@ struct FWTBRSerpveilParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Combat", meta = (ClampMin = "0.0"))
     float SerpveilPerCubeDamage = 3.5f;
 
+    // ⚠ PLAYTEST PENDING: raised 2800 -> 3500 alongside the range rebase below, so a
+    // max-range shot lands in ~2.0s. Left at 2800 the longer shot would take ~2.9s
+    // and be trivially walked out of. Owner PIE-tested 4200 first and pulled it
+    // back to 3500 — dodgeable at distance is intended, this is a committed shot.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile", meta = (ClampMin = "100.0"))
-    float SerpveilSpeed = 2800.0f;
+    float SerpveilSpeed = 3500.0f;
 
     // DEPRECATED by S1 rework
     // Preset flight-path shape baked into control points at fire time
@@ -1038,9 +1042,12 @@ struct FWTBRSerpveilParams
     float SerpveilMinRange = 400.0f;
 
     // Maximum flight range at full Vael charge
-    // ⚠ PLAYTEST PENDING
+    // ⚠ PLAYTEST PENDING: raised 1500 -> 4000 (15m -> 40m). Serpveil was the only
+    // projectile Trigger in the game under 40m while its peers (Fulgrix 4000,
+    // Solux 5000, Acervyn 5000, Venyx 6000) sat at 40-60m — an early placeholder
+    // never revisited. 4000 puts the un-charged tap at the bottom of its own band.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "100.0"))
-    float SerpveilMaxRange = 1500.0f;
+    float SerpveilMaxRange = 4000.0f;
 
     // DEPRECATED by S1 rework
     // Vael drained per second while charging (determines affordable range)
@@ -1048,11 +1055,16 @@ struct FWTBRSerpveilParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Resources", meta = (ClampMin = "0.1"))
     float SerpveilVaelPerSecond = 10.0f;
 
-    // DEPRECATED by S1 rework
-    // Intended max charge time (informational — server uses Vael formula, not this directly)
+    // Seconds of hold needed to charge from SerpveilMaxRange to SerpveilPresetMaxRange.
     // ⚠ PLAYTEST PENDING
+    //
+    // Was "DEPRECATED by S1 rework / informational only" and read solely by dead
+    // code; repurposed as the single authoritative charge duration so the value
+    // is DA-driven per project rule. AWTBRCharacter's stage-2 flow reads it via
+    // GetSerpveilFullChargeSeconds() and falls back to
+    // SERPVEIL_FULL_CHARGE_SECONDS_FALLBACK when no Serpveil DataAsset is active.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "0.1"))
-    float SerpveilChargeTime = 1.0f;
+    float SerpveilChargeTime = 0.8f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Projectile")
     TSubclassOf<AWTBRProjectileBase> SerpveilProjectileClass;
@@ -1072,8 +1084,13 @@ struct FWTBRSerpveilParams
     float SerpveilHoldThresholdSeconds = 0.15f;
 
     // ⚠ PLAYTEST PENDING: maximum reach in Preset mode at full charge.
+    // Raised 2200 -> 7000 (22m -> 70m). Sits just above Venyx (6000) to give Viper
+    // "longest Shooter" identity in exchange for having no homing, while staying
+    // clear of sniper range (Telorn/Fulgris 8000, Piercex 12000). Also widens the
+    // charge window from 7m to 30m, which is what makes a reach indicator worth
+    // building at all — see the charge-range-indicator design notes.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Path", meta = (ClampMin = "100.0"))
-    float SerpveilPresetMaxRange = 2200.0f;
+    float SerpveilPresetMaxRange = 7000.0f;
 
     // ⚠ PLAYTEST PENDING: authored curved path for Preset mode. Empty lanes fall back to straight fire.
     // Used only when the hold flow did not select from SerpveilPresets below.
@@ -1128,9 +1145,23 @@ struct FWTBRSerpveilParams
         SerpveilPresets.Add(SplitFan);
     }
 
-    // ⚠ PLAYTEST PENDING: true fires immediately at full charge; false waits for release.
+    // true fires immediately at full charge; false waits for release.
+    //
+    // Flipped true -> false to match the locked design ("the player always
+    // releases the shot themselves; no auto-fire"). This is a zero-risk change
+    // today because the branch that reads this flag
+    // (UWTBRSerpveilTrigger::OnWindupComplete) is UNREACHABLE via the shipped
+    // input flow: reaching it needs the button still held when the windup timer
+    // completes, but any hold past SERPVEIL_HOLD_THRESHOLD is captured by the
+    // preset wheel in AWTBRCharacter::HandleSerpveilFirePressed and never calls
+    // Server_Fire at all, while a tap replays press+release in the same frame so
+    // bButtonReleased is already true and OnWindupComplete returns early.
+    // Kept (rather than deleted) so that if the S1 windup path is ever made
+    // reachable again it obeys the design lock instead of silently auto-firing.
+    // NOTE: WTBRSerpveilS2StateMachineAutomationTests sets this explicitly and
+    // drives the trigger directly, so it covers a path real gameplay cannot hit.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Serpveil | Windup")
-    bool bSerpveilAutoFireAtFullCharge = true;
+    bool bSerpveilAutoFireAtFullCharge = false;
 
     // DEPRECATED by zigzag tap pattern — fan spread let only one cube land at range
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,

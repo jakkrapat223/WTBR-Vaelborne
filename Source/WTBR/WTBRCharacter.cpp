@@ -924,6 +924,22 @@ bool AWTBRCharacter::IsAnySerpveilSlotCharging() const
     return bSerpveilChargingSlot[SERPVEIL_SLOT_MAIN] || bSerpveilChargingSlot[SERPVEIL_SLOT_SUB];
 }
 
+float AWTBRCharacter::GetSerpveilFullChargeSeconds() const
+{
+    // Whichever slot answers first: a linked charge shares one duration, and the
+    // two slots holding Serpveils with different charge times is not a case the
+    // flow supports (they fire as one volley from one release).
+    for (const bool bIsMain : {true, false})
+    {
+        const UWTBRSerpveilTrigger* Trigger = GetActiveSerpveilTrigger(bIsMain);
+        if (IsValid(Trigger) && IsValid(Trigger->DataAsset))
+        {
+            return FMath::Max(Trigger->DataAsset->SerpveilParams.SerpveilChargeTime, 0.01f);
+        }
+    }
+    return SERPVEIL_FULL_CHARGE_SECONDS_FALLBACK;
+}
+
 bool AWTBRCharacter::HandleSerpveilFirePressed(bool bIsMain)
 {
     // Stage 2, with a preset armed. One button charges ONLY its own slot, so a
@@ -1031,7 +1047,7 @@ bool AWTBRCharacter::HandleSerpveilFireReleased(bool bIsMain)
             const bool bSlotIsMain = (Slot == SERPVEIL_SLOT_MAIN);
             const float Elapsed = Now - SerpveilChargeStartTimeSlot[Slot];
             const float ChargeFraction =
-                FMath::Clamp(Elapsed / SERPVEIL_FULL_CHARGE_SECONDS, 0.0f, 1.0f);
+                FMath::Clamp(Elapsed / GetSerpveilFullChargeSeconds(), 0.0f, 1.0f);
 
             bSerpveilChargingSlot[Slot] = false;
 
@@ -1213,12 +1229,13 @@ void AWTBRCharacter::TickSerpveilChargePreview()
     // Both slots charge along the same aim line, so one line is enough — draw
     // the furthest-along of them rather than two overlapping lines.
     const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+    const float FullChargeSeconds = GetSerpveilFullChargeSeconds();
     float BestFraction = 0.0f;
     for (int32 Slot = 0; Slot < SERPVEIL_SLOT_COUNT; ++Slot)
     {
         if (!bSerpveilChargingSlot[Slot]) continue;
         BestFraction = FMath::Max(BestFraction,
-            FMath::Clamp((Now - SerpveilChargeStartTimeSlot[Slot]) / SERPVEIL_FULL_CHARGE_SECONDS,
+            FMath::Clamp((Now - SerpveilChargeStartTimeSlot[Slot]) / FullChargeSeconds,
                 0.0f, 1.0f));
     }
     DrawSerpveilChargePreview(BestFraction);

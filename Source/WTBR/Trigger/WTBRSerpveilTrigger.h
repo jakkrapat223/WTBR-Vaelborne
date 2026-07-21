@@ -61,9 +61,6 @@ public:
     void OnSerpveilChargeStart();
 
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Serpveil | VFX")
-    void OnSerpveilCharging(float ChargePercent);
-
-    UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Serpveil | VFX")
     void OnSerpveilFired(EWTBRSerpveilShape Shape);
 
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Serpveil | VFX")
@@ -88,11 +85,8 @@ private:
     // Index into FWTBRSerpveilParams::SerpveilPresets chosen by the hold wheel,
     // or INDEX_NONE to use the single legacy SerpveilPresetPath instead.
     int32 SelectedPresetIndex = INDEX_NONE;
-    FTimerHandle ChargeUpdateTimer;
     FTimerHandle WindupTimer;
 
-    void UpdateChargeProgress();
-    void StopChargeTracking();
     void ExecuteSplitVolley();
     void OnWindupComplete();
     void HandleReleaseAtElapsed(float Elapsed);

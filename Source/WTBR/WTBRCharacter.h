@@ -738,8 +738,12 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Mark Ping", meta=(ClampMin="0.1"))
     float MarkPingCooldownSeconds = 1.0f;
 
+    // ⚠ PLAYTEST PENDING: raised 5 -> 9 s alongside the Serpveil range rebase. A ping
+    // is meant to survive the whole see-ping -> turn -> charge -> flight loop; at
+    // Serpveil's new 70 m reach the flight alone is ~2.0 s, and a ping expiring
+    // mid-charge (marker vanishing while aiming at it) feels broken.
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="WTBR | Mark Ping", meta=(ClampMin="1.0"))
-    float MarkPingDisplayDuration = 5.0f;
+    float MarkPingDisplayDuration = 9.0f;
 
     UFUNCTION(BlueprintPure, Category="WTBR | Mark Ping")
     const TArray<FWTBRActiveMarkPing>& GetActiveMarkPings() const { return ActiveMarkPings; }
@@ -1026,6 +1030,11 @@ protected:
 
     bool IsAnySerpveilSlotCharging() const;
 
+    // Stage-2 charge duration from whichever Serpveil DataAsset is active,
+    // falling back to SERPVEIL_FULL_CHARGE_SECONDS_FALLBACK. Both slots share one
+    // value on purpose: a linked dual-Viper charge must reach full charge together.
+    float GetSerpveilFullChargeSeconds() const;
+
     UFUNCTION()
     void TickSerpveilChargePreview();
 
@@ -1256,8 +1265,10 @@ private:
     // inconsistent rather than as a distinct mechanic.
     static constexpr float SERPVEIL_HOLD_THRESHOLD = 0.2f;
     static constexpr float SERPVEIL_CHARGE_TICK_INTERVAL = 0.0167f;
-    // Seconds of charge to reach maximum range in stage 2.
-    static constexpr float SERPVEIL_FULL_CHARGE_SECONDS = 0.8f;
+    // Seconds of charge to reach maximum range in stage 2. Only a fallback for
+    // when no Serpveil DataAsset is reachable — the real value is DA-driven via
+    // FWTBRSerpveilParams::SerpveilChargeTime, read by GetSerpveilFullChargeSeconds().
+    static constexpr float SERPVEIL_FULL_CHARGE_SECONDS_FALLBACK = 0.8f;
     // Grace period after locking a preset before the flow releases itself.
     static constexpr float SERPVEIL_PRESET_LOCK_TIMEOUT = 3.0f;
 
