@@ -37,6 +37,39 @@ struct FWTBRCompositeHomingParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Homing", meta = (ClampMin = "0.0"))
     float HomingAcceleration = 0.0f;
 
+    // ⚠ PLAYTEST PENDING: degrees per second a chasing cube may swing its heading.
+    //
+    // ZERO IS UNCAPPED, which is the pivot-in-place behaviour the owner saw as cubes
+    // doing laps around one target. Every composite sweep ran uncapped until this
+    // field existed, so a definition that homes wants a real number here.
+    //
+    // Turn radius is roughly Speed / TurnRate(radians). The reference points: Venyx
+    // is 180 deg/s, which a full dash can still shake; Venspire is meant to be 280,
+    // where a dash no longer suffices and cover or a shield is the answer.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Homing", meta = (ClampMin = "0.0"))
+    float HomingTurnRateDegreesPerSecond = 0.0f;
+
+    // ⚠ PLAYTEST PENDING: may a cube that overshot hunt again?
+    //
+    // Off, a cube commits once and a miss is final — the Venyx rule. On, it drops a
+    // target it has flown past and resumes sweeping, which is what makes a composite
+    // read as relentless rather than merely faster to turn. It still has to come
+    // back around the long way, because the turn cap above applies to the return.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Homing")
+    bool bReacquireAfterOvershoot = false;
+
+    // ⚠ PLAYTEST PENDING: proximity fuse, world units. Zero = must land a real overlap.
+    //
+    // A homing cube cannot pinpoint-collide a target closer than its own turn radius
+    // (roughly Speed / TurnRate above), so with only a turn cap it flies past and,
+    // with reacquire on, spirals outward re-acquiring but never connecting — the exact
+    // Venspire behaviour the owner logged. A fuse turns "passed near" into "hit". Set
+    // this at or a little above the turn radius (Venspire ~530uu at 280 deg/s and
+    // ~2590 speed → try 250-350) so a committed chase actually lands. LOS is still
+    // required to acquire, so cover stays the counterplay.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Homing", meta = (ClampMin = "0.0"))
+    float ProximityDetonationRadius = 0.0f;
+
     // ⚠ PLAYTEST PENDING: mirrors Venyx's default target-acquisition aim cone.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Homing",
         meta = (ClampMin = "0.0", ClampMax = "180.0"))

@@ -1075,6 +1075,8 @@ void AWTBRProjectileBase::InitializePathMovement(
 
     InterpMovement->Activate(true);
 
+    ArmLaneEvents(AuthoredLaneEvents, TotalDist);
+
     // Clear any lifespan the projectile Blueprint set on itself.
     //
     // A bullet stops for three reasons: it hits somebody, it hits the world, or it
@@ -1145,13 +1147,14 @@ int32 AWTBRProjectileBase::SpawnSweptVolley(
     float Speed,
     bool bExplodes,
     float ExplosionRadius,
-    float HomingAcceleration,
     const FRotator& SpawnRotation,
     const TArray<TArray<FVector>>& CubeWorldPaths,
     const TArray<FWTBRResolvedCubeLaunch>& CubeLaunches,
     const FWTBRProjectileVFXConfig* VFXConfig,
     float HomingTurnRateDegPerSec,
-    float MaxRangeUU)
+    float MaxRangeUU,
+    bool bReacquireAfterOvershoot,
+    float DetonationRadiusUU)
 {
     if (!IsValid(OwningCharacter) || !ProjectileClass) return 0;
 
@@ -1196,7 +1199,8 @@ int32 AWTBRProjectileBase::SpawnSweptVolley(
         if (Launch.HomingRadiusUU > 0.0f)
         {
             Projectile->EnableProximityHoming(
-                Launch.HomingRadiusUU, HomingAcceleration, HomingTurnRateDegPerSec);
+                Launch.HomingRadiusUU, HomingTurnRateDegPerSec, bReacquireAfterOvershoot,
+                DetonationRadiusUU);
         }
 
         // Per-composite look from the registry — keeps one shared projectile BP
@@ -1207,6 +1211,10 @@ int32 AWTBRProjectileBase::SpawnSweptVolley(
         }
 
         Projectile->FinishSpawning(CubeSpawnTransform);
+        // Stored, not armed: a lane with a LaunchDelay has no path length yet, and
+        // the markers are placed as fractions OF that length. InitializePathMovement
+        // arms them once it knows how long the path actually came out.
+        Projectile->AuthoredLaneEvents = Launch.Events;
         Projectile->SchedulePathMovement(PathPoints, Speed, OwningCharacter, Launch.DelaySeconds);
         ++SpawnedCount;
     }
@@ -1281,24 +1289,182 @@ void AWTBRProjectileBase::ApplyPathSpeedProfile()
     Points.Last().Percentage = 1.0f;
 }
 
+
+// ─── Lane events ─────────────────────────────────────────────────────────────
+
+void AWTBRProjectileBase::ArmLaneEvents(const TArray<FWTBRLaneEvent>& Events, float PathLength)
+{
+    PendingLaneEvents.Reset();
+    PendingLaneEventDistances.Reset();
+    PathDistanceTravelled = 0.0f;
+    LastEventSampleLocation = GetActorLocation();
+    if (Events.Num() == 0 || PathLength <= 0.0f) return;
+
+    TArray<FWTBRLaneEvent> Sorted = Events;
+    Sorted.Sort([](const FWTBRLaneEvent& A, const FWTBRLaneEvent& B)
+        { return A.AtPathFraction < B.AtPathFraction; });
+
+    for (const FWTBRLaneEvent& Event : Sorted)
+    {
+        PendingLaneEvents.Add(Event);
+        PendingLaneEventDistances.Add(
+            FMath::Clamp(Event.AtPathFraction, 0.0f, 1.0f) * PathLength);
+    }
+
+    // Events need a per-frame position sample, so this is one of the few things that
+    // turns ticking on. Same registration caveat as the sweep: bCanEverTick is true
+    // in the constructor precisely so this is not a silent no-op.
+    SetActorTickEnabled(true);
+}
+
+void AWTBRProjectileBase::TickLaneEvents()
+{
+    if (PendingLaneEvents.Num() == 0) return;
+    if (bHoveringMidPath) return;
+
+    const FVector Now = GetActorLocation();
+    PathDistanceTravelled += FVector::Dist(LastEventSampleLocation, Now);
+    LastEventSampleLocation = Now;
+
+    // Measured by distance travelled, not by InterpToMovement's clock: a hover stops
+    // the cube without stopping time, and a speed change breaks the time-to-distance
+    // mapping outright. Distance is the thing the player actually clicked on.
+    while (PendingLaneEvents.Num() > 0
+        && PathDistanceTravelled >= PendingLaneEventDistances[0])
+    {
+        const FWTBRLaneEvent Event = PendingLaneEvents[0];
+        PendingLaneEvents.RemoveAt(0);
+        PendingLaneEventDistances.RemoveAt(0);
+        ApplyLaneEvent(Event);
+
+        // A hover suspends the path, so anything further along must wait for it.
+        if (bHoveringMidPath) break;
+    }
+}
+
+void AWTBRProjectileBase::ApplyLaneEvent(const FWTBRLaneEvent& Event)
+{
+    switch (Event.Type)
+    {
+    case EWTBRLaneEventType::Hover:
+    {
+        if (Event.DurationSeconds <= 0.0f || !IsValid(InterpMovement)) break;
+
+        // Paused by switching the component's tick off, NOT by Deactivate().
+        // Deactivate broadcasts OnInterpToStop, which lands in OnInterpMovementEnd —
+        // the cube would treat a pause as the end of its path and fly off or die.
+        InterpMovement->SetComponentTickEnabled(false);
+        bHoveringMidPath = true;
+
+        // Collision stays ON, unlike the pre-launch wait. A cube hanging in the open
+        // for several seconds with nothing able to touch it would be free zoning;
+        // being shootable is what pays for the timing trick.
+        GetWorldTimerManager().SetTimer(HoverTimer, this,
+            &AWTBRProjectileBase::EndHover, Event.DurationSeconds, false);
+
+        WTBR_VALIDATION_LOG(Log, TEXT("[Lane Event] Hover | Cube=%s | Seconds=%.2f"),
+            *GetNameSafe(this), Event.DurationSeconds);
+        break;
+    }
+
+    case EWTBRLaneEventType::SetHoming:
+    {
+        // Only ever RESTORES a radius the weapon already had. A marker can never
+        // grant hunting to something that does not hunt — Solux's cubes carrying no
+        // special property at all is its identity, and Meteo and Viper have their
+        // own. So this event belongs to the Hound line and nothing else.
+        //
+        // NOT behind the validation CVar: placed on any other archetype it is a
+        // silent no-op, and a knob that does nothing without saying so is exactly the
+        // kind of thing that gets tuned for an hour before anyone checks.
+        if (Event.bEnable && ArmedHomingRadius <= 0.0f)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Lane Event] %s has a SetHoming marker but this projectile never ")
+                TEXT("had homing to switch on. Only Hound-line weapons can use it — the ")
+                TEXT("marker does nothing here."),
+                *GetNameSafe(this));
+            break;
+        }
+
+        if (Event.bEnable)
+        {
+            // Restoring the radius is what makes "fly straight, hunt only near the
+            // end" authorable — the canon trick of setting tracking by time.
+            ProximityHomingRadius = ArmedHomingRadius;
+            if (ProximityHomingRadius > 0.0f) SetActorTickEnabled(true);
+        }
+        else
+        {
+            ProximityHomingRadius = 0.0f;
+        }
+        WTBR_VALIDATION_LOG(Log, TEXT("[Lane Event] SetHoming | Cube=%s | Enabled=%s | RadiusUU=%.0f"),
+            *GetNameSafe(this), Event.bEnable ? TEXT("true") : TEXT("false"),
+            ProximityHomingRadius);
+        break;
+    }
+
+    case EWTBRLaneEventType::SetSpeed:
+    {
+        if (Event.SpeedMultiplier <= 0.0f) break;
+
+        // Scaled through the ACTOR's own time dilation rather than through
+        // InterpToMovement. Its TimeMultiplier is locked to 1/Duration when the
+        // control points are finalised, is never recomputed, and is protected
+        // besides; rewriting Duration afterwards does nothing. Dilating this one
+        // actor moves it slower or faster with no such coupling, and touches nothing
+        // else in the world.
+        //
+        // Timers are NOT dilated by this — they run on world time — so a hover still
+        // lasts the seconds it was authored for even inside a slowed stretch.
+        CustomTimeDilation *= Event.SpeedMultiplier;
+
+        // Kept in step because the post-path continuation and the range budget are
+        // both derived from it.
+        CachedSpeed *= Event.SpeedMultiplier;
+
+        WTBR_VALIDATION_LOG(Log, TEXT("[Lane Event] SetSpeed | Cube=%s | x%.2f | NewSpeed=%.0f"),
+            *GetNameSafe(this), Event.SpeedMultiplier, CachedSpeed);
+        break;
+    }
+    }
+}
+
+void AWTBRProjectileBase::EndHover()
+{
+    bHoveringMidPath = false;
+    if (IsValid(InterpMovement))
+    {
+        InterpMovement->SetComponentTickEnabled(true);
+    }
+    // Resampled so the pause itself does not count as distance travelled.
+    LastEventSampleLocation = GetActorLocation();
+}
+
 // ─── Venyx proximity homing ──────────────────────────────────────────────────
 
-void AWTBRProjectileBase::EnableProximityHoming(float RadiusUU, float Accel, float TurnRateDegPerSec)
+void AWTBRProjectileBase::EnableProximityHoming(
+    float RadiusUU, float TurnRateDegPerSec, bool bReacquireAfterOvershoot,
+    float DetonationRadiusUU)
 {
     if (!HasAuthority()) return;
     if (RadiusUU <= 0.0f) return;
 
     ProximityHomingRadius = RadiusUU;
-    ProximityHomingAcceleration = Accel;
+    ArmedHomingRadius = RadiusUU;
     HomingTurnRateDegreesPerSecond = TurnRateDegPerSec;
+    ReacquireRadius = bReacquireAfterOvershoot ? RadiusUU : 0.0f;
+    ProximityDetonationRadius = FMath::Max(0.0f, DetonationRadiusUU);
 
     // Ticking is off by default on every projectile and stays off for all of them
     // except these — the sweep is the only thing here that needs a per-frame query.
     SetActorTickEnabled(true);
 
     WTBR_VALIDATION_LOG(Log,
-        TEXT("[Proximity Homing] Armed | Cube=%s | RadiusUU=%.0f | Accel=%.0f | TurnRate=%.0fdeg/s | Ticking=%s"),
-        *GetNameSafe(this), RadiusUU, Accel, TurnRateDegPerSec,
+        TEXT("[Proximity Homing] Armed | Cube=%s | RadiusUU=%.0f | TurnRate=%.0fdeg/s | Reacquire=%s | DetonateUU=%.0f | Ticking=%s"),
+        *GetNameSafe(this), RadiusUU, TurnRateDegPerSec,
+        bReacquireAfterOvershoot ? TEXT("true") : TEXT("false"),
+        ProximityDetonationRadius,
         IsActorTickEnabled() ? TEXT("true") : TEXT("false"));
 }
 
@@ -1372,8 +1538,67 @@ void AWTBRProjectileBase::TickProximityChase(float DeltaSeconds)
     const FVector Current = ProjectileMovement->Velocity.IsNearlyZero()
         ? GetActorForwardVector()
         : ProjectileMovement->Velocity.GetSafeNormal();
-    const FVector Desired =
-        (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+    const FVector ToTarget = Target->GetActorLocation() - GetActorLocation();
+    const FVector Desired = ToTarget.GetSafeNormal();
+
+    // Fuse, early check: a head-on cube that closes inside the (small) fuse radius
+    // detonates immediately, giving the tightest airburst. Checked BEFORE the
+    // overshoot test on purpose — it should resolve the shot, not drop the target
+    // because it is about to fly past.
+    if (ProximityDetonationRadius > 0.0f
+        && ToTarget.SizeSquared() <= FMath::Square(ProximityDetonationRadius))
+    {
+        WTBR_VALIDATION_LOG(Log,
+            TEXT("[Proximity Homing] Detonate | Cube=%s | Target=%s | Dist=%.0fuu | Reason=Fuse | FuseUU=%.0f"),
+            *GetNameSafe(this), *GetNameSafe(Target),
+            ToTarget.Size(), ProximityDetonationRadius);
+        DetonateOnProximityTarget(Target);
+        return;
+    }
+
+    // Overshoot = the target just crossed behind the cube, which means THIS tick is
+    // the closest the cube will ever get on this pass. A turn-capped cube physically
+    // cannot pinpoint-hit a target inside its turn radius, so closest approach is the
+    // honest moment to resolve the shot.
+    if (FVector::DotProduct(Current, Desired) < 0.0f)
+    {
+        // Fuse weapons connect at closest approach. The ceiling is the radius the cube
+        // ACQUIRED within, so "you already earned this target, now cash it in" — a
+        // committed chase always resolves into exactly one hit at its best point
+        // rather than flying past. This supersedes the old drop-and-reacquire, which
+        // could not reconverge on a target tighter than the turn radius and instead
+        // spiralled OUTWARD re-acquiring at ever greater distance (owner PIE log:
+        // 344 -> 567uu, never connecting). Gated on a fuse being authored, so a preset
+        // that wants the old relentless wide-return sweep opts out by leaving it zero.
+        if (ProximityDetonationRadius > 0.0f)
+        {
+            const float DetonateCeiling = FMath::Max(ArmedHomingRadius, ProximityDetonationRadius);
+            if (ToTarget.SizeSquared() <= FMath::Square(DetonateCeiling))
+            {
+                WTBR_VALIDATION_LOG(Log,
+                    TEXT("[Proximity Homing] Detonate | Cube=%s | Target=%s | Dist=%.0fuu | Reason=ClosestApproach | CeilingUU=%.0f"),
+                    *GetNameSafe(this), *GetNameSafe(Target),
+                    ToTarget.Size(), DetonateCeiling);
+                DetonateOnProximityTarget(Target);
+                return;
+            }
+        }
+
+        // No fuse (or the target slipped beyond even the acquisition radius — a
+        // teleport or an edge-of-radius clip): fall back to the relentless behaviour
+        // if this weapon re-hunts. Venyx commits once and a miss is final, so it keeps
+        // hauling itself round; a composite that may re-hunt drops the target and
+        // resumes sweeping, still paying the turn-cap price to come back round.
+        if (ReacquireRadius > 0.0f)
+        {
+            ProximityChaseTarget = nullptr;
+            ProximityHomingRadius = ReacquireRadius;
+            WTBR_VALIDATION_LOG(Log,
+                TEXT("[Proximity Homing] Reacquiring | Cube=%s | LostTarget=%s"),
+                *GetNameSafe(this), *GetNameSafe(Target));
+            return;
+        }
+    }
 
     // Zero turn rate means uncapped, which is the old behaviour: snap onto the
     // target every frame.
@@ -1387,11 +1612,34 @@ void AWTBRProjectileBase::TickProximityChase(float DeltaSeconds)
     ProjectileMovement->Velocity = SteerTowards(Current, Desired, MaxRadians) * CachedSpeed;
 }
 
+void AWTBRProjectileBase::DetonateOnProximityTarget(AWTBRCharacter* Target)
+{
+    if (!HasAuthority() || !IsValid(Target)) return;
+
+    // Route through the real overlap handler rather than duplicating the damage,
+    // hit-zone, VFX and destruction logic — a proximity detonation should be
+    // indistinguishable from a contact hit on the same target. The synthetic
+    // SweepResult pins the impact point to the target centre so the fuse always reads
+    // as a torso hit (1.0x); a fuse is an area effect, not a pinpoint shot, so it must
+    // not randomly catch a head or limb multiplier from wherever the cube happened to
+    // be. bExplodeOnImpact is honoured inside OnOverlapBegin, so an explosive cube
+    // still explodes here exactly as it would on contact.
+    FHitResult SyntheticHit;
+    SyntheticHit.ImpactPoint = Target->GetActorLocation();
+    SyntheticHit.Location = Target->GetActorLocation();
+
+    UPrimitiveComponent* TargetComponent =
+        Cast<UPrimitiveComponent>(Target->GetRootComponent());
+    OnOverlapBegin(BoxCollision, Target, TargetComponent, 0, /*bFromSweep=*/true, SyntheticHit);
+}
+
 void AWTBRProjectileBase::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
 
     if (!HasAuthority()) return;
+
+    TickLaneEvents();
 
     // Already committed: steer, and never look for anyone else.
     if (ProximityChaseTarget.IsValid())

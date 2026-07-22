@@ -604,4 +604,133 @@ bool FWTBRVenyxHoldChargeBuysReachTest::RunTest(const FString& /*Parameters*/)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVenyxProximityFuseConnectsTest,
+    "WTBR.Venyx.Sweep.ProximityFuseLetsAChaseConnectWithATargetInsideItsTurnRadius",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVenyxProximityFuseConnectsTest::RunTest(const FString& /*Parameters*/)
+{
+    // The bug the fuse exists for, from a PIE log: a chasing cube cannot pinpoint-
+    // collide a target closer than its own turn radius, so it flew past a stationary
+    // enemy at ~250uu again and again and never dealt a point of damage. With a fuse,
+    // a committed chase that closes inside the radius detonates and connects.
+    FWTBRVenyxSweepWorldFixture Fixture(TEXT("WTBRVenyxFuseConnects"));
+    UWorld* World = Fixture.Get();
+    if (!World) return false;
+
+    AWTBRCharacter* Shooter = SpawnVenyxSweepCharacter(World, FVector::ZeroVector, 0);
+    AWTBRCharacter* Enemy = SpawnVenyxSweepCharacter(World, FVector(200.0f, 0.0f, 0.0f), 1);
+    if (!Shooter || !Enemy || !Enemy->HealthComponent) return false;
+
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    AWTBRProjectileBase* Cube = World->SpawnActor<AWTBRProjectileBase>(
+        AWTBRProjectileBase::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
+    if (!Cube) return false;
+
+    Cube->InitializeProjectile(50.0f, 2000.0f, ETriggerCategory::Gunner, false, false, 0.0f);
+    // Turn cap on (so the cube would overshoot), reacquire on, fuse at 300 — the enemy
+    // sits at 200, comfortably inside it and inside the turn radius the cap implies.
+    Cube->EnableProximityHoming(800.0f, 280.0f, /*bReacquire=*/true, /*DetonationUU=*/300.0f);
+    Cube->InitializePathMovement(
+        {FVector::ZeroVector, FVector(1000.0f, 0.0f, 0.0f)}, 2000.0f, Shooter);
+    Cube->BeginProximityChaseForTest(Enemy);
+
+    const float HPBefore = Enemy->HealthComponent->GetCurrentHP();
+
+    // One chase tick with the target inside the fuse must detonate on it.
+    Cube->Tick(0.016f);
+
+    TestTrue(TEXT("The fused chase damaged the target it could not pinpoint-hit"),
+        Enemy->HealthComponent->GetCurrentHP() < HPBefore);
+    TestFalse(TEXT("A detonated cube is spent, not left orbiting"), IsValid(Cube));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVenyxClosestApproachDetonatesTest,
+    "WTBR.Venyx.Sweep.AGlancingChaseDetonatesAtClosestApproachRatherThanSpiralling",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVenyxClosestApproachDetonatesTest::RunTest(const FString& /*Parameters*/)
+{
+    // The half of the bug the tight fuse alone did not fix, from a PIE log: a cube
+    // that acquires a target off to the side curves but overshoots at, say, 350-450uu
+    // — outside a 300uu fuse — and then reacquires at an ever GREATER distance,
+    // spiralling out and never connecting. At the overshoot moment the cube is as
+    // close as it will get, so a committed chase detonates there if it is still inside
+    // the radius it acquired at, rather than flying past.
+    FWTBRVenyxSweepWorldFixture Fixture(TEXT("WTBRVenyxClosestApproach"));
+    UWorld* World = Fixture.Get();
+    if (!World) return false;
+
+    AWTBRCharacter* Shooter = SpawnVenyxSweepCharacter(World, FVector::ZeroVector, 0);
+    // Behind the cube's heading, so the very first chase tick is already an overshoot
+    // (target crossed behind). At 200uu it is well outside the 100uu fuse but well
+    // inside the 800uu radius the chase was armed at.
+    AWTBRCharacter* Enemy = SpawnVenyxSweepCharacter(World, FVector(-200.0f, 0.0f, 0.0f), 1);
+    if (!Shooter || !Enemy || !Enemy->HealthComponent) return false;
+
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    AWTBRProjectileBase* Cube = World->SpawnActor<AWTBRProjectileBase>(
+        AWTBRProjectileBase::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
+    if (!Cube) return false;
+
+    Cube->InitializeProjectile(50.0f, 2000.0f, ETriggerCategory::Gunner, false, false, 0.0f);
+    Cube->EnableProximityHoming(800.0f, 280.0f, /*bReacquire=*/true, /*DetonationUU=*/100.0f);
+    Cube->InitializePathMovement(
+        {FVector::ZeroVector, FVector(1000.0f, 0.0f, 0.0f)}, 2000.0f, Shooter);
+    Cube->BeginProximityChaseForTest(Enemy);
+
+    const float HPBefore = Enemy->HealthComponent->GetCurrentHP();
+    Cube->Tick(0.016f);
+
+    TestTrue(TEXT("A glancing overshoot detonates at closest approach"),
+        Enemy->HealthComponent->GetCurrentHP() < HPBefore);
+    TestFalse(TEXT("So the cube resolves into one hit rather than spiralling out"),
+        IsValid(Cube));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVenyxProximityFuseIsOptInTest,
+    "WTBR.Venyx.Sweep.AZeroFuseStaysContactOnlyAndDoesNotDetonateNearby",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVenyxProximityFuseIsOptInTest::RunTest(const FString& /*Parameters*/)
+{
+    // A zero fuse is the default for everything that has not opted in — it must not
+    // silently turn every near miss into a hit, or a lane that was tuned around
+    // contact-only homing would start dealing damage it never used to.
+    FWTBRVenyxSweepWorldFixture Fixture(TEXT("WTBRVenyxFuseOptIn"));
+    UWorld* World = Fixture.Get();
+    if (!World) return false;
+
+    AWTBRCharacter* Shooter = SpawnVenyxSweepCharacter(World, FVector::ZeroVector, 0);
+    AWTBRCharacter* Enemy = SpawnVenyxSweepCharacter(World, FVector(200.0f, 0.0f, 0.0f), 1);
+    if (!Shooter || !Enemy || !Enemy->HealthComponent) return false;
+
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    AWTBRProjectileBase* Cube = World->SpawnActor<AWTBRProjectileBase>(
+        AWTBRProjectileBase::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
+    if (!Cube) return false;
+
+    Cube->InitializeProjectile(50.0f, 2000.0f, ETriggerCategory::Gunner, false, false, 0.0f);
+    Cube->EnableProximityHoming(800.0f, 280.0f, /*bReacquire=*/true, /*DetonationUU=*/0.0f);
+    Cube->InitializePathMovement(
+        {FVector::ZeroVector, FVector(1000.0f, 0.0f, 0.0f)}, 2000.0f, Shooter);
+    Cube->BeginProximityChaseForTest(Enemy);
+
+    const float HPBefore = Enemy->HealthComponent->GetCurrentHP();
+    Cube->Tick(0.016f);
+
+    TestEqual(TEXT("A zero fuse deals no proximity damage"),
+        Enemy->HealthComponent->GetCurrentHP(), HPBefore);
+    TestTrue(TEXT("And the cube keeps chasing rather than detonating"), IsValid(Cube));
+    return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

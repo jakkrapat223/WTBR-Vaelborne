@@ -25,6 +25,68 @@
  */
 static constexpr int32 WTBR_TURNS_PER_VIPER = 4;
 
+/**
+ * What a cube does when it reaches a point the player marked on the lane.
+ *
+ * The player does not type a percentage — they click the drawn line where they want
+ * something to happen. Stored as a fraction of the lane's length so one preset reads
+ * the same at every charge level, exactly like the waypoints themselves.
+ *
+ * Splitting and launch delay are deliberately NOT here: both belong to the START of
+ * the shot, and both already exist as FWTBRPathPreset::CubeCount and
+ * FWTBRPathLane::LaunchDelay. Keeping mid-flight events to things that change a cube
+ * already in the air is also what stops actor counts multiplying.
+ */
+UENUM(BlueprintType)
+enum class EWTBRLaneEventType : uint8
+{
+    // Stop dead for DurationSeconds, then carry on along the same path. Canon's
+    // "tracking set by time" trick and the bait half of a two-wave shot.
+    Hover     UMETA(DisplayName = "Hover in place"),
+
+    // Turn hunting on or off from this point. Off until late is what makes a shot
+    // fly straight and only commit at the end.
+    //
+    // HOUND LINE ONLY — Venyx and the composites built from it. Solux carries no
+    // per-cube property, Meteo explodes, and Viper controls its trajectory instead;
+    // none of them have hunting to switch. The marker cannot grant it either, so on
+    // those archetypes it does nothing and says so in the log.
+    SetHoming UMETA(DisplayName = "Enable / disable homing (Hound line only)"),
+
+    // Scale cruise speed from this point on. Slow at the end reads as an arrival a
+    // target can answer; fast at the end reads as a snap.
+    SetSpeed  UMETA(DisplayName = "Change speed"),
+};
+
+/** One player-placed marker on a lane. */
+USTRUCT(BlueprintType)
+struct FWTBRLaneEvent
+{
+    GENERATED_BODY()
+
+    // Where on the lane, 0 at the muzzle and 1 at the authored end.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path",
+        meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float AtPathFraction = 0.5f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
+    EWTBRLaneEventType Type = EWTBRLaneEventType::Hover;
+
+    // ⚠ PLAYTEST PENDING. Hover only: seconds to hang before continuing.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path",
+        meta = (ClampMin = "0.0", ClampMax = "5.0"))
+    float DurationSeconds = 0.0f;
+
+    // SetHoming only.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
+    bool bEnable = true;
+
+    // SetSpeed only: multiplier on the shot's speed from here on.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path",
+        meta = (ClampMin = "0.05", ClampMax = "4.0"))
+    float SpeedMultiplier = 1.0f;
+};
+
 /** One lane of a path preset: a shape plus its projectile formation. */
 USTRUCT(BlueprintType)
 struct FWTBRPathLane
@@ -80,6 +142,10 @@ struct FWTBRPathLane
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path",
         meta = (ClampMin = "0.0"))
     float HomingRadiusFloorUU = 400.0f;
+
+    // Markers the player placed along this lane. Empty is the normal case.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
+    TArray<FWTBRLaneEvent> Events;
 };
 
 /**
@@ -100,6 +166,12 @@ struct FWTBRResolvedCubeLaunch
 
     UPROPERTY(BlueprintReadOnly, Category = "Composite | Path")
     float HomingRadiusUU = 0.0f;
+
+    // Copied from the lane this cube came from. Fractions are resolved into real
+    // distances by the projectile, which is the only thing that knows how long its
+    // own path turned out to be.
+    UPROPERTY(BlueprintReadOnly, Category = "Composite | Path")
+    TArray<FWTBRLaneEvent> Events;
 };
 
 /** A named, authorable multi-lane path shape. */
@@ -116,4 +188,19 @@ struct FWTBRPathPreset
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
     TArray<FWTBRPathLane> Lanes;
+
+    // ⚠ PLAYTEST PENDING: how many cubes this preset spends its damage across.
+    //
+    // Zero uses each lane's own authored CubeCount literally. Non-zero redistributes
+    // this many across the lanes, treating the authored numbers as weights — so an
+    // authored 3:1 split stays 3:1 whatever total is asked for.
+    //
+    // The damage BUDGET does not move, so this is a coverage-versus-punch dial and
+    // not a power one: more cubes means each carries less. That is what keeps it
+    // inside the lock that hold changes the pattern and nothing else.
+    //
+    // Clamped server-side to the firing archetype's own floor and ceiling — a preset
+    // may never split into FEWER cubes than the archetype already does on tap.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path", meta = (ClampMin = "0"))
+    int32 CubeCount = 0;
 };

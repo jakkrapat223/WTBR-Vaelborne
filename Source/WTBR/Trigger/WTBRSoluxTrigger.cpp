@@ -66,6 +66,8 @@ bool UWTBRSoluxTrigger::FireHoldPreset(
     Shot.MinRange = Params.SoluxPresetMinRange;
     Shot.MaxRange = Params.SoluxRange;
     Shot.ScatterRadius = Params.SoluxPresetScatterRadius;
+    Shot.MinCubeCount = Params.SoluxTapCubeCount;
+    Shot.MaxCubeCount = Params.SoluxPresetMaxCubeCount;
     // No payload fields set on purpose: Asteroid cubes do not explode and do not
     // hunt. Leaving them at zero IS the archetype.
 

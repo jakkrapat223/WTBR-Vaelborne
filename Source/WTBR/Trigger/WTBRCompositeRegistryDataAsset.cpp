@@ -256,6 +256,7 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
             {
                 FWTBRResolvedCubeLaunch& Launch = OutCubeLaunches->AddDefaulted_GetRef();
                 Launch.DelaySeconds = FMath::Max(0.0f, Lane.LaunchDelay);
+                Launch.Events = Lane.Events;
                 // Authored as a fraction of range for the same reason the waypoints
                 // are: one preset then reads the same at every charge level. The
                 // floor keeps a short shot from resolving to a radius too small to

@@ -110,8 +110,16 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     float ProximityHomingRadius = 0.0f;
 
+    // ProximityHomingAcceleration was REMOVED. Steering stopped being acceleration
+    // toward a target when the turn cap went in — a chasing cube now rotates its
+    // heading at a bounded rate and holds a constant speed, so an acceleration value
+    // had nothing left to act on. It survived as a field nothing read, which is the
+    // kind of dead knob someone eventually tunes and wonders why nothing happens.
+
+    // Radius to restore when a cube is allowed to hunt again after overshooting.
+    // Zero means a miss is final, which is Venyx's rule.
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
-    float ProximityHomingAcceleration = 0.0f;
+    float ReacquireRadius = 0.0f;
 
     // Degrees per second the cube may swing its heading while chasing. Zero means
     // uncapped, which is UProjectileMovementComponent's own homing behaviour.
@@ -129,6 +137,31 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     float HomingTurnRateDegreesPerSecond = 0.0f;
 
+    // Proximity fuse for a committed chase. Zero disables the whole capability (a cube
+    // must then land a real overlap to deal damage, the old behaviour) AND opts the
+    // weapon into the relentless drop-and-reacquire sweep instead.
+    //
+    // A fast cube with a bounded turn rate physically cannot pinpoint-collide a target
+    // closer than its own turn radius (~Speed / TurnRate(radians)): it flies past, and
+    // then either loops in place forever or spirals outward reacquiring — never
+    // actually connecting. Owner saw exactly this in a PIE log: Venspire cubes
+    // acquired a stationary target at ~250uu, overshot, and re-acquired at 269 → 310 →
+    // 365uu, drifting out until they expired having touched nobody.
+    //
+    // Non-zero fixes that in two ways, both in TickProximityChase:
+    //   1. Early fuse — a cube that closes inside THIS radius detonates at once (the
+    //      tightest airburst, for a head-on approach).
+    //   2. Closest approach — at the overshoot moment (the closest the cube will get
+    //      on this pass) a committed chase detonates if it is still within the radius
+    //      it ACQUIRED at (ArmedHomingRadius), so a glancing approach that never
+    //      reaches the tight fuse still resolves into exactly one hit instead of
+    //      spiralling. The exact fuse value therefore only tunes how tight the airburst
+    //      is, not whether an acquired chase connects.
+    // LOS is required to acquire and the cube still stops on geometry, so cover
+    // remains the counterplay.
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    float ProximityDetonationRadius = 0.0f;
+
     /**
      * Rotates Current toward Desired by at most MaxRadians. Both must be normalized;
      * returns a normalized direction.
@@ -137,6 +170,19 @@ public:
      * no world, no physics scene and no frames to check.
      */
     static FVector SteerTowards(const FVector& Current, const FVector& Desired, float MaxRadians);
+
+    // Test seams. Lane events are armed from inside InitializePathMovement, which is
+    // the only place the path's real length is known, so a test needs a way in ahead
+    // of it and a way to read the queue afterwards.
+    void SetAuthoredLaneEventsForTest(const TArray<FWTBRLaneEvent>& Events)
+    {
+        AuthoredLaneEvents = Events;
+    }
+    int32 GetPendingLaneEventCountForTest() const { return PendingLaneEvents.Num(); }
+    float GetNextLaneEventDistanceForTest() const
+    {
+        return PendingLaneEventDistances.Num() > 0 ? PendingLaneEventDistances[0] : -1.0f;
+    }
 
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     bool bIsShapedCharge = false;
@@ -235,7 +281,8 @@ public:
     // Venyx — arms mid-flight acquisition. Must be called before the path starts,
     // which is what begins the sweep ticking.
     UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
-    void EnableProximityHoming(float RadiusUU, float Accel, float TurnRateDegPerSec = 0.0f);
+    void EnableProximityHoming(float RadiusUU, float TurnRateDegPerSec = 0.0f,
+        bool bReacquireAfterOvershoot = false, float DetonationRadiusUU = 0.0f);
 
     /**
      * Spawns one cube per resolved path, in waves, each hunting on proximity.
@@ -252,13 +299,14 @@ public:
         float Speed,
         bool bExplodes,
         float ExplosionRadius,
-        float HomingAcceleration,
         const FRotator& SpawnRotation,
         const TArray<TArray<FVector>>& CubeWorldPaths,
         const TArray<FWTBRResolvedCubeLaunch>& CubeLaunches,
         const FWTBRProjectileVFXConfig* VFXConfig = nullptr,
         float HomingTurnRateDegPerSec = 0.0f,
-        float MaxRangeUU = 0.0f);
+        float MaxRangeUU = 0.0f,
+        bool bReacquireAfterOvershoot = false,
+        float DetonationRadiusUU = 0.0f);
 
     bool IsWaitingToLaunchForTest() const
     {
@@ -425,6 +473,40 @@ protected:
 
     // Per-frame steering toward ProximityChaseTarget, clamped by the turn rate.
     void TickProximityChase(float DeltaSeconds);
+
+    // Detonates on a chase target the cube has closed inside ProximityDetonationRadius
+    // of, reusing the real overlap path so damage, hit VFX and destruction are
+    // identical to a direct hit. Impact point is the target centre, so the fuse always
+    // classifies as a torso hit rather than randomly catching a head/limb multiplier.
+    void DetonateOnProximityTarget(AWTBRCharacter* Target);
+
+    // ── Lane events ──────────────────────────────────────────────────────────
+    //
+    // Markers the player placed on the drawn lane. Fired by DISTANCE along the path
+    // rather than by elapsed time, because the player placed them by clicking a
+    // position on a line — and because a hover or a speed change would otherwise
+    // shift every later marker.
+    void ArmLaneEvents(const TArray<FWTBRLaneEvent>& Events, float PathLength);
+    void TickLaneEvents();
+    void ApplyLaneEvent(const FWTBRLaneEvent& Event);
+    void EndHover();
+
+    // Set at spawn, armed once InitializePathMovement knows the path's real length.
+    TArray<FWTBRLaneEvent> AuthoredLaneEvents;
+
+    // Sorted by distance; consumed front to back.
+    TArray<FWTBRLaneEvent> PendingLaneEvents;
+    TArray<float> PendingLaneEventDistances;
+
+    // Distance covered along the path so far, accumulated per frame.
+    float PathDistanceTravelled = 0.0f;
+    FVector LastEventSampleLocation = FVector::ZeroVector;
+
+    // Radius to restore when a SetHoming event switches hunting back on.
+    float ArmedHomingRadius = 0.0f;
+
+    FTimerHandle HoverTimer;
+    bool bHoveringMidPath = false;
 
     // Reshapes the finalised control-point timing into the speed profile above.
     void ApplyPathSpeedProfile();

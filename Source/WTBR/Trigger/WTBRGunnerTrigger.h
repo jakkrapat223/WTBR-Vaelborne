@@ -116,12 +116,21 @@ protected:
         float MinRange = 0.0f;
         float MaxRange = 0.0f;
         float ScatterRadius = 0.0f;
+        // Floor and ceiling for a preset's own CubeCount. The floor is the count the
+        // archetype already uses on tap: a preset may buy MORE coverage by dividing
+        // the same budget further, never fewer, heavier cubes — that would be a power
+        // increase wearing a pattern's clothes.
+        int32 MinCubeCount = 0;
+        int32 MaxCubeCount = 0;
         // Payload. Left at zero/false by an archetype that has none — Solux carries
         // nothing at all, and that absence is its identity.
         bool bExplodes = false;
         float ExplosionRadius = 0.0f;
-        float HomingAcceleration = 0.0f;
         float HomingTurnRateDegPerSec = 0.0f;
+        bool bReacquireAfterOvershoot = false;
+        // Proximity fuse so a turn-capped chasing cube can connect with a target
+        // tighter than its turn radius. Zero = contact-only, the old behaviour.
+        float ProximityDetonationRadius = 0.0f;
     };
 
     /**

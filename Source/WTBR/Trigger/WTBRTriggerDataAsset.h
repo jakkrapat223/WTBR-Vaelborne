@@ -992,6 +992,14 @@ struct FWTBRSoluxParams
         meta = (ClampMin = "0.0"))
     float SoluxPresetScatterRadius = 135.0f;
 
+    // ⚠ PLAYTEST PENDING: most cubes a preset of this archetype may divide into.
+    // The floor is the tap count, so a preset can trade punch for coverage but never
+    // the other way round. Each cube is an actor, and for Venyx each one also hunts,
+    // so this is a performance number as much as a balance one.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Presets",
+        meta = (ClampMin = "1"))
+    int32 SoluxPresetMaxCubeCount = 15;
+
     FWTBRSoluxParams()
     {
         // ⚠ PLACEHOLDER TEST DATA, NOT FINAL DESIGN. Waypoints are fractions of the
@@ -1003,6 +1011,25 @@ struct FWTBRSoluxParams
             Lane.CubeCount = CubeCount;
             Lane.LaunchDelay = Delay;
             return Lane;
+        };
+
+        // Solux has NO homing to switch, so its markers are hover and speed only.
+        // A SetHoming marker here would do nothing and say so in the log.
+        auto Hover = [](float AtFraction, float Seconds)
+        {
+            FWTBRLaneEvent Event;
+            Event.Type = EWTBRLaneEventType::Hover;
+            Event.AtPathFraction = AtFraction;
+            Event.DurationSeconds = Seconds;
+            return Event;
+        };
+        auto Speed = [](float AtFraction, float Multiplier)
+        {
+            FWTBRLaneEvent Event;
+            Event.Type = EWTBRLaneEventType::SetSpeed;
+            Event.AtPathFraction = AtFraction;
+            Event.SpeedMultiplier = Multiplier;
+            return Event;
         };
 
         // Lance — four cubes now, four more two seconds later, along the same line.
@@ -1047,6 +1074,32 @@ struct FWTBRSoluxParams
         Hammer.Lanes.Add(MakeLane({FVector::ZeroVector,
             FVector(0.28f, 0.06f, 0.86f), FVector(1.00f, 0.06f, 0.0f)}, 2, 0.70f));
         SoluxPresets.Add(Hammer);
+
+        // Gallows — the marker system doing what it is for, and the first preset that
+        // needs it. Cubes climb, STOP dead at the top for a second and a half, then
+        // drop fast.
+        //
+        // The hover is the whole shot. It hands the target a decision with a visible
+        // clock on it: break the line of sight now, or be under it when it comes
+        // down. Nothing else in the kit can hold a threat in place like that, and it
+        // is paid for honestly — a hovering cube keeps its collision and can simply
+        // be shot out of the air.
+        //
+        // The speed marker fires just after the hover so the drop reads as a fall
+        // rather than a resume, and a second one near the floor takes the edge off an
+        // arrival nobody could otherwise react to.
+        FWTBRPathPreset Gallows;
+        Gallows.PresetId = FName(TEXT("Gallows"));
+        Gallows.DisplayName = FText::FromString(TEXT("Gallows (hang, then drop)"));
+        {
+            FWTBRPathLane Lane = MakeLane({FVector::ZeroVector,
+                FVector(0.30f, 0.00f, 0.82f), FVector(0.62f, 0.00f, 0.0f)}, 8, 0.0f);
+            Lane.Events.Add(Hover(0.52f, 1.5f));
+            Lane.Events.Add(Speed(0.56f, 1.8f));
+            Lane.Events.Add(Speed(0.90f, 0.5f));
+            Gallows.Lanes.Add(Lane);
+        }
+        SoluxPresets.Add(Gallows);
     }
 };
 
@@ -1240,6 +1293,14 @@ struct FWTBRFulgrixParams
         meta = (ClampMin = "0.0"))
     float FulgrixPresetScatterRadius = 135.0f;
 
+    // ⚠ PLAYTEST PENDING: most cubes a preset of this archetype may divide into.
+    // The floor is the tap count, so a preset can trade punch for coverage but never
+    // the other way round. Each cube is an actor, and for Venyx each one also hunts,
+    // so this is a performance number as much as a balance one.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Presets",
+        meta = (ClampMin = "1"))
+    int32 FulgrixPresetMaxCubeCount = 15;
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile")
     TSubclassOf<AWTBRProjectileBase> FulgrixProjectileClass;
 
@@ -1301,6 +1362,16 @@ struct FWTBRVenyxParams
     // design knob rather than a safety limit. Lower turns wider.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Combat", meta = (ClampMin = "0.0"))
     float VenyxHomingTurnRateDegreesPerSecond = 180.0f;
+
+    // ⚠ PLAYTEST PENDING: proximity fuse in world units. Non-zero here, unlike the
+    // composite default, because Venyx tap is already shipped and shares the same
+    // turn-radius limit — a cube physically cannot pinpoint-collide a target closer
+    // than ~Speed / TurnRate (about 1100uu at 3500/180), so contact-only homing
+    // near-misses far more than it lands. This lets a committed chase connect. Tune
+    // it against how sharply the cube can turn, not against how much damage feels
+    // fair — damage is unchanged, only whether the chase can close.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Combat", meta = (ClampMin = "0.0"))
+    float VenyxProximityDetonationRadius = 150.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Projectile", meta = (ClampMin = "100.0"))
     float VenyxSpeed = 3500.0f;
@@ -1385,6 +1456,14 @@ struct FWTBRVenyxParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Presets",
         meta = (ClampMin = "0.0"))
     float VenyxPresetScatterRadius = 135.0f;
+
+    // ⚠ PLAYTEST PENDING: most cubes a preset of this archetype may divide into.
+    // The floor is the tap count, so a preset can trade punch for coverage but never
+    // the other way round. Each cube is an actor, and for Venyx each one also hunts,
+    // so this is a performance number as much as a balance one.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Presets",
+        meta = (ClampMin = "1"))
+    int32 VenyxPresetMaxCubeCount = 15;
 
     FWTBRVenyxParams()
     {

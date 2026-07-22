@@ -196,13 +196,18 @@ bool UWTBRCompositeBehaviorBase::FireSweptVolley(
         Definition.ProjectileSpeed,
         Definition.ExplosionParams.bExplodes,
         Definition.ExplosionParams.ExplosionRadius,
-        Definition.HomingParams.HomingAcceleration,
         SpawnRotation,
         CubeWorldPaths,
         CubeLaunches,
         &Definition.VFX,
-        /*HomingTurnRateDegPerSec=*/0.0f,
+        // Was hardcoded to zero, which means UNCAPPED — so every composite sweep
+        // still had the pivot-in-place behaviour that was fixed for Venyx.
+        Definition.HomingParams.HomingTurnRateDegreesPerSecond,
         // Reason three, for composites too: without this every composite cube kept
         // the 3000uu class default no matter what reach its definition authored.
-        Definition.PathRange) > 0;
+        Definition.PathRange,
+        Definition.HomingParams.bReacquireAfterOvershoot,
+        // The fuse that lets a turn-capped chase actually connect — without it a
+        // homing composite can only ever near-miss a target inside its turn radius.
+        Definition.HomingParams.ProximityDetonationRadius) > 0;
 }

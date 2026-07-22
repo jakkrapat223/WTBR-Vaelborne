@@ -80,14 +80,25 @@ bool UWTBRGunnerTrigger::FirePresetVolley(
         Shot.MaxRange,
         FMath::Clamp(ChargeFraction, 0.0f, 1.0f));
 
+    // How many cubes this preset divides the shot into. Clamped HERE rather than
+    // trusted, for the same reason the index is: a preset can reach the server from
+    // a client once the editor exists. Zero leaves each lane's authored count alone.
+    const FWTBRPathPreset& Preset = (*Shot.Presets)[PresetIndex];
+    int32 TotalCubeOverride = Preset.CubeCount;
+    if (TotalCubeOverride > 0 && Shot.MinCubeCount > 0)
+    {
+        const int32 Ceiling = Shot.MaxCubeCount > 0 ? Shot.MaxCubeCount : Shot.MinCubeCount;
+        TotalCubeOverride = FMath::Clamp(TotalCubeOverride, Shot.MinCubeCount, Ceiling);
+    }
+
     TArray<TArray<FVector>> CubeWorldPaths;
     TArray<FWTBRResolvedCubeLaunch> CubeLaunches;
     UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
-        (*Shot.Presets)[PresetIndex], SpawnLocation, AimRotation, Range,
+        Preset, SpawnLocation, AimRotation, Range,
         CubeWorldPaths,
         Shot.ScatterRadius,
         /*bIsMainSlot=*/true,
-        /*TotalCubeOverride=*/0,
+        TotalCubeOverride,
         &CubeLaunches);
 
     const int32 Spawned = AWTBRProjectileBase::SpawnSweptVolley(
@@ -97,13 +108,14 @@ bool UWTBRGunnerTrigger::FirePresetVolley(
         Shot.Speed,
         Shot.bExplodes,
         Shot.ExplosionRadius,
-        Shot.HomingAcceleration,
         AimRotation,
         CubeWorldPaths,
         CubeLaunches,
         /*VFXConfig=*/nullptr,
         Shot.HomingTurnRateDegPerSec,
-        Shot.MaxRange);
+        Shot.MaxRange,
+        Shot.bReacquireAfterOvershoot,
+        Shot.ProximityDetonationRadius);
 
     WTBR_VALIDATION_LOG(Log,
         TEXT("[Hold Preset] Fired | Owner=%s | Index=%d | Charge=%.2f | Range=%.0fuu | MaxRange=%.0fuu | Lanes=%d | Cubes=%d | Spawned=%d"),

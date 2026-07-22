@@ -80,6 +80,8 @@ bool UWTBRFulgrixTrigger::FireHoldPreset(
     Shot.MinRange = Params.FulgrixPresetMinRange;
     Shot.MaxRange = Params.FulgrixRange;
     Shot.ScatterRadius = Params.FulgrixPresetScatterRadius;
+    Shot.MinCubeCount = Params.FulgrixTapCubeCount;
+    Shot.MaxCubeCount = Params.FulgrixPresetMaxCubeCount;
     // Meteor's payload: every cube detonates, at the same reduced radius tap uses.
     // A preset already spreads the impacts, so the full 300uu single-blast radius
     // would stack far more area than the shot is priced for.

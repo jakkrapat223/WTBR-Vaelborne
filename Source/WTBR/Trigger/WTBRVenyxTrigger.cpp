@@ -48,8 +48,9 @@ bool UWTBRVenyxTrigger::Activate_Implementation(
         {
             Cube->EnableProximityHoming(
                 Params.VenyxTapHomingRadius,
-                Params.VenyxHomingAcceleration,
-                Params.VenyxHomingTurnRateDegreesPerSecond);
+                Params.VenyxHomingTurnRateDegreesPerSecond,
+                /*bReacquireAfterOvershoot=*/false,
+                Params.VenyxProximityDetonationRadius);
         }
     }
 
@@ -87,11 +88,13 @@ bool UWTBRVenyxTrigger::FireHoldPreset(
     Shot.MinRange = Params.VenyxPresetMinRange;
     Shot.MaxRange = Params.VenyxRange;
     Shot.ScatterRadius = Params.VenyxPresetScatterRadius;
+    Shot.MinCubeCount = Params.VenyxTapCubeCount;
+    Shot.MaxCubeCount = Params.VenyxPresetMaxCubeCount;
     // Hound's payload: every cube hunts. The turn cap matters MOST here — a lane
     // authored to sweep wide and come back at the target from behind only reads that
     // way if the cube cannot pivot in place the moment it acquires.
-    Shot.HomingAcceleration = Params.VenyxHomingAcceleration;
     Shot.HomingTurnRateDegPerSec = Params.VenyxHomingTurnRateDegreesPerSecond;
+    Shot.ProximityDetonationRadius = Params.VenyxProximityDetonationRadius;
 
     return FirePresetVolley(PresetIndex, ChargeFraction, Shot);
 }
