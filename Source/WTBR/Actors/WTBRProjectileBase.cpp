@@ -1038,11 +1038,17 @@ void AWTBRProjectileBase::InitializePathMovement(
     for (int32 i = 1; i < Points.Num(); ++i)
         TotalDist += FVector::Dist(Points[i - 1], Points[i]);
 
+    PathTotalLength = TotalDist;
+    PathStartWorldTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+
     // Duration must be set BEFORE FinaliseControlPoints() — it locks in
     // TimeMultiplier = 1/Duration internally and never recomputes it later.
     InterpMovement->Duration = (Speed > 0.0f) ? (TotalDist / Speed) : 1.0f;
 
     InterpMovement->FinaliseControlPoints();
+
+    // Must run AFTER finalising: it rewrites the per-segment timing that call fills in.
+    ApplyPathSpeedProfile();
 
     // ResetControlPoints() (called above) sets bStopped=true. TickComponent()
     // early-returns every frame while bStopped is true, and only
@@ -1168,6 +1174,73 @@ int32 AWTBRProjectileBase::SpawnSweptVolley(
     }
 
     return SpawnedCount;
+}
+
+// ─── Labyrn speed profile ────────────────────────────────────────────────────
+
+void AWTBRProjectileBase::SetPathSpeedProfile(float SlowFromFraction, float EndSpeedFactor)
+{
+    PathSlowFromFraction = FMath::Clamp(SlowFromFraction, 0.0f, 0.99f);
+    PathEndSpeedFactor = FMath::Clamp(EndSpeedFactor, 0.05f, 1.0f);
+}
+
+void AWTBRProjectileBase::ApplyPathSpeedProfile()
+{
+    if (PathSlowFromFraction <= 0.0f || PathEndSpeedFactor >= 1.0f) return;
+    if (!IsValid(InterpMovement)) return;
+
+    TArray<FInterpControlPoint>& Points = InterpMovement->ControlPoints;
+    if (Points.Num() < 2) return;
+
+    // FinaliseControlPoints has already filled DistanceToNext for every segment and
+    // handed each one a time share equal to its share of the DISTANCE, which is
+    // precisely why the flight is currently a flat speed.
+    float TotalDistance = 0.0f;
+    for (int32 i = 0; i < Points.Num() - 1; ++i)
+    {
+        TotalDistance += Points[i].DistanceToNext;
+    }
+    if (TotalDistance <= KINDA_SMALL_NUMBER) return;
+
+    // Cost each segment as distance / speed, where speed eases from cruise down to
+    // EndSpeedFactor across the closing stretch. Costs are relative — they are
+    // normalised below — so this shapes the profile without changing arrival time.
+    TArray<float> Costs;
+    Costs.SetNumZeroed(Points.Num());
+    float Travelled = 0.0f;
+    float TotalCost = 0.0f;
+
+    for (int32 i = 0; i < Points.Num() - 1; ++i)
+    {
+        const float SegmentDistance = Points[i].DistanceToNext;
+        const float MidFraction = (Travelled + SegmentDistance * 0.5f) / TotalDistance;
+        Travelled += SegmentDistance;
+
+        float SpeedScale = 1.0f;
+        if (MidFraction > PathSlowFromFraction)
+        {
+            const float IntoSlow =
+                (MidFraction - PathSlowFromFraction) / (1.0f - PathSlowFromFraction);
+            SpeedScale = FMath::Lerp(1.0f, PathEndSpeedFactor, FMath::Clamp(IntoSlow, 0.0f, 1.0f));
+        }
+
+        Costs[i] = SegmentDistance / FMath::Max(SpeedScale, KINDA_SMALL_NUMBER);
+        TotalCost += Costs[i];
+    }
+    if (TotalCost <= KINDA_SMALL_NUMBER) return;
+
+    // Duration is untouched, so the cube still lands exactly when it always would.
+    // Only HOW it spends that time changes — which is what keeps a whole volley
+    // arriving together while each cube still eases off at the end.
+    float Elapsed = 0.0f;
+    for (int32 i = 0; i < Points.Num() - 1; ++i)
+    {
+        Points[i].StartTime = Elapsed;
+        Points[i].Percentage = Costs[i] / TotalCost;
+        Elapsed += Points[i].Percentage;
+    }
+    Points.Last().StartTime = 1.0f;
+    Points.Last().Percentage = 1.0f;
 }
 
 // ─── Venyx proximity homing ──────────────────────────────────────────────────
@@ -1336,6 +1409,18 @@ void AWTBRProjectileBase::OnInterpMovementEnd(const FHitResult& /*ImpactResult*/
     // end — the cube is leaving it early to chase something — so destroying here
     // would kill the cube at the exact moment it found a target.
     if (bTransitioningToProximityChase) return;
+
+    // Flight time per cube. Lanes of DIFFERENT lengths reporting the SAME flight is
+    // the only direct proof that a synchronised volley actually synchronised —
+    // equal-length lanes agreeing proves nothing, since they would anyway.
+    if (PathTotalLength > 0.0f && GetWorld())
+    {
+        const float Flight = GetWorld()->GetTimeSeconds() - PathStartWorldTime;
+        WTBR_VALIDATION_LOG(Log,
+            TEXT("[Path] Landed | Cube=%s | Flight=%.3fs | Length=%.0fuu | AvgSpeed=%.0f"),
+            *GetNameSafe(this), Flight, PathTotalLength,
+            Flight > KINDA_SMALL_NUMBER ? PathTotalLength / Flight : 0.0f);
+    }
 
     if (bHomeAfterPathEnd && PathEndHomingTarget.IsValid())
     {

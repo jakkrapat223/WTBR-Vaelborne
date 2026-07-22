@@ -9,6 +9,7 @@
 #include "Trigger/WTBRFeryxTrigger.h"
 #include "Trigger/WTBRMantornTrigger.h"
 #include "Trigger/WTBRCompositeBehaviorBase.h"
+#include "Trigger/WTBRLabyrnCompositeBehavior.h"
 #include "Engine/Engine.h"
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
@@ -1610,18 +1611,34 @@ void UWTBRTriggerSetComponent::FireComposite(EWTBRCompositeBulletType Type, int3
     if (UWTBRCompositeRegistryDataAsset* Registry = CompositeRegistryAsset.LoadSynchronous())
     {
         FWTBRCompositeDefinition Definition;
-        if (Registry->FindDefinition(Type, Definition) && Definition.BehaviorClass)
+        if (Registry->FindDefinition(Type, Definition))
         {
-            if (UWTBRCompositeBehaviorBase* Behavior =
-                NewObject<UWTBRCompositeBehaviorBase>(this, Definition.BehaviorClass))
+            // Labyrn falls back to its own behaviour when the registry names none,
+            // so it works without a .uasset edit. An authored BehaviorClass still
+            // wins, exactly as it does for every other composite.
+            TSubclassOf<UWTBRCompositeBehaviorBase> BehaviorClass = Definition.BehaviorClass;
+            if (!BehaviorClass && Type == EWTBRCompositeBulletType::Labyrn)
             {
-                Behavior->ExecuteComposite(OwnerChar, Definition);
+                BehaviorClass = UWTBRLabyrnCompositeBehavior::StaticClass();
             }
-            return;
+
+            if (BehaviorClass)
+            {
+                if (UWTBRCompositeBehaviorBase* Behavior =
+                    NewObject<UWTBRCompositeBehaviorBase>(this, BehaviorClass))
+                {
+                    Behavior->ExecuteComposite(OwnerChar, Definition);
+                }
+                return;
+            }
         }
     }
 
-    // ── Labyrn: Serpveil + Serpveil — dual mirrored path ─────────────────────
+    // ── Labyrn legacy path — SUPERSEDED by UWTBRLabyrnCompositeBehavior ──────
+    // Only reachable now if the registry has no Labyrn definition at all. Kept
+    // rather than deleted so a missing registry entry still fires something, but
+    // it ignores the player's chosen preset entirely (it reads the deprecated
+    // SerpveilParams.PresetShape) and knows nothing about synchronised arrival.
     if (Type == EWTBRCompositeBulletType::Labyrn)
     {
         const TSubclassOf<AWTBRProjectileBase>* ClassPtr  = DA->CompositeProjectileClasses.Find(Type);

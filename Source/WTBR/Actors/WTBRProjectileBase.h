@@ -190,6 +190,23 @@ public:
     void SchedulePathMovement(const TArray<FVector>& Points, float Speed,
         AActor* InInstigator, float DelaySeconds);
 
+    /**
+     * Labyrn — makes the cube ease off over the last stretch of its path instead of
+     * flying it at one flat speed.
+     *
+     * InterpToMovement gives each segment a slice of the total time proportional to
+     * its LENGTH, which is what makes the speed constant. Rewriting those slices
+     * after the path is finalised buys a speed profile without replacing the whole
+     * movement component: give the closing segments a bigger share of the time and
+     * the cube arrives slowly enough to be seen and answered.
+     *
+     * SlowFromFraction is where the ease-off begins (0.75 = the last quarter).
+     * EndSpeedFactor is the speed at the very end, relative to the cruise speed.
+     * Call BEFORE the path starts. Zero disables it.
+     */
+    UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
+    void SetPathSpeedProfile(float SlowFromFraction, float EndSpeedFactor);
+
     // Venyx — arms mid-flight acquisition. Must be called before the path starts,
     // which is what begins the sweep ticking.
     UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
@@ -373,6 +390,18 @@ protected:
     // True only while BeginProximityChase is mid-handoff, so the OnInterpToStop it
     // provokes cannot be mistaken for the path genuinely finishing.
     bool bTransitioningToProximityChase = false;
+
+    // Reshapes the finalised control-point timing into the speed profile above.
+    void ApplyPathSpeedProfile();
+
+    float PathSlowFromFraction = 0.0f;
+    float PathEndSpeedFactor = 1.0f;
+
+    // Stamped when the path actually starts moving, so the landing log can report a
+    // real flight time. Comparing those across one volley is the only direct proof
+    // that lanes of different lengths finish together.
+    float PathStartWorldTime = 0.0f;
+    float PathTotalLength = 0.0f;
 
     UFUNCTION()
     void OnOverlapBegin(UPrimitiveComponent* OverlappedComp,
