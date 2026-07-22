@@ -527,6 +527,10 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
                     false,
                     0.0f);
                 Projectile->CubeSplitCount = 0;
+                // Reason three: how far this shot may reach before it expires. Left
+                // unset, every Viper cube kept the 3000uu class default no matter
+                // what reach the DataAsset authored or the player charged.
+                Projectile->MaxRange = MaxRange;
                 Projectile->OwnerInstigator = OwnerCharacter.Get();
                 Projectile->FinishSpawning(SpawnTransform);
                 Projectile->InitializePathMovement(Path, Params.SerpveilSpeed, OwnerCharacter.Get());
@@ -567,6 +571,8 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
             continue;
         }
 
+        // Reason three, same as the preset branch above.
+        Projectile->MaxRange = MaxRange;
         Projectile->InitializeProjectile(
             Params.SerpveilPerCubeDamage,
             Params.SerpveilSpeed,

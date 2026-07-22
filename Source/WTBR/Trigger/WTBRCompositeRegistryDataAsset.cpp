@@ -95,6 +95,26 @@ int32 UWTBRCompositeRegistryDataAsset::ComputeTurnBudget(const FWTBRCompositeDef
     return ViperCount * WTBR_TURNS_PER_VIPER;
 }
 
+bool UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(
+    const FWTBRCompositeDefinition& Definition)
+{
+    auto IsMass = [](EWTBRBulletArchetype A)
+    {
+        return A == EWTBRBulletArchetype::Solux || A == EWTBRBulletArchetype::Fulgrix;
+    };
+    auto IsViper = [](EWTBRBulletArchetype A)
+    {
+        return A == EWTBRBulletArchetype::Serpveil;
+    };
+
+    const bool bHasMass =
+        IsMass(Definition.RequiredArchetypeA) || IsMass(Definition.RequiredArchetypeB);
+    const bool bHasViper =
+        IsViper(Definition.RequiredArchetypeA) || IsViper(Definition.RequiredArchetypeB);
+
+    return bHasMass && !bHasViper;
+}
+
 void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
     const FWTBRPathPreset& Preset,
     const FVector& SpawnOrigin,

@@ -302,4 +302,19 @@ public:
      * not Viper presets and the cap has nothing to say about them.
      */
     static int32 ComputeTurnBudget(const FWTBRCompositeDefinition& Definition);
+
+    /**
+     * True when this composite fires ONE projectile instead of splitting into a
+     * volley.
+     *
+     * Canon rule: an Asteroid or Meteor component makes the merged round a single
+     * mass — UNLESS a Viper went into it, because Viper is the archetype that
+     * splits, and the anime shows a Meteor+Viper merge dividing into a grid before
+     * it flies.
+     *
+     * So: single when it contains Solux or Fulgrix AND no Serpveil. Read off the
+     * definition's own archetypes rather than listed per composite, so authoring a
+     * new pairing gets the right answer without touching this code.
+     */
+    static bool FiresSingleProjectile(const FWTBRCompositeDefinition& Definition);
 };

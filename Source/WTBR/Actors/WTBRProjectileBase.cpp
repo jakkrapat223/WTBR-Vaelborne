@@ -1040,6 +1040,17 @@ void AWTBRProjectileBase::InitializePathMovement(
 
     PathTotalLength = TotalDist;
     PathStartWorldTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+    PathLaunchOrigin = Points[0];
+
+    // The heading the cube will keep once the authored path runs out. Read from the
+    // last leg rather than from the actor: a path-driven projectile never rotates,
+    // so GetActorForwardVector() still points wherever it was spawned facing — which
+    // for an arcing preset is the opposite of where it is actually going by the end.
+    {
+        const FVector FinalLeg = Points.Last() - Points[Points.Num() - 2];
+        PathFinalDirection = FinalLeg.IsNearlyZero()
+            ? GetActorForwardVector() : FinalLeg.GetSafeNormal();
+    }
 
     // Duration must be set BEFORE FinaliseControlPoints() — it locks in
     // TimeMultiplier = 1/Duration internally and never recomputes it later.
@@ -1063,6 +1074,25 @@ void AWTBRProjectileBase::InitializePathMovement(
         this, &AWTBRProjectileBase::OnInterpMovementEnd);
 
     InterpMovement->Activate(true);
+
+    // Clear any lifespan the projectile Blueprint set on itself.
+    //
+    // A bullet stops for three reasons: it hits somebody, it hits the world, or it
+    // runs out of RANGE. A wall-clock timer is not one of them, and it silently
+    // becomes one the moment a flight lasts longer than whatever number sits in the
+    // Blueprint's Initial Life Span. Owner hit exactly that: Solux flies at 1000uu/s,
+    // so an arcing preset takes five to eight seconds and the cubes were being culled
+    // part-way down, at a different point on every lane because the lanes are
+    // different lengths. Range takes over at the end of the path instead — see
+    // OnInterpMovementEnd.
+    SetLifeSpan(0.0f);
+
+    // Start-of-path, so a cube that never reports [Path] Landed can be told apart
+    // from one that was never given a path at all.
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("[Path] Start | Cube=%s | Points=%d | Length=%.0fuu | Duration=%.2fs | MaxRange=%.0fuu | StartZ=%.0f | EndZ=%.0f | FinalDir=%s"),
+        *GetNameSafe(this), Points.Num(), TotalDist, InterpMovement->Duration, MaxRange,
+        Points[0].Z, Points.Last().Z, *PathFinalDirection.ToCompactString());
 
     OnProjectileLaunched();
 }
@@ -1120,7 +1150,8 @@ int32 AWTBRProjectileBase::SpawnSweptVolley(
     const TArray<TArray<FVector>>& CubeWorldPaths,
     const TArray<FWTBRResolvedCubeLaunch>& CubeLaunches,
     const FWTBRProjectileVFXConfig* VFXConfig,
-    float HomingTurnRateDegPerSec)
+    float HomingTurnRateDegPerSec,
+    float MaxRangeUU)
 {
     if (!IsValid(OwningCharacter) || !ProjectileClass) return 0;
 
@@ -1152,6 +1183,11 @@ int32 AWTBRProjectileBase::SpawnSweptVolley(
         Projectile->InitializeProjectile(
             PerCubeDamage, Speed, ETriggerCategory::Gunner,
             false, bExplodes, ExplosionRadius);
+
+        // Reason three. Without this every preset and composite cube inherited the
+        // 3000uu class default, so a shot authored to reach 7000 quietly stopped at
+        // 3000 the moment its path ended.
+        if (MaxRangeUU > 0.0f) Projectile->MaxRange = MaxRangeUU;
 
         const FWTBRResolvedCubeLaunch Launch = CubeLaunches.IsValidIndex(CubeIndex)
             ? CubeLaunches[CubeIndex] : FWTBRResolvedCubeLaunch();
@@ -1546,8 +1582,44 @@ void AWTBRProjectileBase::OnInterpMovementEnd(const FHitResult& /*ImpactResult*/
             bSawAnyone ? FMath::Max(0.0f, Closest - ProximityHomingRadius) : -1.0f);
     }
 
-    ProjectileState = EProjectileState::Destroyed;
-    Destroy();
+    // The authored path is finished, NOT the shot. A bullet stops for three reasons
+    // and "the designer's curve ran out" is not one of them — so the cube keeps
+    // flying along its last heading until it hits somebody, hits the world, or runs
+    // out of range.
+    //
+    // Owner found this in PIE on an arcing Solux preset: the cubes climbed, turned
+    // over, and vanished mid-dive at about chest height, having touched nothing. The
+    // path had simply ended in open air.
+    const float Travelled = FVector::Dist(PathLaunchOrigin, GetActorLocation());
+    const float Remaining = MaxRange - Travelled;
+
+    if (Remaining <= 0.0f || CachedSpeed <= 0.0f)
+    {
+        // Reason three, legitimately reached.
+        ProjectileState = EProjectileState::Destroyed;
+        Destroy();
+        return;
+    }
+
+    USceneComponent* ContinueComponent = IsValid(BoxCollision)
+        ? static_cast<USceneComponent*>(BoxCollision) : RootComponent;
+    if (IsValid(ContinueComponent))
+    {
+        ProjectileMovement->SetUpdatedComponent(ContinueComponent);
+    }
+
+    ProjectileMovement->StopMovementImmediately();
+    ProjectileMovement->Deactivate();
+    ProjectileMovement->Velocity = PathFinalDirection * CachedSpeed;
+    ProjectileMovement->Activate();
+
+    // Range is what ends it now. Constant speed, so a time budget IS a distance
+    // budget — the same way Launch() bounds an ordinary straight shot.
+    SetLifeSpan(Remaining / CachedSpeed);
+
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("[Path] Continue | Cube=%s | Travelled=%.0fuu | MaxRange=%.0fuu | Remaining=%.0fuu"),
+        *GetNameSafe(this), Travelled, MaxRange, Remaining);
 }
 
 // ─── Replication ─────────────────────────────────────────────────────────────

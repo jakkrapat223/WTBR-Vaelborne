@@ -73,6 +73,13 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
         ? FMath::Min(Definition.PathRangeMin, Definition.PathRange)
         : Definition.PathRange;
 
+    // Asteroid and Meteor merges stay one mass unless a Viper went in — see
+    // FiresSingleProjectile. Resolved once here rather than inside each branch so it
+    // holds for tap and hold alike, and cannot be forgotten by a new composite.
+    const int32 CubeCount = UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Definition)
+        ? 1
+        : FMath::Max(1, Definition.CubeCount);
+
     // TAP: a straight two-point path at the UNCHARGED reach, built here rather than
     // read from data. Tap exists to be the reliable answer when someone is already
     // on top of you, so it must land where the player is aiming — an authored curve
@@ -116,7 +123,6 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
         // Every cube starts somewhere on a sphere around the caster and ends on the
         // SAME aim point. That keeps tap perfectly reliable — whatever the spread
         // looks like leaving the body, it converges exactly where the player aimed.
-        const int32 CubeCount = FMath::Max(1, Definition.CubeCount);
         for (int32 CubeIndex = 0; CubeIndex < CubeCount; ++CubeIndex)
         {
             const FVector Origin = SpawnLocation + AimMatrix.TransformVector(
@@ -145,7 +151,7 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
             Definition.PathPreset, SpawnLocation, SpawnRotation,
             Definition.PathRange, OutCubePaths,
             /*ScatterRadius=*/Definition.TapScatterRadius, /*bIsMainSlot=*/true,
-            /*TotalCubeOverride=*/FMath::Max(1, Definition.CubeCount),
+            /*TotalCubeOverride=*/CubeCount,
             OutCubeLaunches, MaxTurns);
         return;
     }
@@ -172,7 +178,7 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
     UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
         (*Presets)[PresetIndex], SpawnLocation, SpawnRotation, Range, OutCubePaths,
         /*ScatterRadius=*/Definition.TapScatterRadius, /*bIsMainSlot=*/true,
-        /*TotalCubeOverride=*/FMath::Max(1, Definition.CubeCount),
+        /*TotalCubeOverride=*/CubeCount,
         OutCubeLaunches, MaxTurns);
 }
 
@@ -194,5 +200,9 @@ bool UWTBRCompositeBehaviorBase::FireSweptVolley(
         SpawnRotation,
         CubeWorldPaths,
         CubeLaunches,
-        &Definition.VFX) > 0;
+        &Definition.VFX,
+        /*HomingTurnRateDegPerSec=*/0.0f,
+        // Reason three, for composites too: without this every composite cube kept
+        // the 3000uu class default no matter what reach its definition authored.
+        Definition.PathRange) > 0;
 }

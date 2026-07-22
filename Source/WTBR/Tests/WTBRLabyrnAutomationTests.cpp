@@ -59,6 +59,58 @@ bool FWTBRLabyrnTurnBudgetTest::RunTest(const FString& /*Parameters*/)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRCompositeSplitRuleTest,
+    "WTBR.Composite.SplitRule.AsteroidAndMeteorMergesStayOneMassUnlessAViperWentIn",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRCompositeSplitRuleTest::RunTest(const FString& /*Parameters*/)
+{
+    auto Pair = [](EWTBRBulletArchetype A, EWTBRBulletArchetype B)
+    {
+        FWTBRCompositeDefinition Definition;
+        Definition.RequiredArchetypeA = A;
+        Definition.RequiredArchetypeB = B;
+        return Definition;
+    };
+
+    using EA = EWTBRBulletArchetype;
+
+    // Mass merges: one projectile. Asteroid and Meteor merge into a single body.
+    TestTrue(TEXT("Solgrix (Solux + Fulgrix) fires one"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Solux, EA::Fulgrix)));
+    TestTrue(TEXT("Dualux (Solux + Solux) fires one"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Solux, EA::Solux)));
+    TestTrue(TEXT("Solhunt (Solux + Venyx) fires one"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Solux, EA::Venyx)));
+    TestTrue(TEXT("Fulgvyn (Fulgrix + Venyx) fires one"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Fulgrix, EA::Venyx)));
+    TestTrue(TEXT("Catarix (Fulgrix + Fulgrix) fires one"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Fulgrix, EA::Fulgrix)));
+
+    // The canon exception: Viper is the archetype that splits, and the anime shows a
+    // Meteor+Viper merge dividing into a grid before it flies. A Viper in the recipe
+    // therefore overrides the mass rule.
+    TestFalse(TEXT("Solveil (Solux + Viper) still splits"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Solux, EA::Serpveil)));
+    TestFalse(TEXT("Ignivex (Fulgrix + Viper) still splits"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Fulgrix, EA::Serpveil)));
+
+    // Order must not matter: the archetypes are authored per definition and nothing
+    // guarantees which slot a given one lands in.
+    TestFalse(TEXT("Viper first reads the same as Viper second"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Serpveil, EA::Fulgrix)));
+
+    // No mass component at all: unaffected by this rule.
+    TestFalse(TEXT("Venspire (Venyx + Venyx) splits"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Venyx, EA::Venyx)));
+    TestFalse(TEXT("Coilvyn (Viper + Venyx) splits"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Serpveil, EA::Venyx)));
+    TestFalse(TEXT("Labyrn (Viper + Viper) splits"),
+        UWTBRCompositeRegistryDataAsset::FiresSingleProjectile(Pair(EA::Serpveil, EA::Serpveil)));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     FWTBRLabyrnTurnClampTest,
     "WTBR.Composite.Labyrn.ClampingTurnsKeepsTheLaneEndpoint",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

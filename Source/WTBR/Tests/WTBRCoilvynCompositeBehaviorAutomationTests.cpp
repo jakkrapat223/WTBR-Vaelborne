@@ -250,8 +250,24 @@ bool FWTBRCoilvynCompositeBehaviorNoTargetPathEndTest::RunTest(const FString& /*
     if (!Projectile) return false;
 
     TestFalse(TEXT("No target leaves path-end homing disabled"), Projectile->bHomeAfterPathEnd);
+
+    // Owner rule (2026-07-22): a bullet stops for THREE reasons — it hits somebody,
+    // it hits the world, or it runs out of range. Reaching the end of an authored
+    // path is not one of them, so a cube with reach left carries on along its last
+    // heading instead of vanishing where the designer's curve happened to stop.
+    Projectile->MaxRange = 100000.0f;
     Projectile->OnInterpMovementEndForTest();
-    TestFalse(TEXT("No-target projectile destroys at path end"), IsValid(Projectile));
+    TestTrue(TEXT("With range left, the cube keeps flying past the end of its path"),
+        IsValid(Projectile));
+
+    // ...and reason three still ends it. Range is now what kills the shot, which is
+    // the whole point of the change.
+    if (IsValid(Projectile))
+    {
+        Projectile->MaxRange = 0.0f;
+        Projectile->OnInterpMovementEndForTest();
+        TestFalse(TEXT("Out of range, the cube is destroyed"), IsValid(Projectile));
+    }
     return true;
 }
 

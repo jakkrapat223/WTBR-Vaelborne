@@ -257,7 +257,8 @@ public:
         const TArray<TArray<FVector>>& CubeWorldPaths,
         const TArray<FWTBRResolvedCubeLaunch>& CubeLaunches,
         const FWTBRProjectileVFXConfig* VFXConfig = nullptr,
-        float HomingTurnRateDegPerSec = 0.0f);
+        float HomingTurnRateDegPerSec = 0.0f,
+        float MaxRangeUU = 0.0f);
 
     bool IsWaitingToLaunchForTest() const
     {
@@ -436,6 +437,17 @@ protected:
     // that lanes of different lengths finish together.
     float PathStartWorldTime = 0.0f;
     float PathTotalLength = 0.0f;
+
+    // Where the path began, and the heading of its final leg.
+    //
+    // A bullet stops for exactly three reasons: it hits somebody, it hits the world,
+    // or it runs out of range. Reaching the end of an AUTHORED PATH is none of those
+    // — the path only describes the shaped part of the flight — so the cube carries
+    // on along its last heading until one of the three actually happens. Range is
+    // measured from here, so a preset that loops back toward the caster does not
+    // spend reach it never used.
+    FVector PathLaunchOrigin = FVector::ZeroVector;
+    FVector PathFinalDirection = FVector::ForwardVector;
 
     UFUNCTION()
     void OnOverlapBegin(UPrimitiveComponent* OverlappedComp,
