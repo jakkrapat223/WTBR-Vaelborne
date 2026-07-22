@@ -264,6 +264,9 @@ public:
     // range fractions into world units. It is a separate array rather than a field
     // on the path because the paths themselves are plain point lists shared with
     // callers that do not care.
+    // MaxTurns caps how many intermediate waypoints a lane may steer through; zero
+    // means uncapped, which is what every non-Viper family wants. See
+    // WTBR_TURNS_PER_VIPER, and ComputeTurnBudget below for the composite rule.
     static void ResolvePathPreset(
         const FWTBRPathPreset& Preset,
         const FVector& SpawnOrigin,
@@ -273,5 +276,30 @@ public:
         float ScatterRadius = 0.0f,
         bool bIsMainSlot = true,
         int32 TotalCubeOverride = 0,
-        TArray<FWTBRResolvedCubeLaunch>* OutCubeLaunches = nullptr);
+        TArray<FWTBRResolvedCubeLaunch>* OutCubeLaunches = nullptr,
+        int32 MaxTurns = 0);
+
+    /**
+     * Drops the turns a lane is not entitled to, keeping the first MaxTurns of them.
+     *
+     * The FINAL waypoint always survives. It is where the lane lands, so discarding
+     * it would quietly shorten the shot's reach — the player would lose range as a
+     * side effect of drawing too many corners, which is not what the cap is for.
+     * They lose the extra corners and nothing else.
+     *
+     * MaxTurns <= 0 passes the lane through untouched.
+     */
+    static void ClampLaneTurns(
+        const TArray<FVector>& InWaypoints, int32 MaxTurns, TArray<FVector>& OutWaypoints);
+
+    /**
+     * Turn budget for a composite: WTBR_TURNS_PER_VIPER per Serpveil that went into
+     * it. Labyrn is Viper + Viper, so it resolves to 8 without being named here —
+     * the rule is read off the definition's own archetypes rather than hardcoded per
+     * composite, so authoring a new Viper pairing gets the right budget for free.
+     *
+     * Returns 0 (uncapped) for composites with no Viper in them. Their presets are
+     * not Viper presets and the cap has nothing to say about them.
+     */
+    static int32 ComputeTurnBudget(const FWTBRCompositeDefinition& Definition);
 };

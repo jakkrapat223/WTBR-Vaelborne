@@ -67,6 +67,34 @@ FVector UWTBRCompositeRegistryDataAsset::ComputeFibonacciSphereOffset(
         Z) * Radius;
 }
 
+void UWTBRCompositeRegistryDataAsset::ClampLaneTurns(
+    const TArray<FVector>& InWaypoints, int32 MaxTurns, TArray<FVector>& OutWaypoints)
+{
+    // Start + turns + end. A lane at or under budget is copied verbatim, which keeps
+    // every preset authored before the cap existed bit-identical.
+    const int32 Allowed = MaxTurns + 2;
+    if (MaxTurns <= 0 || InWaypoints.Num() <= Allowed)
+    {
+        OutWaypoints = InWaypoints;
+        return;
+    }
+
+    OutWaypoints.Reset(Allowed);
+    for (int32 i = 0; i < Allowed - 1; ++i)
+    {
+        OutWaypoints.Add(InWaypoints[i]);
+    }
+    OutWaypoints.Add(InWaypoints.Last());
+}
+
+int32 UWTBRCompositeRegistryDataAsset::ComputeTurnBudget(const FWTBRCompositeDefinition& Definition)
+{
+    int32 ViperCount = 0;
+    if (Definition.RequiredArchetypeA == EWTBRBulletArchetype::Serpveil) ++ViperCount;
+    if (Definition.RequiredArchetypeB == EWTBRBulletArchetype::Serpveil) ++ViperCount;
+    return ViperCount * WTBR_TURNS_PER_VIPER;
+}
+
 void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
     const FWTBRPathPreset& Preset,
     const FVector& SpawnOrigin,
@@ -76,7 +104,8 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
     float ScatterRadius,
     bool bIsMainSlot,
     int32 TotalCubeOverride,
-    TArray<FWTBRResolvedCubeLaunch>* OutCubeLaunches)
+    TArray<FWTBRResolvedCubeLaunch>* OutCubeLaunches,
+    int32 MaxTurns)
 {
     OutCubeWorldPaths.Reset();
     if (OutCubeLaunches) OutCubeLaunches->Reset();
@@ -166,6 +195,13 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
         ++LaneIndex;
         if (Lane.NormalizedWaypoints.Num() < 2) continue;
 
+        // Enforced HERE, at fire time on the server, and not only in the preset
+        // editor: the editor's counter is what the player sees, but a client that
+        // sends a preset with twenty turns must not get twenty turns. Same reason
+        // every other preset value is re-derived server-side rather than trusted.
+        TArray<FVector> LaneWaypoints;
+        ClampLaneTurns(Lane.NormalizedWaypoints, MaxTurns, LaneWaypoints);
+
         const int32 CubeCount = LaneCubeCounts[LaneIndex];
         if (CubeCount <= 0) continue;
         for (int32 CubeIndex = 0; CubeIndex < CubeCount; ++CubeIndex)
@@ -189,8 +225,8 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
             }
 
             TArray<FVector> WorldWaypoints;
-            WorldWaypoints.Reserve(Lane.NormalizedWaypoints.Num());
-            for (const FVector& Normalized : Lane.NormalizedWaypoints)
+            WorldWaypoints.Reserve(LaneWaypoints.Num());
+            for (const FVector& Normalized : LaneWaypoints)
             {
                 WorldWaypoints.Add(CubeOrigin + AimMatrix.TransformVector(Normalized * Range));
             }

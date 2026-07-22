@@ -6,6 +6,25 @@
 
 #include "WTBRPathPresetTypes.generated.h"
 
+/**
+ * Turn budget granted by ONE Viper in the weapon.
+ *
+ * A "turn" is an intermediate waypoint — the start and the end are where the lane
+ * leaves the caster and where it lands, and neither is a course change. So a lane
+ * may hold at most (budget + 2) waypoints.
+ *
+ * Viper alone is 4. Labyrn is Viper + Viper and therefore 8, which is the whole of
+ * that composite's mechanical identity: merging buys path complexity nothing else
+ * in the game can author. The rule is deliberately one the player can state in a
+ * sentence — "one Viper, four turns" — rather than a per-weapon table.
+ *
+ * A hard ceiling rather than "unlimited" is itself a design choice. An unbounded
+ * path is an unbounded LENGTH, which means unbounded flight time and a projectile
+ * that must be speed-capped to keep it from tunnelling through thin geometry
+ * between frames. Bounding the turns removes that entire class of problem.
+ */
+static constexpr int32 WTBR_TURNS_PER_VIPER = 4;
+
 /** One lane of a path preset: a shape plus its projectile formation. */
 USTRUCT(BlueprintType)
 struct FWTBRPathLane

@@ -46,6 +46,26 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
 
     const int32 PresetIndex = OwningCharacter->GetPendingCompositePresetIndex();
 
+    // NOT behind the validation CVar, and deliberately so.
+    //
+    // TotalDamageBudget defaults to zero, every behaviour divides it across its
+    // cubes, and a zero budget therefore fires a full volley that flies correctly,
+    // looks correct, and takes nobody's health down. Nothing else in the game says
+    // anything is wrong: the shot spawns, the cubes travel, the log is clean, the
+    // automation suite is green. It cost a PIE session on Labyrn, whose budget had
+    // never been authored because the composite used to read its damage from
+    // DA->CompositeDamages instead of the registry.
+    //
+    // A composite that cannot hurt anyone is always a misconfiguration, so it is
+    // worth a warning the owner sees without having to already suspect it.
+    if (Definition.TotalDamageBudget <= 0.0f)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Composite] %s has TotalDamageBudget=0 in the registry — its cubes will fly ")
+            TEXT("normally and deal NO damage. Author it on the definition in DA_CompositeRegistry."),
+            *UEnum::GetValueAsString(Definition.CompositeType));
+    }
+
     // Reach at zero charge, and what a TAP always fires at. Falls back to PathRange
     // when unset, so a definition that never opts into charge scaling behaves
     // exactly as it did before charge existed.
@@ -89,6 +109,12 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
     // how long they charged — the same bargain Serpveil itself offers.
     const TArray<FWTBRPathPreset>* Presets = OwningCharacter->GetReadyCompositePresets();
 
+    // Four turns per Viper that went into this composite, so Labyrn (Viper + Viper)
+    // gets eight and every one-Viper composite gets four — the same budget the
+    // player had before merging. Non-Viper composites resolve to zero and stay
+    // uncapped, which is correct: their presets are not Viper presets.
+    const int32 MaxTurns = UWTBRCompositeRegistryDataAsset::ComputeTurnBudget(Definition);
+
     if (!Presets || !Presets->IsValidIndex(PresetIndex))
     {
         UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
@@ -96,7 +122,7 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
             Definition.PathRange, OutCubePaths,
             /*ScatterRadius=*/Definition.TapScatterRadius, /*bIsMainSlot=*/true,
             /*TotalCubeOverride=*/FMath::Max(1, Definition.CubeCount),
-            OutCubeLaunches);
+            OutCubeLaunches, MaxTurns);
         return;
     }
 
@@ -107,8 +133,10 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
     // so a volley that lands nowhere near anybody is almost always this number not
     // matching the real fight distance — and the resolved radius alone cannot show
     // it, because the floor hides any range below where the floor bites.
+    // Every composite resolves its paths here, not just Venyx — the old "[Venyx
+    // Sweep]" tag on this line made a Labyrn shot look like a Hound one in the log.
     WTBR_VALIDATION_LOG(Log,
-        TEXT("[Venyx Sweep] Volley | Owner=%s | Preset=%d | Charge=%.2f | Range=%.0fuu (min=%.0f max=%.0f) | NearestEnemy=%.0fuu"),
+        TEXT("[Composite Path] Resolved | Owner=%s | Preset=%d | Charge=%.2f | Range=%.0fuu (min=%.0f max=%.0f) | NearestEnemy=%.0fuu"),
         *GetNameSafe(OwningCharacter), PresetIndex,
         OwningCharacter->GetPendingCompositeChargeFraction(),
         Range, MinRange, Definition.PathRange,
@@ -121,7 +149,7 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
         (*Presets)[PresetIndex], SpawnLocation, SpawnRotation, Range, OutCubePaths,
         /*ScatterRadius=*/Definition.TapScatterRadius, /*bIsMainSlot=*/true,
         /*TotalCubeOverride=*/FMath::Max(1, Definition.CubeCount),
-        OutCubeLaunches);
+        OutCubeLaunches, MaxTurns);
 }
 
 bool UWTBRCompositeBehaviorBase::FireSweptVolley(

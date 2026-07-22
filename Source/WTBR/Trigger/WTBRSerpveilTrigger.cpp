@@ -495,9 +495,13 @@ void UWTBRSerpveilTrigger::ExecuteSplitVolley()
                 ? Params.SerpveilPresets[SelectedPresetIndex]
                 : Params.SerpveilPresetPath;
 
+        // One Viper, four turns. A preset authored with more (only reachable once
+        // the player-facing editor exists, and only from a client) flies its first
+        // four corners and then goes straight to where it was always going to land.
         UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
             ChosenPreset, ScatterCentre, AimRotation, MaxRange, CubeWorldPaths,
-            ScatterRadius, bCachedIsMain);
+            ScatterRadius, bCachedIsMain, /*TotalCubeOverride=*/0,
+            /*OutCubeLaunches=*/nullptr, /*MaxTurns=*/WTBR_TURNS_PER_VIPER);
 
         if (CubeWorldPaths.Num() > 0)
         {
