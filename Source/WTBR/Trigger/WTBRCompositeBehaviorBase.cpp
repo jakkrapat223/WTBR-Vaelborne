@@ -86,8 +86,32 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
     if (PresetIndex == WTBR_COMPOSITE_PRESET_TAP)
     {
         const FRotationMatrix AimMatrix(SpawnRotation);
-        const FVector EndPoint =
-            SpawnLocation + AimMatrix.GetUnitAxis(EAxis::X) * MinRange;
+        const FVector AimDirection = AimMatrix.GetUnitAxis(EAxis::X);
+
+        // Traced rather than fixed at MinRange, for the reason spelled out in
+        // UWTBRGunnerTrigger::FireProjectileVolley: cubes leave the caster spread
+        // across a sphere and only close up at the far end, so a convergence point
+        // parked at a constant distance means a point-blank tap flies past either
+        // side of someone standing right in front of the player. The comment below
+        // has always claimed tap converges where the player aimed; this is what
+        // makes that true.
+        float ConvergeDistance = MinRange;
+        if (UWorld* World = OwningCharacter->GetWorld())
+        {
+            FHitResult AimHit;
+            FCollisionQueryParams TraceParams(
+                SCENE_QUERY_STAT(WTBRCompositeTapConvergence), /*bTraceComplex=*/false,
+                OwningCharacter);
+            if (World->LineTraceSingleByChannel(
+                    AimHit, SpawnLocation, SpawnLocation + AimDirection * MinRange,
+                    ECC_Visibility, TraceParams))
+            {
+                constexpr float MinConvergeDistance = 200.0f;
+                ConvergeDistance = FMath::Max(MinConvergeDistance, AimHit.Distance);
+            }
+        }
+
+        const FVector EndPoint = SpawnLocation + AimDirection * ConvergeDistance;
 
         // Every cube starts somewhere on a sphere around the caster and ends on the
         // SAME aim point. That keeps tap perfectly reliable — whatever the spread
