@@ -30,6 +30,7 @@ class UWTBRMarkPingHUDWidget;
 class UWTBREscudoPresetWheelWidget;
 class UWTBREscudoTrigger;
 class UWTBRSerpveilTrigger;
+class UWTBRVenyxTrigger;
 class AWTBRAegornWallActor;
 class UTexture2D;
 class UNiagaraComponent;
@@ -1045,6 +1046,30 @@ protected:
     UFUNCTION(Server, Reliable)
     void Server_FireReadyComposite(int32 PresetIndex, float ChargeFraction);
 
+    // ── Venyx Hold/Preset (client-local) ──────────────────────────────────────
+    // Same two-stage contract the player already knows from Viper — hold opens the
+    // wheel, release arms, press-and-hold charges, release fires — but deliberately
+    // WITHOUT Viper's linked dual-slot charge. That exists so a dual-Viper player
+    // can spend both hands on one volley; Hound has no equivalent case, and the
+    // machinery is where most of Viper's flow complexity lives.
+    bool HandleVenyxFirePressed(bool bIsMain);
+    bool HandleVenyxFireReleased(bool bIsMain);
+
+    UFUNCTION()
+    void OnVenyxHoldThresholdReached();
+
+    void OpenVenyxPresetWheel();
+    void ArmVenyxPresetAndAwaitCharge();
+    void CancelVenyxPresetFlow();
+
+    UFUNCTION()
+    void OnVenyxPresetLockExpired();
+
+    UWTBRVenyxTrigger* GetActiveVenyxTrigger(bool bIsMain) const;
+
+    UFUNCTION(Server, Reliable)
+    void Server_FireVenyxPreset(bool bIsMain, int32 PresetIndex, float ChargeFraction);
+
     // ── Serpveil Hold/Preset (client-local; same contract as the Escudo pair) ──
     bool HandleSerpveilFirePressed(bool bIsMain);
     bool HandleSerpveilFireReleased(bool bIsMain);
@@ -1299,6 +1324,18 @@ public:
     const TArray<FWTBRPathPreset>* GetReadyCompositePresets() const;
 
 private:
+
+    // Venyx Hold/Preset. Reuses EWTBRSerpveilPresetFlowState rather than declaring
+    // a third identical enum, exactly as the ready-composite flow above does.
+    EWTBRSerpveilPresetFlowState VenyxFlowState = EWTBRSerpveilPresetFlowState::Idle;
+    bool bVenyxFlowIsMainSlot = true;
+    int32 VenyxArmedPresetIndex = INDEX_NONE;
+    bool bVenyxCharging = false;
+    bool bVenyxChargeIsMainSlot = true;
+    float VenyxChargeStartTime = 0.0f;
+    bool bVenyxSwallowNextRelease[2] = {false, false};
+    FTimerHandle VenyxHoldThresholdTimer;
+    FTimerHandle VenyxPresetLockTimer;
 
     EWTBRSerpveilPresetFlowState SerpveilFlowState = EWTBRSerpveilPresetFlowState::Idle;
     bool bSerpveilFlowIsMainSlot = true;

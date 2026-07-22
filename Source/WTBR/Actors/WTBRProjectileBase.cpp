@@ -18,6 +18,7 @@
 #include "NiagaraComponent.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "GameFramework/PlayerController.h"
+#include "EngineUtils.h"
 
 namespace
 {
@@ -56,7 +57,13 @@ namespace
 
 AWTBRProjectileBase::AWTBRProjectileBase()
 {
-    PrimaryActorTick.bCanEverTick = false;
+    // bCanEverTick must be true HERE or the tick function is never registered, and
+    // SetActorTickEnabled() later is then a silent no-op — which is exactly how
+    // Venyx's proximity sweep shipped dead: the code was correct and simply never
+    // ran. bStartWithTickEnabled keeps the cost off for every projectile that does
+    // not sweep, which is all of them except a Hound volley.
+    PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.bStartWithTickEnabled = false;
     bReplicates = true;
 
     BoxCollision = CreateDefaultSubobject<UBoxComponent>(TEXT("BoxCollision"));
@@ -737,12 +744,39 @@ void AWTBRProjectileBase::ApplyRadialDamage(float Radius, float Damage)
         Hits, Center, Center, FQuat::Identity,
         ECC_Pawn, FCollisionShape::MakeSphere(Radius), Params);
 
+    TArray<AWTBRCharacter*> Targets;
+    CollectUniqueRadialTargets(Hits, Targets);
+
+    for (AWTBRCharacter* HitChar : Targets)
+    {
+        if (!IsLocationWithinShapedChargeCone(HitChar->GetActorLocation())) continue;
+        HitChar->HealthComponent->ApplyDamage(Damage, OwnerInstigator.Get());
+    }
+}
+
+void AWTBRProjectileBase::CollectUniqueRadialTargets(
+    const TArray<FHitResult>& Hits, TArray<AWTBRCharacter*>& OutTargets)
+{
+    OutTargets.Reset();
+
+    // A multi-sweep reports one hit per overlapping COMPONENT, and a character
+    // answers ECC_Pawn on more than one of them — so damaging straight from the hit
+    // list charged every explosion twice against the same body. Invisible while
+    // explosives fired one at a time; an eight-cube Hound volley made it obvious by
+    // logging sixteen damage events.
+    TSet<AWTBRCharacter*> Seen;
+    Seen.Reserve(Hits.Num());
+
     for (const FHitResult& Hit : Hits)
     {
         AWTBRCharacter* HitChar = Cast<AWTBRCharacter>(Hit.GetActor());
         if (!IsValid(HitChar) || !IsValid(HitChar->HealthComponent)) continue;
-        if (!IsLocationWithinShapedChargeCone(HitChar->GetActorLocation())) continue;
-        HitChar->HealthComponent->ApplyDamage(Damage, OwnerInstigator.Get());
+
+        bool bAlreadySeen = false;
+        Seen.Add(HitChar, &bAlreadySeen);
+        if (bAlreadySeen) continue;
+
+        OutTargets.Add(HitChar);
     }
 }
 
@@ -1027,9 +1061,281 @@ void AWTBRProjectileBase::InitializePathMovement(
     OnProjectileLaunched();
 }
 
+// ─── Staggered launch ────────────────────────────────────────────────────────
+
+void AWTBRProjectileBase::SchedulePathMovement(
+    const TArray<FVector>& Points, float Speed, AActor* InInstigator, float DelaySeconds)
+{
+    if (!HasAuthority()) return;
+    if (DelaySeconds <= 0.0f)
+    {
+        InitializePathMovement(Points, Speed, InInstigator);
+        return;
+    }
+
+    OwnerInstigator = InInstigator;
+    PendingPathPoints = Points;
+    PendingPathSpeed = Speed;
+
+    // The cube is conjured and visibly hovers while it waits, which is the canon
+    // image — but it must not damage anything it happens to be spawned touching,
+    // and it must not be shot out of the air before it has done anything.
+    if (IsValid(BoxCollision))
+    {
+        BoxCollision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+
+    GetWorldTimerManager().SetTimer(DelayedLaunchTimer, this,
+        &AWTBRProjectileBase::OnDelayedLaunchElapsed, DelaySeconds, false);
+}
+
+void AWTBRProjectileBase::OnDelayedLaunchElapsed()
+{
+    if (!HasAuthority()) return;
+    if (IsActorBeingDestroyed()) return;
+
+    if (IsValid(BoxCollision))
+    {
+        BoxCollision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+    }
+    InitializePathMovement(PendingPathPoints, PendingPathSpeed, OwnerInstigator.Get());
+    PendingPathPoints.Reset();
+}
+
+int32 AWTBRProjectileBase::SpawnSweptVolley(
+    AWTBRCharacter* OwningCharacter,
+    TSubclassOf<AWTBRProjectileBase> ProjectileClass,
+    float TotalDamageBudget,
+    float Speed,
+    bool bExplodes,
+    float ExplosionRadius,
+    float HomingAcceleration,
+    const FRotator& SpawnRotation,
+    const TArray<TArray<FVector>>& CubeWorldPaths,
+    const TArray<FWTBRResolvedCubeLaunch>& CubeLaunches,
+    const FWTBRProjectileVFXConfig* VFXConfig)
+{
+    if (!IsValid(OwningCharacter) || !ProjectileClass) return 0;
+
+    UWorld* World = OwningCharacter->GetWorld();
+    if (!World || CubeWorldPaths.Num() == 0) return 0;
+
+    // Budget is SPLIT across the volley, never multiplied — a preset that asks for
+    // more cubes must not also hand out more damage.
+    const float PerCubeDamage = TotalDamageBudget / static_cast<float>(CubeWorldPaths.Num());
+
+    int32 SpawnedCount = 0;
+    for (int32 CubeIndex = 0; CubeIndex < CubeWorldPaths.Num(); ++CubeIndex)
+    {
+        const TArray<FVector>& PathPoints = CubeWorldPaths[CubeIndex];
+        if (PathPoints.Num() < 2) continue;
+
+        // Spawn on this cube's own path start, not a shared muzzle point: cubes
+        // conjured on one spot overlap and destroy each other before they move.
+        const FTransform CubeSpawnTransform(SpawnRotation, PathPoints[0]);
+
+        AWTBRProjectileBase* Projectile = World->SpawnActorDeferred<AWTBRProjectileBase>(
+            ProjectileClass,
+            CubeSpawnTransform,
+            OwningCharacter,
+            OwningCharacter,
+            ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+        if (!IsValid(Projectile)) continue;
+
+        Projectile->InitializeProjectile(
+            PerCubeDamage, Speed, ETriggerCategory::Gunner,
+            false, bExplodes, ExplosionRadius);
+
+        const FWTBRResolvedCubeLaunch Launch = CubeLaunches.IsValidIndex(CubeIndex)
+            ? CubeLaunches[CubeIndex] : FWTBRResolvedCubeLaunch();
+
+        // Armed BEFORE the path starts — starting the path is what begins ticking.
+        if (Launch.HomingRadiusUU > 0.0f)
+        {
+            Projectile->EnableProximityHoming(Launch.HomingRadiusUU, HomingAcceleration);
+        }
+
+        // Per-composite look from the registry — keeps one shared projectile BP
+        // viable. The standalone Trigger passes none and keeps its own BP's look.
+        if (VFXConfig)
+        {
+            Projectile->ApplyVFXConfig(*VFXConfig);
+        }
+
+        Projectile->FinishSpawning(CubeSpawnTransform);
+        Projectile->SchedulePathMovement(PathPoints, Speed, OwningCharacter, Launch.DelaySeconds);
+        ++SpawnedCount;
+    }
+
+    return SpawnedCount;
+}
+
+// ─── Venyx proximity homing ──────────────────────────────────────────────────
+
+void AWTBRProjectileBase::EnableProximityHoming(float RadiusUU, float Accel)
+{
+    if (!HasAuthority()) return;
+    if (RadiusUU <= 0.0f) return;
+
+    ProximityHomingRadius = RadiusUU;
+    ProximityHomingAcceleration = Accel;
+
+    // Ticking is off by default on every projectile and stays off for all of them
+    // except these — the sweep is the only thing here that needs a per-frame query.
+    SetActorTickEnabled(true);
+
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("[Venyx Sweep] Armed | Cube=%s | RadiusUU=%.0f | Accel=%.0f | Ticking=%s"),
+        *GetNameSafe(this), RadiusUU, Accel,
+        IsActorTickEnabled() ? TEXT("true") : TEXT("false"));
+}
+
+AWTBRCharacter* AWTBRProjectileBase::FindProximityHomingTarget(
+    const AWTBRCharacter* Shooter,
+    const FVector& CubeLocation,
+    float RadiusUU,
+    const TArray<AWTBRCharacter*>& Candidates)
+{
+    if (RadiusUU <= 0.0f) return nullptr;
+
+    const float RadiusSq = FMath::Square(RadiusUU);
+    AWTBRCharacter* Best = nullptr;
+    float BestDistSq = TNumericLimits<float>::Max();
+
+    for (AWTBRCharacter* Candidate : Candidates)
+    {
+        if (!IsValid(Candidate) || Candidate == Shooter) continue;
+        if (!IsValid(Candidate->HealthComponent) || !Candidate->HealthComponent->IsAlive()) continue;
+        if (IsValid(Shooter) && Shooter->IsSameTeamAs(Candidate)) continue;
+
+        const float DistSq = FVector::DistSquared(CubeLocation, Candidate->GetActorLocation());
+        if (DistSq > RadiusSq || DistSq >= BestDistSq) continue;
+
+        // Nearest wins, so two cubes sweeping the same ground behave the same way
+        // regardless of actor iteration order.
+        Best = Candidate;
+        BestDistSq = DistSq;
+    }
+    return Best;
+}
+
+void AWTBRProjectileBase::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+
+    if (!HasAuthority() || ProximityHomingRadius <= 0.0f) return;
+    // Once the cube is chasing, the sweep is over — it does not re-acquire.
+    if (!IsValid(InterpMovement) || !InterpMovement->IsActive()) return;
+
+    UWorld* World = GetWorld();
+    if (!World) return;
+
+    AWTBRCharacter* Shooter = Cast<AWTBRCharacter>(OwnerInstigator.Get());
+    const FVector CubeLocation = GetActorLocation();
+
+    TArray<AWTBRCharacter*> Candidates;
+    for (TActorIterator<AWTBRCharacter> It(World); It; ++It)
+    {
+        Candidates.Add(*It);
+    }
+
+    AWTBRCharacter* Target =
+        FindProximityHomingTarget(Shooter, CubeLocation, ProximityHomingRadius, Candidates);
+    if (!IsValid(Target))
+    {
+        // Tracked every frame but never logged here. "How close did this sweep
+        // actually get" is the number that says whether the radius is slightly too
+        // small or the arc simply goes nowhere near anyone — and it is only known
+        // once the whole sweep is over, so it is reported at expiry instead.
+        for (AWTBRCharacter* Candidate : Candidates)
+        {
+            if (!IsValid(Candidate) || Candidate == Shooter) continue;
+            if (IsValid(Shooter) && Shooter->IsSameTeamAs(Candidate)) continue;
+            ClosestSweepApproachSq = FMath::Min(ClosestSweepApproachSq,
+                FVector::DistSquared(CubeLocation, Candidate->GetActorLocation()));
+        }
+        return;
+    }
+
+    // A sweep that locks through a wall would let a cube hunt someone the shooter
+    // never saw, which is the same see-through-cover problem the project avoids
+    // elsewhere. Cover therefore beats a sweep, and that is the counterplay.
+    FHitResult Blocking;
+    FCollisionQueryParams LineParams(SCENE_QUERY_STAT(WTBRProximityHomingLOS), false, this);
+    LineParams.AddIgnoredActor(Target);
+    if (IsValid(Shooter)) LineParams.AddIgnoredActor(Shooter);
+    if (World->LineTraceSingleByChannel(
+            Blocking, CubeLocation, Target->GetActorLocation(), ECC_Visibility, LineParams))
+    {
+        // Also once only. This is the single most likely reason a sweep that LOOKS
+        // like it should have connected did not, so it names what blocked it.
+        if (!bLoggedSweepLOSBlock)
+        {
+            bLoggedSweepLOSBlock = true;
+            WTBR_VALIDATION_LOG(Log,
+                TEXT("[Venyx Sweep] LOSBlocked | Cube=%s | Target=%s | BlockedBy=%s"),
+                *GetNameSafe(this), *GetNameSafe(Target),
+                *GetNameSafe(Blocking.GetActor()));
+        }
+        return;
+    }
+
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("[Venyx Sweep] Acquired | Cube=%s | Target=%s | Dist=%.0fuu | RadiusUU=%.0f"),
+        *GetNameSafe(this), *GetNameSafe(Target),
+        FVector::Dist(CubeLocation, Target->GetActorLocation()), ProximityHomingRadius);
+
+    BeginProximityChase(Target);
+}
+
+void AWTBRProjectileBase::BeginProximityChase(AWTBRCharacter* Target)
+{
+    if (!HasAuthority() || !IsValid(Target)) return;
+
+    // Same handoff OnInterpMovementEnd performs, except it happens mid-path: the
+    // cube keeps the heading it already had so the turn reads as a peel-off rather
+    // than a snap toward the target.
+    const FVector ContinueDirection = InterpMovement->Velocity.IsNearlyZero()
+        ? GetActorForwardVector()
+        : InterpMovement->Velocity.GetSafeNormal();
+
+    // MUST be set before Deactivate(). Deactivating InterpToMovement broadcasts
+    // OnInterpToStop, which lands in OnInterpMovementEnd, which destroys the
+    // projectile — so without this guard a cube killed itself the instant it
+    // acquired anything, mid-way through this very function. It looked exactly
+    // like homing never working at all.
+    bTransitioningToProximityChase = true;
+
+    InterpMovement->Deactivate();
+
+    USceneComponent* DesiredUpdatedComponent = IsValid(BoxCollision)
+        ? static_cast<USceneComponent*>(BoxCollision) : RootComponent;
+    if (IsValid(DesiredUpdatedComponent))
+    {
+        ProjectileMovement->SetUpdatedComponent(DesiredUpdatedComponent);
+    }
+
+    ProjectileMovement->StopMovementImmediately();
+    ProjectileMovement->Deactivate();
+    ProjectileMovement->Velocity = ContinueDirection * CachedSpeed;
+    ProjectileMovement->Activate();
+
+    EnableHoming(Target->GetRootComponent(), ProximityHomingAcceleration);
+
+    // Stop sweeping: the query is the expensive part and the cube is committed now.
+    ProximityHomingRadius = 0.0f;
+    SetActorTickEnabled(false);
+    bTransitioningToProximityChase = false;
+}
+
 void AWTBRProjectileBase::OnInterpMovementEnd(const FHitResult& /*ImpactResult*/, float /*Time*/)
 {
     if (!HasAuthority()) return;
+
+    // Re-entered from BeginProximityChase's own Deactivate() call. The path did not
+    // end — the cube is leaving it early to chase something — so destroying here
+    // would kill the cube at the exact moment it found a target.
+    if (bTransitioningToProximityChase) return;
 
     if (bHomeAfterPathEnd && PathEndHomingTarget.IsValid())
     {
@@ -1049,6 +1355,18 @@ void AWTBRProjectileBase::OnInterpMovementEnd(const FHitResult& /*ImpactResult*/
 
         EnableHoming(PathEndHomingTarget.Get(), PathEndHomingAcceleration);
         return;
+    }
+
+    // Closes the loop on a sweep: without this a cube that hunted nobody just
+    // vanishes, which looks exactly like a cube whose homing never ran at all.
+    if (ProximityHomingRadius > 0.0f)
+    {
+        const bool bSawAnyone = ClosestSweepApproachSq < TNumericLimits<float>::Max();
+        const float Closest = bSawAnyone ? FMath::Sqrt(ClosestSweepApproachSq) : -1.0f;
+        WTBR_VALIDATION_LOG(Log,
+            TEXT("[Venyx Sweep] Expired | Cube=%s | ClosestApproach=%.0fuu | RadiusUU=%.0f | ShortBy=%.0fuu"),
+            *GetNameSafe(this), Closest, ProximityHomingRadius,
+            bSawAnyone ? FMath::Max(0.0f, Closest - ProximityHomingRadius) : -1.0f);
     }
 
     ProjectileState = EProjectileState::Destroyed;

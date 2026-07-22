@@ -592,6 +592,7 @@ void AWTBRCharacter::FireMain(const FInputActionValue& Value)
     if (HandleReadyCompositeFirePressed(true)) return;
     if (HandleEscudoFirePressed(true)) return;
     if (HandleSerpveilFirePressed(true)) return;
+    if (HandleVenyxFirePressed(true)) return;
     Server_Fire(true, true, ClientMoveInputDir);
 }
 
@@ -607,6 +608,7 @@ void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
     if (HandleReadyCompositeFireReleased(true)) return;
     if (HandleEscudoFireReleased(true)) return;
     if (HandleSerpveilFireReleased(true)) return;
+    if (HandleVenyxFireReleased(true)) return;
     Server_Fire(true, false, FVector::ZeroVector);
 }
 
@@ -624,6 +626,7 @@ void AWTBRCharacter::FireSub(const FInputActionValue& Value)
     if (HandleReadyCompositeFirePressed(false)) return;
     if (HandleEscudoFirePressed(false)) return;
     if (HandleSerpveilFirePressed(false)) return;
+    if (HandleVenyxFirePressed(false)) return;
     Server_Fire(false, true, ClientMoveInputDir);
 }
 
@@ -639,6 +642,7 @@ void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
     if (HandleReadyCompositeFireReleased(false)) return;
     if (HandleEscudoFireReleased(false)) return;
     if (HandleSerpveilFireReleased(false)) return;
+    if (HandleVenyxFireReleased(false)) return;
     Server_Fire(false, false, FVector::ZeroVector);
 }
 
@@ -966,6 +970,11 @@ const TArray<FWTBRPathPreset>* AWTBRCharacter::GetReadyCompositePresets() const
         {
             return &DA->SerpveilParams.SerpveilPresets;
         }
+        if (HasArchetype(EWTBRBulletArchetype::Venyx)
+            && DA->VenyxParams.VenyxPresets.Num() > 0)
+        {
+            return &DA->VenyxParams.VenyxPresets;
+        }
         if (HasArchetype(EWTBRBulletArchetype::Fulgrix)
             && DA->FulgrixParams.FulgrixPresets.Num() > 0)
         {
@@ -973,8 +982,8 @@ const TArray<FWTBRPathPreset>* AWTBRCharacter::GetReadyCompositePresets() const
         }
     }
 
-    // Legitimately empty for Dualux, and for the Hound composites until VenyxPresets
-    // exist — the caller degrades to a straight shot rather than opening a wheel
+    // Legitimately empty for Dualux — Solux is the one archetype with no presets of
+    // its own, so the caller degrades to a straight shot rather than opening a wheel
     // whose choices would not change anything.
     return nullptr;
 }
@@ -1172,6 +1181,276 @@ float AWTBRCharacter::GetSerpveilFullChargeSeconds() const
         }
     }
     return SERPVEIL_FULL_CHARGE_SECONDS_FALLBACK;
+}
+
+// ─── Venyx Hold/Preset flow (client-local) ───────────────────────────────────
+
+UWTBRVenyxTrigger* AWTBRCharacter::GetActiveVenyxTrigger(bool bIsMain) const
+{
+    if (!TriggerSetComponent) return nullptr;
+    return Cast<UWTBRVenyxTrigger>(bIsMain
+        ? TriggerSetComponent->GetActiveMainTrigger()
+        : TriggerSetComponent->GetActiveSubTrigger());
+}
+
+bool AWTBRCharacter::HandleVenyxFirePressed(bool bIsMain)
+{
+    // A ready composite owns the fire buttons entirely, and its own handler runs
+    // before this one. Bail so the two flows can never both claim one press.
+    if (TriggerSetComponent && TriggerSetComponent->HasReadyComposite())
+    {
+        return false;
+    }
+
+    UWTBRVenyxTrigger* VenyxTrigger = GetActiveVenyxTrigger(bIsMain);
+
+    // Stage 2: a preset is armed, so this press begins the charge that buys reach.
+    if (VenyxArmedPresetIndex != INDEX_NONE)
+    {
+        if (!IsValid(VenyxTrigger))
+        {
+            // A non-Venyx slot is none of this flow's business even mid-flow — its
+            // own Trigger must still fire normally.
+            return false;
+        }
+        if (bVenyxCharging)
+        {
+            // Unlike Viper, the second button does NOT join the shot. Swallow it so
+            // it cannot leak a stray legacy volley from the other hand.
+            bVenyxSwallowNextRelease[bIsMain ? 0 : 1] = true;
+            return true;
+        }
+
+        bVenyxCharging = true;
+        bVenyxChargeIsMainSlot = bIsMain;
+        VenyxChargeStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+        return true;
+    }
+
+    // A selection is already running. If this slot is ALSO a Venyx, swallow the
+    // press — letting it through fires a legacy missile from one hand while the
+    // other hand's wheel is still open.
+    if (VenyxFlowState != EWTBRSerpveilPresetFlowState::Idle)
+    {
+        const bool bSwallow = IsValid(VenyxTrigger);
+        if (bSwallow)
+        {
+            bVenyxSwallowNextRelease[bIsMain ? 0 : 1] = true;
+        }
+        return bSwallow;
+    }
+
+    if (!IsValid(VenyxTrigger) || !VenyxTrigger->HasPresets())
+    {
+        // No presets authored means hold has nothing to offer, so the whole flow
+        // stands aside and every press stays a plain tap.
+        return false;
+    }
+
+    // Tap vs hold is still unknown, so suppress the normal fire path until the
+    // threshold resolves it. A tap replays the press itself on release, keeping the
+    // Server_Fire route identical for tap shots.
+    bVenyxFlowIsMainSlot = bIsMain;
+    VenyxFlowState = EWTBRSerpveilPresetFlowState::WaitingForHoldDecision;
+    GetWorldTimerManager().SetTimer(
+        VenyxHoldThresholdTimer, this,
+        &AWTBRCharacter::OnVenyxHoldThresholdReached,
+        SERPVEIL_HOLD_THRESHOLD, false);
+    return true;
+}
+
+bool AWTBRCharacter::HandleVenyxFireReleased(bool bIsMain)
+{
+    const int32 SlotIdx = bIsMain ? 0 : 1;
+
+    // Matching release for a press already swallowed, however the flow moved on.
+    if (bVenyxSwallowNextRelease[SlotIdx])
+    {
+        bVenyxSwallowNextRelease[SlotIdx] = false;
+        return true;
+    }
+
+    // Stage 2 release: fire, with reach bought by how long it was held.
+    if (bVenyxCharging)
+    {
+        if (bVenyxChargeIsMainSlot != bIsMain)
+        {
+            return true;
+        }
+
+        const UWTBRVenyxTrigger* VenyxTrigger = GetActiveVenyxTrigger(bIsMain);
+        const float FullCharge = IsValid(VenyxTrigger)
+            ? VenyxTrigger->GetPresetFullChargeSeconds() : 1.2f;
+        const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+        const float ChargeFraction =
+            FMath::Clamp((Now - VenyxChargeStartTime) / FullCharge, 0.0f, 1.0f);
+        const int32 FiredIndex = VenyxArmedPresetIndex;
+
+        bVenyxCharging = false;
+        // Consumed by the shot: this is what makes the NEXT hold open the wheel
+        // again rather than silently re-firing the same preset.
+        VenyxArmedPresetIndex = INDEX_NONE;
+        GetWorldTimerManager().ClearTimer(VenyxPresetLockTimer);
+
+        WTBR_VALIDATION_LOG(Log,
+            TEXT("[Venyx Hold] ChargeReleased | Owner=%s | IsMain=%s | Index=%d | Charge=%.2f"),
+            *GetNameSafe(this), bIsMain ? TEXT("true") : TEXT("false"),
+            FiredIndex, ChargeFraction);
+
+        Server_FireVenyxPreset(bIsMain, FiredIndex, ChargeFraction);
+        return true;
+    }
+
+    if (VenyxFlowState == EWTBRSerpveilPresetFlowState::Idle)
+    {
+        return false;
+    }
+
+    // Released before the threshold: it was a TAP after all. Cancel the pending
+    // decision and replay the press through the normal path so a tap behaves
+    // exactly as it did before this flow existed.
+    if (VenyxFlowState == EWTBRSerpveilPresetFlowState::WaitingForHoldDecision)
+    {
+        GetWorldTimerManager().ClearTimer(VenyxHoldThresholdTimer);
+        VenyxFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        Server_Fire(bIsMain, true, GetClientMoveInputDirectionForTrigger());
+        Server_Fire(bIsMain, false, FVector::ZeroVector);
+        return true;
+    }
+
+    // Released with the wheel open: arm whatever is highlighted.
+    if (VenyxFlowState == EWTBRSerpveilPresetFlowState::WheelOpen)
+    {
+        ArmVenyxPresetAndAwaitCharge();
+        return true;
+    }
+
+    return false;
+}
+
+void AWTBRCharacter::OnVenyxHoldThresholdReached()
+{
+    if (VenyxFlowState != EWTBRSerpveilPresetFlowState::WaitingForHoldDecision)
+    {
+        return;
+    }
+    OpenVenyxPresetWheel();
+}
+
+void AWTBRCharacter::OpenVenyxPresetWheel()
+{
+    // Reuses the Escudo wheel widget for the same reason the Serpveil flow does:
+    // nothing in it is Escudo-specific, and the flows are mutually exclusive.
+    const UWTBRVenyxTrigger* VenyxTrigger = GetActiveVenyxTrigger(bVenyxFlowIsMainSlot);
+    if (!IsValid(VenyxTrigger) || !IsValid(VenyxTrigger->DataAsset)
+        || !IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        VenyxFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        return;
+    }
+
+    const FWTBRVenyxParams& Params = VenyxTrigger->DataAsset->VenyxParams;
+    if (Params.VenyxPresets.Num() == 0)
+    {
+        VenyxFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        return;
+    }
+
+    // One flat cost per shot regardless of which shape is picked, so affordability
+    // is all-or-nothing rather than per-option.
+    const float CurrentVael = IsValid(VaelComponent) ? VaelComponent->GetCurrentVael() : 0.0f;
+    if (CurrentVael < Params.VenyxPresetVaelCost)
+    {
+        VenyxFlowState = EWTBRSerpveilPresetFlowState::Idle;
+        return;
+    }
+
+    TArray<FWTBREscudoPresetWheelOption> Options;
+    Options.Reserve(Params.VenyxPresets.Num());
+    for (const FWTBRPathPreset& Preset : Params.VenyxPresets)
+    {
+        FWTBREscudoPresetWheelOption Option;
+        Option.Name = Preset.DisplayName;
+        Option.bAffordable = true;
+        Options.Add(Option);
+    }
+
+    EscudoPresetWheelWidgetInstance->OpenWheel(Options);
+    SetLookInputFrozen(true);
+    VenyxFlowState = EWTBRSerpveilPresetFlowState::WheelOpen;
+}
+
+void AWTBRCharacter::ArmVenyxPresetAndAwaitCharge()
+{
+    SetLookInputFrozen(false);
+
+    const int32 SelectedIndex = IsValid(EscudoPresetWheelWidgetInstance)
+        ? EscudoPresetWheelWidgetInstance->GetHighlightedPresetIndex()
+        : INDEX_NONE;
+
+    if (IsValid(EscudoPresetWheelWidgetInstance))
+    {
+        EscudoPresetWheelWidgetInstance->CloseWheel();
+    }
+
+    VenyxFlowState = EWTBRSerpveilPresetFlowState::Idle;
+
+    // Dead zone = changed their mind, free cancel (same rule as Escudo and Viper).
+    if (SelectedIndex == INDEX_NONE)
+    {
+        return;
+    }
+
+    VenyxArmedPresetIndex = SelectedIndex;
+    GetWorldTimerManager().SetTimer(
+        VenyxPresetLockTimer, this,
+        &AWTBRCharacter::OnVenyxPresetLockExpired,
+        SERPVEIL_PRESET_LOCK_TIMEOUT, false);
+}
+
+void AWTBRCharacter::OnVenyxPresetLockExpired()
+{
+    // Never disarm out from under a charge in progress — its release would fire
+    // with INDEX_NONE and be silently rejected server-side.
+    if (bVenyxCharging)
+    {
+        GetWorldTimerManager().SetTimer(
+            VenyxPresetLockTimer, this,
+            &AWTBRCharacter::OnVenyxPresetLockExpired,
+            SERPVEIL_PRESET_LOCK_TIMEOUT, false);
+        return;
+    }
+    VenyxArmedPresetIndex = INDEX_NONE;
+}
+
+void AWTBRCharacter::CancelVenyxPresetFlow()
+{
+    GetWorldTimerManager().ClearTimer(VenyxHoldThresholdTimer);
+    GetWorldTimerManager().ClearTimer(VenyxPresetLockTimer);
+    if (VenyxFlowState == EWTBRSerpveilPresetFlowState::WheelOpen)
+    {
+        SetLookInputFrozen(false);
+        if (IsValid(EscudoPresetWheelWidgetInstance))
+        {
+            EscudoPresetWheelWidgetInstance->CloseWheel();
+        }
+    }
+    VenyxFlowState = EWTBRSerpveilPresetFlowState::Idle;
+    VenyxArmedPresetIndex = INDEX_NONE;
+    bVenyxCharging = false;
+}
+
+void AWTBRCharacter::Server_FireVenyxPreset_Implementation(
+    bool bIsMain, int32 PresetIndex, float ChargeFraction)
+{
+    UWTBRVenyxTrigger* VenyxTrigger = GetActiveVenyxTrigger(bIsMain);
+    if (!IsValid(VenyxTrigger))
+    {
+        return;
+    }
+    // Index bounds, Vael and reach are all re-derived server-side inside here.
+    VenyxTrigger->FireSelectedPreset(
+        PresetIndex, FMath::Clamp(ChargeFraction, 0.0f, 1.0f), bIsMain);
 }
 
 bool AWTBRCharacter::HandleSerpveilFirePressed(bool bIsMain)

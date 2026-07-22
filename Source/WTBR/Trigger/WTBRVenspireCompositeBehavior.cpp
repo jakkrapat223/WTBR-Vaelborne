@@ -15,6 +15,31 @@ bool UWTBRVenspireCompositeBehavior::ExecuteComposite(
     UWorld* World = OwningCharacter->GetWorld();
     if (!World) return false;
 
+    // Aim from the camera view, not the capsule — GetActorRotation() has no pitch,
+    // so firing upward/downward is impossible with it (same convention as Serpveil).
+    FVector SweepEyeLocation;
+    FRotator SweepAimRotation;
+    OwningCharacter->GetActorEyesViewPoint(SweepEyeLocation, SweepAimRotation);
+    SweepAimRotation.Roll = 0.0f;
+
+    // A Hound preset replaces the pre-picked target list entirely. This is the one
+    // composite the sweep model simplifies rather than complicates: Venspire exists
+    // to hit several people at once, and lanes that sweep different ground find
+    // different people by themselves — so it needs no target-distribution rule.
+    TArray<TArray<FVector>> CubeWorldPaths;
+    TArray<FWTBRResolvedCubeLaunch> CubeLaunches;
+    ResolveCompositeCubePaths(
+        OwningCharacter, Definition,
+        SweepEyeLocation + SweepAimRotation.Vector() * 100.0f, SweepAimRotation,
+        CubeWorldPaths, &CubeLaunches);
+
+    if (CubeLaunches.ContainsByPredicate(
+            [](const FWTBRResolvedCubeLaunch& Launch) { return Launch.HomingRadiusUU > 0.0f; }))
+    {
+        return FireSweptVolley(
+            OwningCharacter, Definition, SweepAimRotation, CubeWorldPaths, CubeLaunches);
+    }
+
     TArray<AWTBRCharacter*> Targets;
     if (Definition.HomingParams.bEnableHoming)
     {

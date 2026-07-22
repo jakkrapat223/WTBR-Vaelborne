@@ -7,7 +7,13 @@
 
 #include "WTBRHomingExplosiveCompositeBehavior.generated.h"
 
-/** Registry-selected straight missile behavior with optional target homing and explosion. */
+/**
+ * Registry-selected straight missile behavior with optional target homing and explosion.
+ *
+ * Shared by Fulgvyn and Solhunt. With a Hound preset armed it fires a swept volley
+ * instead — see FireSweptVolley — but that route only engages when the resolved
+ * preset actually asks for it, so every other caller keeps the single-missile shot.
+ */
 UCLASS(BlueprintType, Blueprintable)
 class WTBR_API UWTBRHomingExplosiveCompositeBehavior : public UWTBRCompositeBehaviorBase
 {

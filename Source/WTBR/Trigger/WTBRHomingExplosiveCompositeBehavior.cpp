@@ -25,6 +25,25 @@ bool UWTBRHomingExplosiveCompositeBehavior::ExecuteComposite(
     const FVector SpawnLocation = EyeLocation + AimDirection * 100.0f;
     const FTransform SpawnTransform(AimRotation, SpawnLocation);
 
+    // A Hound preset turns this composite into a swept volley instead of one
+    // missile: cubes fly the authored arcs, in waves, and take whoever they pass
+    // near. Only a HOLD with a Venyx preset produces a non-zero radius, so every
+    // other caller of this shared behaviour — including its own tap — falls through
+    // to the single-projectile route below untouched.
+    TArray<TArray<FVector>> CubeWorldPaths;
+    TArray<FWTBRResolvedCubeLaunch> CubeLaunches;
+    ResolveCompositeCubePaths(
+        OwningCharacter, Definition, SpawnLocation, AimRotation, CubeWorldPaths, &CubeLaunches);
+
+    const bool bIsSweep = CubeLaunches.ContainsByPredicate(
+        [](const FWTBRResolvedCubeLaunch& Launch) { return Launch.HomingRadiusUU > 0.0f; });
+
+    if (bIsSweep)
+    {
+        return FireSweptVolley(
+            OwningCharacter, Definition, AimRotation, CubeWorldPaths, CubeLaunches);
+    }
+
     AWTBRProjectileBase* Projectile = World->SpawnActorDeferred<AWTBRProjectileBase>(
         Definition.ProjectileClass,
         SpawnTransform,
@@ -58,3 +77,4 @@ bool UWTBRHomingExplosiveCompositeBehavior::ExecuteComposite(
 
     return true;
 }
+

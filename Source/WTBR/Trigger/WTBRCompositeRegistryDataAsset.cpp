@@ -75,9 +75,11 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
     TArray<TArray<FVector>>& OutCubeWorldPaths,
     float ScatterRadius,
     bool bIsMainSlot,
-    int32 TotalCubeOverride)
+    int32 TotalCubeOverride,
+    TArray<FWTBRResolvedCubeLaunch>* OutCubeLaunches)
 {
     OutCubeWorldPaths.Reset();
+    if (OutCubeLaunches) OutCubeLaunches->Reset();
     if (Range <= 0.0f) return;
 
     const FRotationMatrix AimMatrix(AimRotation);
@@ -131,7 +133,14 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
                 if (Best == INDEX_NONE) break;
                 const int32 Step = (Assigned < TotalCubeOverride) ? 1 : -1;
                 LaneCubeCounts[Best] += Step;
-                Remainders[Best] += Step;
+                // MINUS, not plus. A lane that just won must become a WORSE
+                // candidate, or it keeps winning every remaining round and the
+                // whole surplus lands on it — 5 equal lanes sharing 8 cubes came
+                // out 4/1/1/1/1 instead of 2/2/2/1/1. The count stayed right, so
+                // only the shape gave it away. Subtracting works in both
+                // directions: handing a cube out drops that lane's remainder,
+                // clawing one back (Step = -1) raises it.
+                Remainders[Best] -= Step;
                 Assigned += Step;
             }
         }
@@ -186,6 +195,22 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
                 WorldWaypoints.Add(CubeOrigin + AimMatrix.TransformVector(Normalized * Range));
             }
             OutCubeWorldPaths.Add(MoveTemp(WorldWaypoints));
+
+            if (OutCubeLaunches)
+            {
+                FWTBRResolvedCubeLaunch& Launch = OutCubeLaunches->AddDefaulted_GetRef();
+                Launch.DelaySeconds = FMath::Max(0.0f, Lane.LaunchDelay);
+                // Authored as a fraction of range for the same reason the waypoints
+                // are: one preset then reads the same at every charge level. The
+                // floor keeps a short shot from resolving to a radius too small to
+                // catch what its own arc already flies through.
+                //
+                // The zero check is load-bearing: without it every non-Hound lane in
+                // the game would silently gain a 400uu homing sweep.
+                Launch.HomingRadiusUU = (Lane.HomingRadius > 0.0f)
+                    ? FMath::Max(Lane.HomingRadius * Range, FMath::Max(0.0f, Lane.HomingRadiusFloorUU))
+                    : 0.0f;
+            }
         }
     }
 }

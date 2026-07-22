@@ -959,9 +959,13 @@ struct FWTBRFulgrixParams
     // its cubes behind the caster just as easily as ahead.
     //
     // Consumed by the Meteo composites (Solgrix, Catarix) through the same
-    // FWTBRPathPreset resolver Viper uses. Keep FormationOffset at zero: every
-    // lane's waypoints are measured from its own cube origin, so a non-zero offset
-    // turns shared waypoints into parallel copies that can never meet.
+    // FWTBRPathPreset resolver Viper uses. Leave FormationOffset at zero — it is
+    // dead weight on this path anyway: composites always pass a non-zero
+    // TapScatterRadius, and ResolvePathPreset uses scatter OR FormationOffset,
+    // never both. Waypoints are measured from each cube's own scattered origin,
+    // so "shared" waypoints converge to a cluster the width of that scatter
+    // radius rather than to a single point. That is deliberate: cubes conjured on
+    // top of each other destroy each other on contact (see TapScatterRadius).
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Presets")
     TArray<FWTBRPathPreset> FulgrixPresets;
 
@@ -1021,6 +1025,46 @@ struct FWTBRFulgrixParams
         Ring.Lanes.Add(MakeLane({FVector::ZeroVector, FVector(-1.0f,  0.0f, 0.0f)}, 1));
         Ring.Lanes.Add(MakeLane({FVector::ZeroVector, FVector( 0.0f, -1.0f, 0.0f)}, 1));
         FulgrixPresets.Add(Ring);
+
+        // Converge-then-diverge: fan out wide, cross at one point, fan out again.
+        // The only SHAPE in this list that suits Solgrix — its shaped charge fires
+        // along each cube's own travel, so cubes still closing on the aim point at
+        // detonation all point the same way, which the spreading presets above
+        // cannot do. On Catarix it reads as a focused two-beat instead of area
+        // denial.
+        //
+        // Three properties are load-bearing; changing a number without keeping them
+        // breaks the shape rather than retuning it:
+        //
+        // 1. Every lane is the same LENGTH. Duration is TotalDist/Speed per cube, so
+        //    equal length is the only reason the cubes reach the crossing together
+        //    instead of trickling through it. The four spread directions are all the
+        //    same magnitude for exactly this reason — they differ in angle only.
+        // 2. Nothing dips below the aim line. The spread fans across the UPPER half
+        //    only (0 / 60 / 120 / 180 degrees). A symmetric full circle would be the
+        //    prettier shape, but at PathRange a downward lane puts cubes hundreds of
+        //    units under the muzzle and they detonate on terrain before crossing.
+        // 3. Each lane exits MIRRORED across the fan, so the paths genuinely cross.
+        //    Exit on the same side and the shape is a pinch, not a crossing.
+        //
+        // Cubes do not collide at the crossing: each carries its own scatter offset,
+        // so they pass through a cluster the width of TapScatterRadius, not a point.
+        FWTBRPathPreset Converge;
+        Converge.PresetId = FName(TEXT("Converge"));
+        Converge.DisplayName = FText::FromString(TEXT("Converge (cross and split)"));
+        Converge.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.28f,  0.350f, 0.000f), FVector(0.60f, 0.0f, 0.0f),
+            FVector(1.00f, -0.300f, 0.000f)}, 1));
+        Converge.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.28f,  0.175f, 0.303f), FVector(0.60f, 0.0f, 0.0f),
+            FVector(1.00f, -0.150f, 0.260f)}, 1));
+        Converge.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.28f, -0.175f, 0.303f), FVector(0.60f, 0.0f, 0.0f),
+            FVector(1.00f,  0.150f, 0.260f)}, 1));
+        Converge.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.28f, -0.350f, 0.000f), FVector(0.60f, 0.0f, 0.0f),
+            FVector(1.00f,  0.300f, 0.000f)}, 1));
+        FulgrixPresets.Add(Converge);
     }
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile")
@@ -1074,6 +1118,120 @@ struct FWTBRVenyxParams
         Category = "Venyx | Homing",
         meta = (ClampMin = "0.0", ClampMax = "180.0"))
     float VenyxAimConeHalfAngleDegrees = 35.0f;
+
+    // ⚠ PLACEHOLDER TEST DATA, NOT GAME DESIGN. Hound's hold presets are SEARCH
+    // SWEEPS, not approaches to a target the shot already knows about. Nothing is
+    // locked at fire time: each cube carries FWTBRPathLane::HomingRadius along its
+    // arc and takes the first enemy that falls inside. The shape therefore decides
+    // what ground gets hunted, which is also why these need no target-distribution
+    // rule — lanes that sweep different ground find different people on their own.
+    //
+    // Two rules to keep when retuning, both found by simulating these shapes rather
+    // than reasoning about them:
+    //  1. A sweep must come back DOWN. An arc that stays airborne passes over
+    //     everyone and hits nothing; under the old locked-target model the cube
+    //     always dove at the end, so this failure could not happen.
+    //  2. A late lane wants a WIDER radius than an early one. It arrives after the
+    //     targets have scattered, so it is covering ground rather than a body.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Presets")
+    TArray<FWTBRPathPreset> VenyxPresets;
+
+    // ⚠ PLAYTEST PENDING: reach of a hold at ZERO charge; VenyxRange above is the
+    // full-charge reach. Mirrors Serpveil's own MinRange -> MaxRange lerp, and for
+    // the same reason: waypoints and homing radius are authored as fractions of
+    // range, so charge scales the whole shape rather than only its length.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Presets",
+        meta = (ClampMin = "100.0"))
+    float VenyxPresetMinRange = 2000.0f;
+
+    // ⚠ PLAYTEST PENDING: seconds of held charge to reach VenyxRange.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Presets",
+        meta = (ClampMin = "0.05"))
+    float VenyxPresetFullChargeSeconds = 1.2f;
+
+    // ⚠ PLAYTEST PENDING: a swept volley costs more than the single tap missile,
+    // since it covers ground and can catch several people.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Presets",
+        meta = (ClampMin = "0.0"))
+    float VenyxPresetVaelCost = 20.0f;
+
+    // ⚠ PLAYTEST PENDING: how the shot's damage budget is split across whatever
+    // number of cubes the chosen preset asks for. Budget is SPLIT, never
+    // multiplied, so picking a busier preset trades punch for coverage.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Presets",
+        meta = (ClampMin = "0.0"))
+    float VenyxPresetTotalDamage = 100.0f;
+
+    // ⚠ PLAYTEST PENDING: spread of the conjure points. Non-zero is not cosmetic —
+    // cubes spawned on one spot overlap and destroy each other before they move.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Presets",
+        meta = (ClampMin = "0.0"))
+    float VenyxPresetScatterRadius = 135.0f;
+
+    FWTBRVenyxParams()
+    {
+        auto MakeLane = [](const TArray<FVector>& Waypoints, float Delay, float Radius)
+        {
+            FWTBRPathLane Lane;
+            Lane.NormalizedWaypoints = Waypoints;
+            Lane.CubeCount = 1;
+            Lane.LaunchDelay = Delay;
+            Lane.HomingRadius = Radius;
+            return Lane;
+        };
+
+        // The owner's own scenario: fire high, drop three immediately so the enemy
+        // commits to a block, then bring two more down wide and late onto whatever
+        // broke away. Each lane is caster -> apex -> ground.
+        FWTBRPathPreset Skyfall;
+        Skyfall.PresetId = FName(TEXT("Skyfall"));
+        Skyfall.DisplayName = FText::FromString(TEXT("Skyfall (bait then punish)"));
+        Skyfall.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.34f, -0.18f, 0.58f), FVector(0.74f, -0.10f, 0.02f)}, 0.00f, 0.16f));
+        Skyfall.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.35f,  0.00f, 0.64f), FVector(0.78f,  0.02f, 0.02f)}, 0.00f, 0.16f));
+        Skyfall.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.34f,  0.18f, 0.58f), FVector(0.74f,  0.12f, 0.02f)}, 0.00f, 0.16f));
+        Skyfall.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.34f, -0.34f, 0.52f), FVector(1.06f, -0.22f, 0.02f)}, 1.60f, 0.26f));
+        Skyfall.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.34f,  0.34f, 0.52f), FVector(1.06f,  0.22f, 0.02f)}, 1.60f, 0.26f));
+        VenyxPresets.Add(Skyfall);
+
+        // Flat and wide, rippling outside-in. For flushing a room rather than
+        // punishing one body: the staggered launches mean the sweep crosses the
+        // ground over about a second instead of all at once.
+        FWTBRPathPreset Sweep;
+        Sweep.PresetId = FName(TEXT("Sweep"));
+        Sweep.DisplayName = FText::FromString(TEXT("Sweep (lateral fan)"));
+        Sweep.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.40f, -0.48f, 0.06f), FVector(0.92f, -0.26f, 0.05f)}, 0.00f, 0.18f));
+        Sweep.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.40f, -0.22f, 0.22f), FVector(0.94f, -0.12f, 0.05f)}, 0.35f, 0.18f));
+        Sweep.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.42f,  0.00f, 0.30f), FVector(0.96f,  0.00f, 0.05f)}, 0.70f, 0.18f));
+        Sweep.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.40f,  0.22f, 0.22f), FVector(0.94f,  0.12f, 0.05f)}, 0.35f, 0.18f));
+        Sweep.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.40f,  0.48f, 0.06f), FVector(0.92f,  0.26f, 0.05f)}, 0.00f, 0.18f));
+        VenyxPresets.Add(Sweep);
+
+        // Two lanes run PAST the aim point and hunt back from behind it, so cover
+        // that stops a frontal sweep does not stop this one. The late overhead lane
+        // covers the gap between them.
+        FWTBRPathPreset Encircle;
+        Encircle.PresetId = FName(TEXT("Encircle"));
+        Encircle.DisplayName = FText::FromString(TEXT("Encircle (from behind)"));
+        Encircle.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.30f, -0.54f, 0.12f), FVector(1.14f, -0.30f, 0.04f)}, 0.00f, 0.20f));
+        Encircle.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.30f,  0.54f, 0.12f), FVector(1.14f,  0.30f, 0.04f)}, 0.00f, 0.20f));
+        Encircle.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.46f,  0.00f, 0.48f), FVector(1.10f,  0.00f, 0.04f)}, 1.10f, 0.24f));
+        Encircle.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.34f, -0.30f, 0.32f), FVector(1.02f, -0.16f, 0.04f)}, 2.20f, 0.24f));
+        VenyxPresets.Add(Encircle);
+    }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

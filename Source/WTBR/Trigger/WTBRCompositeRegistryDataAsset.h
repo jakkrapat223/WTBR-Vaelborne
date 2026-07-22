@@ -259,6 +259,11 @@ public:
     // treating each lane's authored CubeCount as a relative weight. Zero (the
     // default) uses the authored counts literally, which is what Serpveil's own
     // presets rely on — composites pass their single Definition.CubeCount instead.
+    // OutCubeLaunches, when supplied, receives one entry per emitted path carrying
+    // that cube's authored launch delay and its homing radius already scaled out of
+    // range fractions into world units. It is a separate array rather than a field
+    // on the path because the paths themselves are plain point lists shared with
+    // callers that do not care.
     static void ResolvePathPreset(
         const FWTBRPathPreset& Preset,
         const FVector& SpawnOrigin,
@@ -267,5 +272,6 @@ public:
         TArray<TArray<FVector>>& OutCubeWorldPaths,
         float ScatterRadius = 0.0f,
         bool bIsMainSlot = true,
-        int32 TotalCubeOverride = 0);
+        int32 TotalCubeOverride = 0,
+        TArray<FWTBRResolvedCubeLaunch>* OutCubeLaunches = nullptr);
 };

@@ -103,6 +103,16 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     FVector PathEndContinueDirection = FVector::ForwardVector;
 
+    // Venyx (Hound): unlike bHomeAfterPathEnd above, nothing is chosen when the shot
+    // is fired. A non-zero radius makes the cube sweep for enemies as it flies its
+    // path and peel off at the first one it passes near. The arc is a search pattern,
+    // not an approach to somebody already picked.
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    float ProximityHomingRadius = 0.0f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    float ProximityHomingAcceleration = 0.0f;
+
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     bool bIsShapedCharge = false;
 
@@ -165,9 +175,60 @@ public:
     UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
     void EnableHoming(USceneComponent* Target, float Accel);
 
+    virtual void Tick(float DeltaSeconds) override;
+
     // Serpveil curved path — deactivates ProjectileMovement, sets InterpToMovement control points
     UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
     void InitializePathMovement(const TArray<FVector>& Points, float Speed, AActor* InInstigator);
+
+    // Same as InitializePathMovement, but the cube hovers inert at its path start for
+    // DelaySeconds first. A whole volley can then leave in waves from one shot.
+    // Deliberately on the projectile rather than the firing behaviour: this is an
+    // actor with its own timer manager, so a wave cannot be orphaned by the
+    // behaviour UObject going away underneath it.
+    UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
+    void SchedulePathMovement(const TArray<FVector>& Points, float Speed,
+        AActor* InInstigator, float DelaySeconds);
+
+    // Venyx — arms mid-flight acquisition. Must be called before the path starts,
+    // which is what begins the sweep ticking.
+    UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
+    void EnableProximityHoming(float RadiusUU, float Accel);
+
+    /**
+     * Spawns one cube per resolved path, in waves, each hunting on proximity.
+     *
+     * Shared by the Venyx COMPOSITES and the standalone Venyx Trigger, which have
+     * no type in common — composites carry an FWTBRCompositeDefinition, the Trigger
+     * carries a DataAsset — so this takes the handful of values both can supply
+     * rather than either of their structs. Returns the number of cubes spawned.
+     */
+    static int32 SpawnSweptVolley(
+        AWTBRCharacter* OwningCharacter,
+        TSubclassOf<AWTBRProjectileBase> ProjectileClass,
+        float TotalDamageBudget,
+        float Speed,
+        bool bExplodes,
+        float ExplosionRadius,
+        float HomingAcceleration,
+        const FRotator& SpawnRotation,
+        const TArray<TArray<FVector>>& CubeWorldPaths,
+        const TArray<FWTBRResolvedCubeLaunch>& CubeLaunches,
+        const FWTBRProjectileVFXConfig* VFXConfig = nullptr);
+
+    bool IsWaitingToLaunchForTest() const
+    {
+        return GetWorldTimerManager().IsTimerActive(DelayedLaunchTimer);
+    }
+
+    // Exposed for tests: the acquisition rule with no world or physics needed —
+    // alive, hostile, inside the radius, nearest wins. Line of sight is NOT checked
+    // here because it needs a real trace; the tick applies it on top.
+    static AWTBRCharacter* FindProximityHomingTarget(
+        const AWTBRCharacter* Shooter,
+        const FVector& CubeLocation,
+        float RadiusUU,
+        const TArray<AWTBRCharacter*>& Candidates);
 
     // ── VFX Hooks ──────────────────────────────────────────────────────────────
     // Optional in-flight trail (e.g. Egret/Ibis/Lightning's visible bullet-light
@@ -251,6 +312,7 @@ public:
     void TriggerExplosionForTest() { TriggerExplosion(); }
     void TriggerSecondExplosionForTest() { TriggerSecondExplosion(); }
     void OnInterpMovementEndForTest() { OnInterpMovementEnd(FHitResult(), 0.0f); }
+    void BeginProximityChaseForTest(AWTBRCharacter* Target) { BeginProximityChase(Target); }
     bool IsSecondExplosionTimerActiveForTest() const
     {
         return GetWorldTimerManager().IsTimerActive(SecondExplosionTimer);
@@ -290,6 +352,28 @@ protected:
     UFUNCTION()
     void OnInterpMovementEnd(const FHitResult& ImpactResult, float Time);
 
+    // Hands a sweeping cube over to homing mid-path, keeping its current heading.
+    void BeginProximityChase(AWTBRCharacter* Target);
+
+    UFUNCTION()
+    void OnDelayedLaunchElapsed();
+
+    FTimerHandle DelayedLaunchTimer;
+    TArray<FVector> PendingPathPoints;
+    float PendingPathSpeed = 0.0f;
+
+    // Sweep diagnostics fire once per cube, never per frame — a volley ticking every
+    // frame would bury the log it is supposed to make readable.
+    bool bLoggedSweepLOSBlock = false;
+
+    // Closest any enemy came to this cube across its whole sweep. Reported once at
+    // expiry, because a first-frame reading says nothing about where the arc went.
+    float ClosestSweepApproachSq = TNumericLimits<float>::Max();
+
+    // True only while BeginProximityChase is mid-handoff, so the OnInterpToStop it
+    // provokes cannot be mistaken for the path genuinely finishing.
+    bool bTransitioningToProximityChase = false;
+
     UFUNCTION()
     void OnOverlapBegin(UPrimitiveComponent* OverlappedComp,
         AActor* OtherActor, UPrimitiveComponent* OtherComp,
@@ -309,6 +393,15 @@ private:
     void TriggerExplosion();
     void TriggerSecondExplosion();
     void ApplyRadialDamage(float Radius, float Damage);
+
+public:
+    // One entry per distinct character in a multi-sweep's hit list. Public and
+    // static so the de-duplication can be tested without a physics scene, which a
+    // headless fixture does not have.
+    static void CollectUniqueRadialTargets(
+        const TArray<FHitResult>& Hits, TArray<AWTBRCharacter*>& OutTargets);
+
+protected:
     void OnBulletClash(AWTBRProjectileBase* OtherBullet);
     UNiagaraSystem* ResolveImpactEffect(uint8 SurfaceType) const;
     void SpawnBuiltInImpactVFX(FVector ImpactPoint, FVector ImpactNormal, uint8 SurfaceType) const;
