@@ -96,69 +96,103 @@ namespace
     }
 }
 
+// -----------------------------------------------------------------------------
+// Venyx targeting moved from FIRE TIME to IN FLIGHT (2026-07-22).
+//
+// Tap used to pick a target out of the caster's aim cone before the shot left, so
+// every bolt bent away from the crosshair immediately and missing was not really
+// possible. It now flies straight and acquires only what it passes near.
+//
+// These tests therefore exercise the rule where it actually lives now —
+// FindProximityHomingTarget — rather than the projectile's state at spawn. The
+// friendly-fire and liveness exclusions still matter just as much; they simply moved.
+// Whether a tap ARMS the sweep at all is covered by
+// WTBR.Gunner.CubeSplit.VenyxTapArmsAProximitySweepRatherThanLockingAtFireTime.
+// -----------------------------------------------------------------------------
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-    FWTBRVenyxTeammateDoesNotEnableHomingTest,
-    "WTBR.Trigger.Venyx.TeammateDoesNotEnableHoming",
+    FWTBRVenyxSweepIgnoresTeammatesTest,
+    "WTBR.Trigger.Venyx.SweepIgnoresTeammatesAndTheCasterItself",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FWTBRVenyxTeammateDoesNotEnableHomingTest::RunTest(const FString& /*Parameters*/)
+bool FWTBRVenyxSweepIgnoresTeammatesTest::RunTest(const FString& /*Parameters*/)
 {
-    FWTBRVenyxTargetingWorldFixture Fixture(TEXT("WTBR_VenyxTeammateTargeting"));
+    FWTBRVenyxTargetingWorldFixture Fixture(TEXT("WTBR_VenyxSweepTeammate"));
     AWTBRCharacter* Owner = SpawnVenyxTargetingCharacter(Fixture.GetWorld(), FVector::ZeroVector);
-    AWTBRCharacter* Teammate = SpawnVenyxTargetingCharacter(Fixture.GetWorld(), FVector(1000.0f, 0.0f, 0.0f));
-    TestNotNull(TEXT("Owner spawns"), Owner);
-    TestNotNull(TEXT("Teammate spawns"), Teammate);
-    if (!Owner || !Teammate)
-    {
-        return false;
-    }
+    AWTBRCharacter* Teammate = SpawnVenyxTargetingCharacter(Fixture.GetWorld(), FVector(300.0f, 0.0f, 0.0f));
+    if (!Owner || !Teammate) return false;
 
     Owner->SetTeamId(0);
     Teammate->SetTeamId(0);
-    AWTBRProjectileBase* Projectile = FireVenyx(Fixture.GetWorld(), Owner, MakeVenyxTargetingDataAsset());
-    TestNotNull(TEXT("Venyx projectile spawns"), Projectile);
-    if (!Projectile || !Projectile->ProjectileMovement)
-    {
-        return false;
-    }
 
-    TestFalse(TEXT("Teammate in range, cone, and LOS does not enable homing"),
-        Projectile->ProjectileMovement->bIsHomingProjectile);
-    TestNull(TEXT("No homing target is assigned for teammate"),
-        Projectile->ProjectileMovement->HomingTargetComponent.Get());
+    // A cube sitting right on top of both of them. Only the team rule can keep it
+    // from acquiring, which is the point.
+    const FVector CubeLocation(300.0f, 0.0f, 0.0f);
+    const TArray<AWTBRCharacter*> Candidates = { Owner, Teammate };
+
+    TestNull(TEXT("A teammate inside the radius is never acquired"),
+        AWTBRProjectileBase::FindProximityHomingTarget(
+            Owner, CubeLocation, /*RadiusUU=*/1000.0f, Candidates));
     return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-    FWTBRVenyxEnemyEnablesHomingTest,
-    "WTBR.Trigger.Venyx.EnemyEnablesHoming",
+    FWTBRVenyxSweepAcquiresOnlyWithinItsRadiusTest,
+    "WTBR.Trigger.Venyx.SweepAcquiresAnEnemyOnlyOnceItIsInsideTheRadius",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FWTBRVenyxEnemyEnablesHomingTest::RunTest(const FString& /*Parameters*/)
+bool FWTBRVenyxSweepAcquiresOnlyWithinItsRadiusTest::RunTest(const FString& /*Parameters*/)
 {
-    FWTBRVenyxTargetingWorldFixture Fixture(TEXT("WTBR_VenyxEnemyTargeting"));
+    FWTBRVenyxTargetingWorldFixture Fixture(TEXT("WTBR_VenyxSweepRadius"));
     AWTBRCharacter* Owner = SpawnVenyxTargetingCharacter(Fixture.GetWorld(), FVector::ZeroVector);
-    AWTBRCharacter* Enemy = SpawnVenyxTargetingCharacter(Fixture.GetWorld(), FVector(1000.0f, 0.0f, 0.0f));
-    TestNotNull(TEXT("Owner spawns"), Owner);
-    TestNotNull(TEXT("Enemy spawns"), Enemy);
-    if (!Owner || !Enemy)
-    {
-        return false;
-    }
+    AWTBRCharacter* Enemy = SpawnVenyxTargetingCharacter(Fixture.GetWorld(), FVector(2000.0f, 0.0f, 0.0f));
+    if (!Owner || !Enemy) return false;
 
     Owner->SetTeamId(0);
     Enemy->SetTeamId(1);
-    AWTBRProjectileBase* Projectile = FireVenyx(Fixture.GetWorld(), Owner, MakeVenyxTargetingDataAsset());
-    TestNotNull(TEXT("Venyx projectile spawns"), Projectile);
-    if (!Projectile || !Projectile->ProjectileMovement)
-    {
-        return false;
-    }
 
-    TestTrue(TEXT("Enemy in range, cone, and LOS enables homing"),
-        Projectile->ProjectileMovement->bIsHomingProjectile);
-    TestEqual(TEXT("Homing targets the enemy root component"),
-        Projectile->ProjectileMovement->HomingTargetComponent.Get(), Enemy->GetRootComponent());
+    const TArray<AWTBRCharacter*> Candidates = { Owner, Enemy };
+
+    // Cube still well short of the enemy: this is the "flies past nobody, behaves
+    // like an ordinary bullet" case the whole design rests on.
+    TestNull(TEXT("An enemy outside the radius is not acquired"),
+        AWTBRProjectileBase::FindProximityHomingTarget(
+            Owner, FVector(500.0f, 0.0f, 0.0f), /*RadiusUU=*/500.0f, Candidates));
+
+    // Same shot, further along its flight — now it hooks.
+    TestEqual(TEXT("The same enemy is acquired once the cube is close enough"),
+        AWTBRProjectileBase::FindProximityHomingTarget(
+            Owner, FVector(1700.0f, 0.0f, 0.0f), /*RadiusUU=*/500.0f, Candidates),
+        Enemy);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVenyxSweepPrefersNearestTest,
+    "WTBR.Trigger.Venyx.SweepTakesTheNearestEnemyNotTheFirstFound",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVenyxSweepPrefersNearestTest::RunTest(const FString& /*Parameters*/)
+{
+    FWTBRVenyxTargetingWorldFixture Fixture(TEXT("WTBR_VenyxSweepNearest"));
+    AWTBRCharacter* Owner = SpawnVenyxTargetingCharacter(Fixture.GetWorld(), FVector::ZeroVector);
+    AWTBRCharacter* Near = SpawnVenyxTargetingCharacter(Fixture.GetWorld(), FVector(1100.0f, 0.0f, 0.0f));
+    AWTBRCharacter* Far = SpawnVenyxTargetingCharacter(Fixture.GetWorld(), FVector(1400.0f, 0.0f, 0.0f));
+    if (!Owner || !Near || !Far) return false;
+
+    Owner->SetTeamId(0);
+    Near->SetTeamId(1);
+    Far->SetTeamId(1);
+
+    // Deliberately listed far-first. Without a distance comparison the result would
+    // depend on actor iteration order, and two cubes sweeping the same ground would
+    // disagree about who they were chasing.
+    const TArray<AWTBRCharacter*> Candidates = { Owner, Far, Near };
+
+    TestEqual(TEXT("Nearest enemy wins regardless of iteration order"),
+        AWTBRProjectileBase::FindProximityHomingTarget(
+            Owner, FVector(1000.0f, 0.0f, 0.0f), /*RadiusUU=*/1000.0f, Candidates),
+        Near);
     return true;
 }
 

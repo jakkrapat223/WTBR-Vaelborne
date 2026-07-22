@@ -797,7 +797,8 @@ bool FWTBRSoluxFireConfiguresProjectileTest::RunTest(const FString& /*Parameters
 
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
     DataAsset->VaelCostPerUse = 8.0f;
-    DataAsset->SoluxParams.SoluxDamage = 30.0f;
+    DataAsset->SoluxParams.SoluxTapTotalDamage = 100.0f;
+    DataAsset->SoluxParams.SoluxTapCubeCount = 8;
     DataAsset->SoluxParams.SoluxSpeed = 3000.0f;
     DataAsset->SoluxParams.SoluxFireCooldown = 0.5f;
     DataAsset->SoluxParams.SoluxProjectileClass = AWTBRProjectileBase::StaticClass();
@@ -814,13 +815,20 @@ bool FWTBRSoluxFireConfiguresProjectileTest::RunTest(const FString& /*Parameters
     TestEqual(TEXT("Vael consumed by VaelCostPerUse"), Owner->VaelComponent->GetCurrentVael(), 92.0f);
     TestTrue(TEXT("Solux is on cooldown after firing"), Solux->IsOnCooldown());
 
-    AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
-    TestNotNull(TEXT("Exactly one bullet spawned"), Proj);
-    if (Proj)
+    // Tap now conjures one block and splits it, so the volley — not a single
+    // bullet — is what has to be right.
+    TestEqual(TEXT("Tap splits into SoluxTapCubeCount cubes"),
+        TriggerRegressionTest_CountProjectiles(World), 8);
+
+    for (TActorIterator<AWTBRProjectileBase> It(World); It; ++It)
     {
-        TestEqual(TEXT("Damage = SoluxDamage"), Proj->BaseDamage, 30.0f);
+        AWTBRProjectileBase* Proj = *It;
+        if (!IsValid(Proj)) continue;
+        // SPLIT, never multiplied: 100 across 8 cubes is 12.5 each. A cube carrying
+        // the full 100 would make the split an 8x damage buff instead of a formation.
+        TestEqual(TEXT("Damage = total / cube count"), Proj->BaseDamage, 12.5f);
         TestEqual(TEXT("Category = Gunner"), (int32)Proj->OwnerCategory, (int32)ETriggerCategory::Gunner);
-        TestFalse(TEXT("Solux bullet does not explode"), Proj->bExplodeOnImpact);
+        TestFalse(TEXT("Solux cubes do not explode"), Proj->bExplodeOnImpact);
     }
 
     return true;
@@ -881,7 +889,10 @@ bool FWTBRSoluxCooldownBlocksReactivationTest::RunTest(const FString& /*Paramete
     TestTrue(TEXT("First fire succeeds"), Solux->Activate(FInputActionValue(), false));
     const bool bSecond = Solux->Activate(FInputActionValue(), false);
     TestFalse(TEXT("Second fire blocked by cooldown"), bSecond);
-    TestEqual(TEXT("Still only one bullet spawned"), TriggerRegressionTest_CountProjectiles(World), 1);
+    // ONE volley, not two. The cooldown gates the shot, not the individual cubes —
+    // a second tap during cooldown must add nothing at all.
+    TestEqual(TEXT("Still only the first volley spawned"),
+        TriggerRegressionTest_CountProjectiles(World), 8);
     TestEqual(TEXT("Vael consumed exactly once"), Owner->VaelComponent->GetCurrentVael(), 95.0f);
 
     return true;
@@ -899,9 +910,11 @@ bool FWTBRFulgrixFireConfiguresExplosiveTest::RunTest(const FString& /*Parameter
 
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
     DataAsset->VaelCostPerUse = 12.0f;
-    DataAsset->FulgrixParams.FulgrixDamage = 80.0f;
+    DataAsset->FulgrixParams.FulgrixTapTotalDamage = 84.0f;
+    DataAsset->FulgrixParams.FulgrixTapCubeCount = 8;
     DataAsset->FulgrixParams.FulgrixSpeed = 2500.0f;
     DataAsset->FulgrixParams.FulgrixExplosionRadius = 300.0f;
+    DataAsset->FulgrixParams.FulgrixTapExplosionRadius = 110.0f;
     DataAsset->FulgrixParams.FulgrixFireCooldown = 0.8f;
     DataAsset->FulgrixParams.FulgrixProjectileClass = AWTBRProjectileBase::StaticClass();
 
@@ -916,13 +929,18 @@ bool FWTBRFulgrixFireConfiguresExplosiveTest::RunTest(const FString& /*Parameter
     TestTrue(TEXT("Fulgrix fires on press"), bActivated);
     TestEqual(TEXT("Vael consumed"), Owner->VaelComponent->GetCurrentVael(), 88.0f);
 
-    AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
-    TestNotNull(TEXT("Exactly one shell spawned"), Proj);
-    if (Proj)
+    TestEqual(TEXT("Tap splits into FulgrixTapCubeCount cubes"),
+        TriggerRegressionTest_CountProjectiles(World), 8);
+
+    for (TActorIterator<AWTBRProjectileBase> It(World); It; ++It)
     {
-        TestEqual(TEXT("Damage = FulgrixDamage"), Proj->BaseDamage, 80.0f);
-        TestTrue(TEXT("Fulgrix shell explodes on impact (unlike Solux)"), Proj->bExplodeOnImpact);
-        TestEqual(TEXT("ExplosionRadius = FulgrixExplosionRadius"), Proj->ExplosionRadius, 300.0f);
+        AWTBRProjectileBase* Proj = *It;
+        if (!IsValid(Proj)) continue;
+        TestEqual(TEXT("Damage = total / cube count"), Proj->BaseDamage, 10.5f);
+        TestTrue(TEXT("EVERY Fulgrix cube explodes, not just one"), Proj->bExplodeOnImpact);
+        // The tap radius, NOT the 300 single-blast one — eight overlapping 300uu
+        // blasts would cover far more ground than the shot they replaced.
+        TestEqual(TEXT("Cubes use the reduced tap blast radius"), Proj->ExplosionRadius, 110.0f);
         TestEqual(TEXT("Category = Gunner"), (int32)Proj->OwnerCategory, (int32)ETriggerCategory::Gunner);
     }
 
@@ -969,7 +987,8 @@ bool FWTBRVenyxFireSpawnsProjectileTest::RunTest(const FString& /*Parameters*/)
 
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
     DataAsset->VaelCostPerUse = 6.0f;
-    DataAsset->VenyxParams.VenyxDamage = 25.0f;
+    DataAsset->VenyxParams.VenyxTapTotalDamage = 76.0f;
+    DataAsset->VenyxParams.VenyxTapCubeCount = 8;
     DataAsset->VenyxParams.VenyxSpeed = 3500.0f;
     DataAsset->VenyxParams.VenyxFireCooldown = 0.6f;
     DataAsset->VenyxParams.VenyxProjectileClass = AWTBRProjectileBase::StaticClass();
@@ -988,11 +1007,14 @@ bool FWTBRVenyxFireSpawnsProjectileTest::RunTest(const FString& /*Parameters*/)
     TestEqual(TEXT("Vael consumed"), Owner->VaelComponent->GetCurrentVael(), 94.0f);
     TestTrue(TEXT("On cooldown after firing"), Venyx->IsOnCooldown());
 
-    AWTBRProjectileBase* Proj = TriggerRegressionTest_FindSoleProjectile(World);
-    TestNotNull(TEXT("Exactly one bolt spawned even with no homing target"), Proj);
-    if (Proj)
+    TestEqual(TEXT("The whole volley spawns even with no homing target"),
+        TriggerRegressionTest_CountProjectiles(World), 8);
+
+    for (TActorIterator<AWTBRProjectileBase> It(World); It; ++It)
     {
-        TestEqual(TEXT("Damage = VenyxDamage"), Proj->BaseDamage, 25.0f);
+        AWTBRProjectileBase* Proj = *It;
+        if (!IsValid(Proj)) continue;
+        TestEqual(TEXT("Damage = total / cube count"), Proj->BaseDamage, 9.5f);
         TestEqual(TEXT("Category = Gunner"), (int32)Proj->OwnerCategory, (int32)ETriggerCategory::Gunner);
     }
 
@@ -2023,7 +2045,8 @@ bool FWTBRBasicBotExecuteBotTriggerInputFiresLikePlayerTapTest::RunTest(const FS
 
     TestEqual(TEXT("Vael consumed by the bot's tap, same as a player tap"),
         Bot->VaelComponent->GetCurrentVael(), 92.0f);
-    TestEqual(TEXT("Exactly one bullet spawned"), TriggerRegressionTest_CountProjectiles(World), 1);
+    TestEqual(TEXT("The bot's tap fires a full volley, same as a player tap"),
+        TriggerRegressionTest_CountProjectiles(World), 8);
     TestTrue(TEXT("Solux is on cooldown after the bot's tap"), Solux->IsOnCooldown());
 
     // Second tap while on cooldown must be rejected, just like for a player.
@@ -2031,8 +2054,8 @@ bool FWTBRBasicBotExecuteBotTriggerInputFiresLikePlayerTapTest::RunTest(const FS
     Bot->ExecuteBotTriggerInput(true, false);
     TestEqual(TEXT("Cooldown blocks the second tap — no extra Vael spent"),
         Bot->VaelComponent->GetCurrentVael(), 92.0f);
-    TestEqual(TEXT("Cooldown blocks the second tap — no extra bullet"),
-        TriggerRegressionTest_CountProjectiles(World), 1);
+    TestEqual(TEXT("Cooldown blocks the second tap — no extra volley"),
+        TriggerRegressionTest_CountProjectiles(World), 8);
 
     return true;
 }

@@ -18,26 +18,39 @@ bool UWTBRVenyxTrigger::Activate_Implementation(
             return false;
     }
 
-    const TSubclassOf<AWTBRProjectileBase> ProjClass = DataAsset->VenyxParams.VenyxProjectileClass;
-    const float Damage        = DataAsset->VenyxParams.VenyxDamage;
-    const float Speed         = DataAsset->VenyxParams.VenyxSpeed;
-    const float HomingAccel   = DataAsset->VenyxParams.VenyxHomingAcceleration;
-    const float SearchRadius  = DataAsset->VenyxParams.VenyxRange;
-    const float AimConeHalfAngle = DataAsset->VenyxParams.VenyxAimConeHalfAngleDegrees;
+    const FWTBRVenyxParams& Params = DataAsset->VenyxParams;
 
-    AWTBRProjectileBase* SpawnedProj =
-        FireProjectile(ProjClass, Damage, Speed, 0.0f, false, 0.0f);
+    // Conjure, split, fire.
+    const TArray<AWTBRProjectileBase*> Cubes = FireProjectileVolley(
+        Params.VenyxProjectileClass,
+        Params.VenyxTapCubeCount,
+        Params.VenyxTapTotalDamage,
+        Params.VenyxSpeed,
+        Params.VenyxTapScatterRadius,
+        /*ConvergeDistance=*/Params.VenyxRange);
 
     StartCooldown();
 
-    if (!IsValid(SpawnedProj)) return true;
-
-    AWTBRCharacter* TargetCharacter = AWTBRCharacter::FindBestHomingTarget(
-        OwnerCharacter.Get(), SearchRadius, AimConeHalfAngle);
-
-    if (IsValid(TargetCharacter))
+    // Nothing is locked at fire time. Each cube flies straight and hunts as it
+    // travels: an enemy that comes within VenyxTapHomingRadius of a cube in flight
+    // gets chased, and a cube that passes nobody carries on like an ordinary bullet.
+    //
+    // The old flow picked a target from the caster's aim cone BEFORE launching, so
+    // every shot bent away from the crosshair the instant it left and a miss was not
+    // really possible. Acquiring in flight is also why each cube can end up on a
+    // different enemy without any target-splitting rule: they sweep different ground.
+    //
+    // Same machinery the Venyx presets and composites use — see
+    // AWTBRProjectileBase::EnableProximityHoming.
+    for (AWTBRProjectileBase* Cube : Cubes)
     {
-        SpawnedProj->EnableHoming(TargetCharacter->GetRootComponent(), HomingAccel);
+        if (IsValid(Cube))
+        {
+            Cube->EnableProximityHoming(
+                Params.VenyxTapHomingRadius,
+                Params.VenyxHomingAcceleration,
+                Params.VenyxHomingTurnRateDegreesPerSecond);
+        }
     }
 
     return true;
@@ -109,7 +122,12 @@ bool UWTBRVenyxTrigger::FireSelectedPreset(
         Params.VenyxHomingAcceleration,
         AimRotation,
         CubeWorldPaths,
-        CubeLaunches);
+        CubeLaunches,
+        /*VFXConfig=*/nullptr,
+        // Presets are the case the turn cap matters MOST: a lane authored to sweep
+        // wide and come back at the target from behind only reads that way if the
+        // cube cannot pivot in place the moment it acquires.
+        Params.VenyxHomingTurnRateDegreesPerSecond);
 
     if (Spawned <= 0) return false;
 

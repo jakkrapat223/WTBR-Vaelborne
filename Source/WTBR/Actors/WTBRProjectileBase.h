@@ -113,6 +113,31 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     float ProximityHomingAcceleration = 0.0f;
 
+    // Degrees per second the cube may swing its heading while chasing. Zero means
+    // uncapped, which is UProjectileMovementComponent's own homing behaviour.
+    //
+    // A cap is what separates a chase from a yo-yo. Uncapped, a cube that overshot
+    // simply pivoted in place and came straight back, over and over until it expired
+    // — the owner saw four cubes doing laps around one target. Capped, an overshoot
+    // costs a real arc to correct, so the cube either comes back around the long way
+    // or loses the target entirely.
+    //
+    // Turn radius is roughly Speed / TurnRate(radians): at 3500uu/s and 180 deg/s
+    // that is about 1100uu, a visibly wide sweep rather than a pivot. The wide
+    // return arc is also what Venyx presets are being designed around, so this
+    // number is a design knob, not just a safety rail.
+    UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
+    float HomingTurnRateDegreesPerSecond = 0.0f;
+
+    /**
+     * Rotates Current toward Desired by at most MaxRadians. Both must be normalized;
+     * returns a normalized direction.
+     *
+     * Pure vector maths on purpose — steering is the part worth testing and it needs
+     * no world, no physics scene and no frames to check.
+     */
+    static FVector SteerTowards(const FVector& Current, const FVector& Desired, float MaxRadians);
+
     UPROPERTY(BlueprintReadOnly, Category = "WTBR | Projectile | Config")
     bool bIsShapedCharge = false;
 
@@ -210,7 +235,7 @@ public:
     // Venyx — arms mid-flight acquisition. Must be called before the path starts,
     // which is what begins the sweep ticking.
     UFUNCTION(BlueprintCallable, Category = "WTBR | Projectile")
-    void EnableProximityHoming(float RadiusUU, float Accel);
+    void EnableProximityHoming(float RadiusUU, float Accel, float TurnRateDegPerSec = 0.0f);
 
     /**
      * Spawns one cube per resolved path, in waves, each hunting on proximity.
@@ -231,7 +256,8 @@ public:
         const FRotator& SpawnRotation,
         const TArray<TArray<FVector>>& CubeWorldPaths,
         const TArray<FWTBRResolvedCubeLaunch>& CubeLaunches,
-        const FWTBRProjectileVFXConfig* VFXConfig = nullptr);
+        const FWTBRProjectileVFXConfig* VFXConfig = nullptr,
+        float HomingTurnRateDegPerSec = 0.0f);
 
     bool IsWaitingToLaunchForTest() const
     {
@@ -390,6 +416,14 @@ protected:
     // True only while BeginProximityChase is mid-handoff, so the OnInterpToStop it
     // provokes cannot be mistaken for the path genuinely finishing.
     bool bTransitioningToProximityChase = false;
+
+    // Who this cube committed to. Steering is driven from Tick rather than handed to
+    // UProjectileMovementComponent's own homing, because that homing has no turn
+    // limit and cannot be given one.
+    TWeakObjectPtr<AWTBRCharacter> ProximityChaseTarget;
+
+    // Per-frame steering toward ProximityChaseTarget, clamped by the turn rate.
+    void TickProximityChase(float DeltaSeconds);
 
     // Reshapes the finalised control-point timing into the speed profile above.
     void ApplyPathSpeedProfile();

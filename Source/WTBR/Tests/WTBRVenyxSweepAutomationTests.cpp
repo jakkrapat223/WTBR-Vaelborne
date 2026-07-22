@@ -457,7 +457,62 @@ bool FWTBRVenyxSweepSurvivesAcquisitionTest::RunTest(const FString& /*Parameters
 
     TestTrue(TEXT("The cube survives acquiring a target"), IsValid(Cube));
     if (!IsValid(Cube)) return false;
-    TestFalse(TEXT("A committed cube stops sweeping"), Cube->IsActorTickEnabled());
+    // Sweeping stops — the radius is zeroed so the per-frame world query is gone and
+    // the cube can never re-acquire. Ticking itself must STAY on, because steering
+    // the chase is what now runs there: handing the target to
+    // UProjectileMovementComponent's own homing was dropped when it turned out to
+    // have no turn limit and no way to add one.
+    TestEqual(TEXT("A committed cube stops sweeping for new targets"),
+        Cube->ProximityHomingRadius, 0.0f);
+    TestTrue(TEXT("But it keeps ticking, because steering runs there"),
+        Cube->IsActorTickEnabled());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRVenyxSteeringIsTurnRateLimitedTest,
+    "WTBR.Venyx.Sweep.SteeringIsLimitedByTheTurnRateSoAnOvershootCostsAnArc",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRVenyxSteeringIsTurnRateLimitedTest::RunTest(const FString& /*Parameters*/)
+{
+    // Owner-found in PIE: cubes that missed pivoted on the spot and came straight
+    // back, over and over, four of them orbiting one target. Pure maths, so it needs
+    // no world.
+    const FVector Forward = FVector::ForwardVector;
+
+    // A full reversal — exactly the overshoot case. With a cap it must NOT flip.
+    const FVector Reversed = -FVector::ForwardVector;
+    const float QuarterTurn = FMath::DegreesToRadians(90.0f);
+    const FVector Steered =
+        AWTBRProjectileBase::SteerTowards(Forward, Reversed, QuarterTurn);
+
+    TestTrue(TEXT("A capped turn never snaps straight round"),
+        !Steered.Equals(Reversed, 0.01f));
+    // 90 degrees of a 180 degree turn: the result is perpendicular, not reversed.
+    TestTrue(TEXT("It turns by exactly the budget it was given"),
+        FMath::IsNearlyEqual(
+            FMath::RadiansToDegrees(FMath::Acos(
+                FMath::Clamp(FVector::DotProduct(Forward, Steered), -1.0f, 1.0f))),
+            90.0f, 0.5f));
+
+    // Well inside the budget: it should arrive exactly, not overshoot past.
+    const FVector Slight = FVector(1.0f, 0.05f, 0.0f).GetSafeNormal();
+    TestTrue(TEXT("A turn inside the budget lands exactly on target"),
+        AWTBRProjectileBase::SteerTowards(Forward, Slight, QuarterTurn)
+            .Equals(Slight, 0.01f));
+
+    // Zero budget must not drift. This is what keeps an uninitialised turn rate from
+    // silently steering anything.
+    TestTrue(TEXT("A zero turn budget holds the current heading"),
+        AWTBRProjectileBase::SteerTowards(Forward, Reversed, 0.0f).Equals(Forward, 0.01f));
+
+    // The exact-opposite case has no natural turn plane: the cross product is zero,
+    // so a naive implementation returns Current and the cube flies away forever
+    // instead of coming back. It must still commit to a turn.
+    TestTrue(TEXT("A dead-astern target still starts a turn rather than flying on"),
+        !AWTBRProjectileBase::SteerTowards(Forward, Reversed, QuarterTurn)
+            .Equals(Forward, 0.01f));
     return true;
 }
 

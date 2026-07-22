@@ -916,8 +916,26 @@ struct FWTBRSoluxParams
 {
     GENERATED_BODY()
 
+    // ⚠ PLAYTEST PENDING. Damage for ONE tap, SPLIT across the volley below —
+    // never per cube. Replaces the old single-shot SoluxDamage (30), which was
+    // deleted rather than reused: an existing DA would have carried that stale
+    // single-shot number in as the new total and quietly made Solux deal a third
+    // of what it should, with nothing to show for it.
+    //
+    // Solux is the raw-damage archetype and must stay clearly above Fulgrix, which
+    // also has AOE. See the locked hierarchy: Solux > Fulgrix > Venyx = Serpveil.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Combat", meta = (ClampMin = "0.0"))
-    float SoluxDamage = 30.0f;
+    float SoluxTapTotalDamage = 100.0f;
+
+    // ⚠ PLAYTEST PENDING: cubes the conjured block splits into on tap.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Combat", meta = (ClampMin = "1"))
+    int32 SoluxTapCubeCount = 8;
+
+    // ⚠ PLAYTEST PENDING: radius of the sphere the cubes are conjured on, around
+    // the muzzle. Without a spread they spawn on one point, overlap, and destroy
+    // each other before they ever move.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Combat", meta = (ClampMin = "0.0"))
+    float SoluxTapScatterRadius = 135.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Projectile", meta = (ClampMin = "100.0"))
     float SoluxSpeed = 3000.0f;
@@ -940,8 +958,22 @@ struct FWTBRFulgrixParams
 {
     GENERATED_BODY()
 
+    // ⚠ PLAYTEST PENDING. Damage for ONE tap, SPLIT across the volley — never per
+    // cube. Replaces the old single-shot FulgrixDamage (80); see the note on
+    // SoluxTapTotalDamage for why the old field was deleted rather than reused.
+    //
+    // Must stay clearly BELOW Solux: Fulgrix gets AOE, the slowest speed and the
+    // shortest range as its compensation.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Combat", meta = (ClampMin = "0.0"))
-    float FulgrixDamage = 80.0f;
+    float FulgrixTapTotalDamage = 84.0f;
+
+    // ⚠ PLAYTEST PENDING: cubes the conjured block splits into on tap.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Combat", meta = (ClampMin = "1"))
+    int32 FulgrixTapCubeCount = 8;
+
+    // ⚠ PLAYTEST PENDING: radius of the conjure sphere around the muzzle.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Combat", meta = (ClampMin = "0.0"))
+    float FulgrixTapScatterRadius = 135.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile", meta = (ClampMin = "100.0"))
     float FulgrixSpeed = 2500.0f;
@@ -949,9 +981,29 @@ struct FWTBRFulgrixParams
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile", meta = (ClampMin = "100.0"))
     float FulgrixRange = 4000.0f;
 
-    // ⚠ PLAYTEST PENDING
+    // ⚠ PLAYTEST PENDING. Kept for the hold/preset and composite paths, which still
+    // fire a single large blast.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Explosion", meta = (ClampMin = "50.0"))
     float FulgrixExplosionRadius = 300.0f;
+
+    // ⚠ PLAYTEST PENDING. Per-cube blast radius on tap. Every cube explodes (canon:
+    // Meteor cubes each detonate), so the radius must come DOWN or eight overlapping
+    // 300uu blasts would cover far more ground than the one they replaced.
+    //
+    // 110 is not arbitrary: blast area scales with r^2, so eight blasts matching the
+    // total area of one 300uu blast want 300/sqrt(8) ~= 106.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Explosion", meta = (ClampMin = "10.0"))
+    float FulgrixTapExplosionRadius = 110.0f;
+
+    // ⚠ PLAYTEST PENDING: how far off the aim point the cubes land, in world units.
+    //
+    // Solux and Venyx converge on exactly one point, which is what makes a tap
+    // reliable. Fulgrix must NOT: cubes landing on one spot would stack eight
+    // reduced blasts into the footprint of a single small one, leaving Fulgrix
+    // strictly worse than before it split. Spreading the impacts is what turns the
+    // volley into the cluster the reduced radius is priced for.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Explosion", meta = (ClampMin = "0.0"))
+    float FulgrixTapImpactSpread = 200.0f;
 
     // ⚠ PLACEHOLDER TEST DATA, NOT GAME DESIGN. Meteor's hold presets are about
     // DIRECTION and ANGLE (the design lock's "front-2/back-2"), not about the
@@ -1084,8 +1136,50 @@ struct FWTBRVenyxParams
 {
     GENERATED_BODY()
 
+    // ⚠ PLAYTEST PENDING. Damage for ONE tap, SPLIT across the volley — never per
+    // cube. Replaces the old single-shot VenyxDamage (25); see the note on
+    // SoluxTapTotalDamage for why the old field was deleted rather than reused.
+    //
+    // Venyx and Serpveil are deliberate stat twins — equal damage, equal range —
+    // differentiated purely by behaviour: Venyx homes, Serpveil's path is authored.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Combat", meta = (ClampMin = "0.0"))
-    float VenyxDamage = 25.0f;
+    float VenyxTapTotalDamage = 76.0f;
+
+    // ⚠ PLAYTEST PENDING: cubes the conjured block splits into on tap. Each one
+    // homes independently, so this is also an actor-count number, not just balance.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Combat", meta = (ClampMin = "1"))
+    int32 VenyxTapCubeCount = 8;
+
+    // ⚠ PLAYTEST PENDING: radius of the conjure sphere around the muzzle.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Combat", meta = (ClampMin = "0.0"))
+    float VenyxTapScatterRadius = 135.0f;
+
+    // ⚠ PLAYTEST PENDING: how close an enemy must come to a travelling cube before
+    // it peels off and chases.
+    //
+    // This is what makes a tap fly STRAIGHT and only hook at the end. The cube
+    // acquires nothing at fire time; it sweeps as it goes, and a shot that passes
+    // nobody simply flies on like an ordinary bullet. Locking a target up front
+    // instead — which is what tap used to do — made every shot curve away from the
+    // crosshair the instant it left, and made missing impossible.
+    //
+    // Measured in PIE on the preset sweeps: radii of 160-260uu missed by as little
+    // as 6uu, so this wants to start generous rather than clever.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Combat", meta = (ClampMin = "0.0"))
+    float VenyxTapHomingRadius = 500.0f;
+
+    // ⚠ PLAYTEST PENDING: degrees per second a chasing cube may swing its heading.
+    //
+    // This is what makes an overshoot cost something. Uncapped, a cube that missed
+    // pivoted on the spot and came straight back, again and again until it expired —
+    // owner-observed in PIE, four cubes doing laps around one target.
+    //
+    // Turn radius is roughly Speed / TurnRate(radians): at 3500uu/s and 180 deg/s a
+    // cube needs about 1100uu to come around. That wide return arc is deliberate and
+    // is the shape the Venyx presets are being designed around, so treat this as a
+    // design knob rather than a safety limit. Lower turns wider.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Combat", meta = (ClampMin = "0.0"))
+    float VenyxHomingTurnRateDegreesPerSecond = 180.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Projectile", meta = (ClampMin = "100.0"))
     float VenyxSpeed = 3500.0f;

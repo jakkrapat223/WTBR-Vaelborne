@@ -1119,7 +1119,8 @@ int32 AWTBRProjectileBase::SpawnSweptVolley(
     const FRotator& SpawnRotation,
     const TArray<TArray<FVector>>& CubeWorldPaths,
     const TArray<FWTBRResolvedCubeLaunch>& CubeLaunches,
-    const FWTBRProjectileVFXConfig* VFXConfig)
+    const FWTBRProjectileVFXConfig* VFXConfig,
+    float HomingTurnRateDegPerSec)
 {
     if (!IsValid(OwningCharacter) || !ProjectileClass) return 0;
 
@@ -1158,7 +1159,8 @@ int32 AWTBRProjectileBase::SpawnSweptVolley(
         // Armed BEFORE the path starts — starting the path is what begins ticking.
         if (Launch.HomingRadiusUU > 0.0f)
         {
-            Projectile->EnableProximityHoming(Launch.HomingRadiusUU, HomingAcceleration);
+            Projectile->EnableProximityHoming(
+                Launch.HomingRadiusUU, HomingAcceleration, HomingTurnRateDegPerSec);
         }
 
         // Per-composite look from the registry — keeps one shared projectile BP
@@ -1245,21 +1247,22 @@ void AWTBRProjectileBase::ApplyPathSpeedProfile()
 
 // ─── Venyx proximity homing ──────────────────────────────────────────────────
 
-void AWTBRProjectileBase::EnableProximityHoming(float RadiusUU, float Accel)
+void AWTBRProjectileBase::EnableProximityHoming(float RadiusUU, float Accel, float TurnRateDegPerSec)
 {
     if (!HasAuthority()) return;
     if (RadiusUU <= 0.0f) return;
 
     ProximityHomingRadius = RadiusUU;
     ProximityHomingAcceleration = Accel;
+    HomingTurnRateDegreesPerSecond = TurnRateDegPerSec;
 
     // Ticking is off by default on every projectile and stays off for all of them
     // except these — the sweep is the only thing here that needs a per-frame query.
     SetActorTickEnabled(true);
 
     WTBR_VALIDATION_LOG(Log,
-        TEXT("[Venyx Sweep] Armed | Cube=%s | RadiusUU=%.0f | Accel=%.0f | Ticking=%s"),
-        *GetNameSafe(this), RadiusUU, Accel,
+        TEXT("[Proximity Homing] Armed | Cube=%s | RadiusUU=%.0f | Accel=%.0f | TurnRate=%.0fdeg/s | Ticking=%s"),
+        *GetNameSafe(this), RadiusUU, Accel, TurnRateDegPerSec,
         IsActorTickEnabled() ? TEXT("true") : TEXT("false"));
 }
 
@@ -1292,13 +1295,85 @@ AWTBRCharacter* AWTBRProjectileBase::FindProximityHomingTarget(
     return Best;
 }
 
+FVector AWTBRProjectileBase::SteerTowards(
+    const FVector& Current, const FVector& Desired, float MaxRadians)
+{
+    if (Current.IsNearlyZero()) return Desired;
+    if (Desired.IsNearlyZero() || MaxRadians <= 0.0f) return Current;
+
+    const float Dot = FMath::Clamp(FVector::DotProduct(Current, Desired), -1.0f, 1.0f);
+    const float Angle = FMath::Acos(Dot);
+    if (Angle <= MaxRadians) return Desired;
+
+    FVector Axis = FVector::CrossProduct(Current, Desired);
+    if (Axis.IsNearlyZero())
+    {
+        // Current and Desired are collinear. Same direction was already handled by
+        // the angle check, so this is the exactly-opposite case: a cube that flew
+        // straight through its target and now needs a full reversal. There is no
+        // natural turn plane, and returning Current would leave it flying away
+        // forever — so pick any perpendicular and start the turn.
+        Axis = FVector::CrossProduct(Current, FVector::UpVector);
+        if (Axis.IsNearlyZero())
+        {
+            Axis = FVector::CrossProduct(Current, FVector::RightVector);
+        }
+    }
+
+    return Current.RotateAngleAxis(
+        FMath::RadiansToDegrees(MaxRadians), Axis.GetSafeNormal()).GetSafeNormal();
+}
+
+void AWTBRProjectileBase::TickProximityChase(float DeltaSeconds)
+{
+    AWTBRCharacter* Target = ProximityChaseTarget.Get();
+    if (!IsValid(Target) || !IsValid(ProjectileMovement))
+    {
+        ProximityChaseTarget = nullptr;
+        return;
+    }
+
+    const FVector Current = ProjectileMovement->Velocity.IsNearlyZero()
+        ? GetActorForwardVector()
+        : ProjectileMovement->Velocity.GetSafeNormal();
+    const FVector Desired =
+        (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+
+    // Zero turn rate means uncapped, which is the old behaviour: snap onto the
+    // target every frame.
+    const float MaxRadians = (HomingTurnRateDegreesPerSecond > 0.0f)
+        ? FMath::DegreesToRadians(HomingTurnRateDegreesPerSecond) * DeltaSeconds
+        : PI;
+
+    // Speed is held constant. Steering changes where the cube is going, never how
+    // fast — otherwise the turn cap would double as a brake and the damage numbers
+    // would quietly depend on how sharply someone dodged.
+    ProjectileMovement->Velocity = SteerTowards(Current, Desired, MaxRadians) * CachedSpeed;
+}
+
 void AWTBRProjectileBase::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
 
-    if (!HasAuthority() || ProximityHomingRadius <= 0.0f) return;
-    // Once the cube is chasing, the sweep is over — it does not re-acquire.
-    if (!IsValid(InterpMovement) || !InterpMovement->IsActive()) return;
+    if (!HasAuthority()) return;
+
+    // Already committed: steer, and never look for anyone else.
+    if (ProximityChaseTarget.IsValid())
+    {
+        TickProximityChase(DeltaSeconds);
+        return;
+    }
+
+    if (ProximityHomingRadius <= 0.0f) return;
+
+    // Both movers are allowed to sweep. A path-driven cube (Venyx presets and the
+    // composites) rides InterpToMovement; a tap-fired cube flies straight on
+    // ProjectileMovement. This used to require an active InterpToMovement, which
+    // silently excluded every tap — the cube ticked and returned on the first line
+    // every frame, so nothing looked broken from the outside.
+    const bool bOnPath = IsValid(InterpMovement) && InterpMovement->IsActive();
+    const bool bFlyingStraight = IsValid(ProjectileMovement) && ProjectileMovement->IsActive();
+    if (!bOnPath && !bFlyingStraight) return;
 
     UWorld* World = GetWorld();
     if (!World) return;
@@ -1346,7 +1421,7 @@ void AWTBRProjectileBase::Tick(float DeltaSeconds)
         {
             bLoggedSweepLOSBlock = true;
             WTBR_VALIDATION_LOG(Log,
-                TEXT("[Venyx Sweep] LOSBlocked | Cube=%s | Target=%s | BlockedBy=%s"),
+                TEXT("[Proximity Homing] LOSBlocked | Cube=%s | Target=%s | BlockedBy=%s"),
                 *GetNameSafe(this), *GetNameSafe(Target),
                 *GetNameSafe(Blocking.GetActor()));
         }
@@ -1354,7 +1429,7 @@ void AWTBRProjectileBase::Tick(float DeltaSeconds)
     }
 
     WTBR_VALIDATION_LOG(Log,
-        TEXT("[Venyx Sweep] Acquired | Cube=%s | Target=%s | Dist=%.0fuu | RadiusUU=%.0f"),
+        TEXT("[Proximity Homing] Acquired | Cube=%s | Target=%s | Dist=%.0fuu | RadiusUU=%.0f"),
         *GetNameSafe(this), *GetNameSafe(Target),
         FVector::Dist(CubeLocation, Target->GetActorLocation()), ProximityHomingRadius);
 
@@ -1365,21 +1440,34 @@ void AWTBRProjectileBase::BeginProximityChase(AWTBRCharacter* Target)
 {
     if (!HasAuthority() || !IsValid(Target)) return;
 
-    // Same handoff OnInterpMovementEnd performs, except it happens mid-path: the
-    // cube keeps the heading it already had so the turn reads as a peel-off rather
-    // than a snap toward the target.
-    const FVector ContinueDirection = InterpMovement->Velocity.IsNearlyZero()
+    // The cube keeps the heading it already had, so the turn reads as a peel-off
+    // rather than a snap toward the target. Which mover holds that heading depends
+    // on how the cube was fired.
+    const bool bOnPath = IsValid(InterpMovement) && InterpMovement->IsActive();
+
+    FVector ContinueDirection = FVector::ZeroVector;
+    if (bOnPath)
+    {
+        ContinueDirection = InterpMovement->Velocity;
+    }
+    else if (IsValid(ProjectileMovement))
+    {
+        ContinueDirection = ProjectileMovement->Velocity;
+    }
+    ContinueDirection = ContinueDirection.IsNearlyZero()
         ? GetActorForwardVector()
-        : InterpMovement->Velocity.GetSafeNormal();
+        : ContinueDirection.GetSafeNormal();
 
-    // MUST be set before Deactivate(). Deactivating InterpToMovement broadcasts
-    // OnInterpToStop, which lands in OnInterpMovementEnd, which destroys the
-    // projectile — so without this guard a cube killed itself the instant it
-    // acquired anything, mid-way through this very function. It looked exactly
-    // like homing never working at all.
-    bTransitioningToProximityChase = true;
-
-    InterpMovement->Deactivate();
+    if (bOnPath)
+    {
+        // MUST be set before Deactivate(). Deactivating InterpToMovement broadcasts
+        // OnInterpToStop, which lands in OnInterpMovementEnd, which destroys the
+        // projectile — so without this guard a cube killed itself the instant it
+        // acquired anything, mid-way through this very function. It looked exactly
+        // like homing never working at all.
+        bTransitioningToProximityChase = true;
+        InterpMovement->Deactivate();
+    }
 
     USceneComponent* DesiredUpdatedComponent = IsValid(BoxCollision)
         ? static_cast<USceneComponent*>(BoxCollision) : RootComponent;
@@ -1393,11 +1481,15 @@ void AWTBRProjectileBase::BeginProximityChase(AWTBRCharacter* Target)
     ProjectileMovement->Velocity = ContinueDirection * CachedSpeed;
     ProjectileMovement->Activate();
 
-    EnableHoming(Target->GetRootComponent(), ProximityHomingAcceleration);
+    // Deliberately NOT EnableHoming(). UProjectileMovementComponent's homing has no
+    // turn limit and no way to add one, so a cube that overshot pivoted on the spot
+    // and came straight back, repeatedly, until it expired. Steering is driven from
+    // Tick instead — see TickProximityChase.
+    ProximityChaseTarget = Target;
 
     // Stop sweeping: the query is the expensive part and the cube is committed now.
+    // Ticking STAYS on, because the chase itself is what runs there.
     ProximityHomingRadius = 0.0f;
-    SetActorTickEnabled(false);
     bTransitioningToProximityChase = false;
 }
 
@@ -1449,7 +1541,7 @@ void AWTBRProjectileBase::OnInterpMovementEnd(const FHitResult& /*ImpactResult*/
         const bool bSawAnyone = ClosestSweepApproachSq < TNumericLimits<float>::Max();
         const float Closest = bSawAnyone ? FMath::Sqrt(ClosestSweepApproachSq) : -1.0f;
         WTBR_VALIDATION_LOG(Log,
-            TEXT("[Venyx Sweep] Expired | Cube=%s | ClosestApproach=%.0fuu | RadiusUU=%.0f | ShortBy=%.0fuu"),
+            TEXT("[Proximity Homing] Expired | Cube=%s | ClosestApproach=%.0fuu | RadiusUU=%.0f | ShortBy=%.0fuu"),
             *GetNameSafe(this), Closest, ProximityHomingRadius,
             bSawAnyone ? FMath::Max(0.0f, Closest - ProximityHomingRadius) : -1.0f);
     }

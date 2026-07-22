@@ -17,11 +17,19 @@ bool UWTBRSoluxTrigger::Activate_Implementation(
     }
 
     // CHILD CLASS extracts its specific params and passes them to BASE CLASS
-    const TSubclassOf<AWTBRProjectileBase> ProjClass = DataAsset->SoluxParams.SoluxProjectileClass;
-    const float Damage = DataAsset->SoluxParams.SoluxDamage;
-    const float Speed  = DataAsset->SoluxParams.SoluxSpeed;
+    const FWTBRSoluxParams& Params = DataAsset->SoluxParams;
 
-    FireProjectile(ProjClass, Damage, Speed, 0.0f);
+    // Conjure, split, fire. Solux's cubes carry no special property at all — that
+    // absence IS its identity (canon: "no special properties, most powerful"), so
+    // there is nothing to do after they launch.
+    FireProjectileVolley(
+        Params.SoluxProjectileClass,
+        Params.SoluxTapCubeCount,
+        Params.SoluxTapTotalDamage,
+        Params.SoluxSpeed,
+        Params.SoluxTapScatterRadius,
+        /*ConvergeDistance=*/Params.SoluxRange);
+
     StartCooldown();
     return true;
 }

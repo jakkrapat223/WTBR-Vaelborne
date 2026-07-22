@@ -18,14 +18,24 @@ bool UWTBRFulgrixTrigger::Activate_Implementation(
             return false;
     }
 
-    const TSubclassOf<AWTBRProjectileBase> ProjClass = DataAsset->FulgrixParams.FulgrixProjectileClass;
-    const float Damage = DataAsset->FulgrixParams.FulgrixDamage;
-    const float Speed = DataAsset->FulgrixParams.FulgrixSpeed;
-    const float ExplodeRadius = DataAsset->FulgrixParams.FulgrixExplosionRadius;
+    const FWTBRFulgrixParams& Params = DataAsset->FulgrixParams;
 
     UWorld* World = OwnerCharacter->GetWorld();
 
-    FireProjectile(ProjClass, Damage, Speed, 0.0f, true, ExplodeRadius);
+    // Conjure, split, fire — and every cube detonates (canon: Meteor's cubes each
+    // explode). The blast radius drops and the impacts spread on purpose; both are
+    // explained on FulgrixTapExplosionRadius / FulgrixTapImpactSpread. Together they
+    // turn one big boom into a cluster instead of eight boxes hitting one spot.
+    FireProjectileVolley(
+        Params.FulgrixProjectileClass,
+        Params.FulgrixTapCubeCount,
+        Params.FulgrixTapTotalDamage,
+        Params.FulgrixSpeed,
+        Params.FulgrixTapScatterRadius,
+        /*ConvergeDistance=*/Params.FulgrixRange,
+        Params.FulgrixTapImpactSpread,
+        /*bExplode=*/true,
+        Params.FulgrixTapExplosionRadius);
 
     if (UWTBRActionPingSubsystem* PingSys =
         World->GetSubsystem<UWTBRActionPingSubsystem>())
