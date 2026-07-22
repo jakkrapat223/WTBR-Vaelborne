@@ -3,9 +3,11 @@
 #include "Actors/WTBRProjectileBase.h"
 #include "Trigger/WTBRCompositeRegistryDataAsset.h"
 #include "WTBRCharacter.h"
+#include "Components/WTBRVaelComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "Math/UnrealMathUtility.h"
+#include "WTBRValidationLog.h"
 
 bool UWTBRGunnerTrigger::Activate_Implementation(
     const FInputActionValue& InputValue, bool bIsDualWield)
@@ -42,6 +44,77 @@ FVector UWTBRGunnerTrigger::GetMuzzleLocation(const FVector& AimDirection) const
         *HandSocketName.ToString());
 
     return EyeLoc + (AimDirection * 100.0f);
+}
+
+bool UWTBRGunnerTrigger::FirePresetVolley(
+    int32 PresetIndex, float ChargeFraction, const FWTBRPresetShot& Shot)
+{
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
+    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
+
+    // The index arrives from a client, so it is validated rather than trusted.
+    if (!Shot.Presets || !Shot.Presets->IsValidIndex(PresetIndex)) return false;
+    if (!Shot.ProjectileClass) return false;
+
+    if (IsValid(OwnerCharacter->VaelComponent))
+    {
+        if (!OwnerCharacter->VaelComponent->TryConsumeVael(Shot.VaelCost)) return false;
+    }
+
+    // Aim from the camera, not the capsule — GetActorRotation() carries no pitch, so
+    // firing upward would be impossible, and firing upward is the whole point of an
+    // arcing preset.
+    FVector EyeLocation;
+    FRotator AimRotation;
+    OwnerCharacter->GetActorEyesViewPoint(EyeLocation, AimRotation);
+    AimRotation.Roll = 0.0f;
+    const FVector SpawnLocation = EyeLocation + AimRotation.Vector() * 100.0f;
+
+    // Charge buys reach, and reach scales the WHOLE shape: every waypoint is a
+    // fraction of range, so one preset reads the same at any charge level, just
+    // smaller. A lane authored to end at 0.5 therefore stops halfway however far the
+    // player charged — which is what lets one lane run to the committed range while
+    // another waits short to catch someone walking in.
+    const float Range = FMath::Lerp(
+        FMath::Min(Shot.MinRange, Shot.MaxRange),
+        Shot.MaxRange,
+        FMath::Clamp(ChargeFraction, 0.0f, 1.0f));
+
+    TArray<TArray<FVector>> CubeWorldPaths;
+    TArray<FWTBRResolvedCubeLaunch> CubeLaunches;
+    UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
+        (*Shot.Presets)[PresetIndex], SpawnLocation, AimRotation, Range,
+        CubeWorldPaths,
+        Shot.ScatterRadius,
+        /*bIsMainSlot=*/true,
+        /*TotalCubeOverride=*/0,
+        &CubeLaunches);
+
+    const int32 Spawned = AWTBRProjectileBase::SpawnSweptVolley(
+        OwnerCharacter.Get(),
+        Shot.ProjectileClass,
+        Shot.TotalDamage,
+        Shot.Speed,
+        Shot.bExplodes,
+        Shot.ExplosionRadius,
+        Shot.HomingAcceleration,
+        AimRotation,
+        CubeWorldPaths,
+        CubeLaunches,
+        /*VFXConfig=*/nullptr,
+        Shot.HomingTurnRateDegPerSec,
+        Shot.MaxRange);
+
+    WTBR_VALIDATION_LOG(Log,
+        TEXT("[Hold Preset] Fired | Owner=%s | Index=%d | Charge=%.2f | Range=%.0fuu | MaxRange=%.0fuu | Lanes=%d | Cubes=%d | Spawned=%d"),
+        *GetNameSafe(OwnerCharacter.Get()), PresetIndex, ChargeFraction, Range,
+        Shot.MaxRange, (*Shot.Presets)[PresetIndex].Lanes.Num(),
+        CubeWorldPaths.Num(), Spawned);
+
+    if (Spawned <= 0) return false;
+
+    StartCooldown();
+    return true;
 }
 
 TArray<AWTBRProjectileBase*> UWTBRGunnerTrigger::FireProjectileVolley(
@@ -134,6 +207,17 @@ TArray<AWTBRProjectileBase*> UWTBRGunnerTrigger::FireProjectileVolley(
         Proj->InitializeProjectile(
             PerCubeDamage, Speed, ETriggerCategory::Gunner,
             /*bSniper=*/false, bExplode, ExplodeRadius);
+        // Reason three: Launch() below turns this into the shot's lifespan.
+        if (ConvergeDistance > 0.0f) Proj->MaxRange = ConvergeDistance;
+
+        // Set BEFORE FinishSpawning, not after by way of Launch().
+        //
+        // Two cubes from the same shooter are forbidden from clashing, but that rule
+        // reads OwnerInstigator — and FinishSpawning is what fires the first overlaps.
+        // Assigning it afterwards leaves a window where sibling cubes look like enemy
+        // fire to each other and destroy themselves on contact. A wide conjure sphere
+        // was papering over that window; closing it is what lets the spawn be tight.
+        Proj->OwnerInstigator = OwnerCharacter.Get();
         Proj->FinishSpawning(CubeTransform);
         Proj->Launch(CubeDir, OwnerCharacter.Get());
 

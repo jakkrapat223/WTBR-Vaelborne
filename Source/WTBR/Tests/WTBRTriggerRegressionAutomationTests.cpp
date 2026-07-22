@@ -797,7 +797,7 @@ bool FWTBRSoluxFireConfiguresProjectileTest::RunTest(const FString& /*Parameters
 
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
     DataAsset->VaelCostPerUse = 8.0f;
-    DataAsset->SoluxParams.SoluxTapTotalDamage = 100.0f;
+    DataAsset->SoluxParams.SoluxTotalDamage = 100.0f;
     DataAsset->SoluxParams.SoluxTapCubeCount = 8;
     DataAsset->SoluxParams.SoluxSpeed = 3000.0f;
     DataAsset->SoluxParams.SoluxFireCooldown = 0.5f;
@@ -910,7 +910,7 @@ bool FWTBRFulgrixFireConfiguresExplosiveTest::RunTest(const FString& /*Parameter
 
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
     DataAsset->VaelCostPerUse = 12.0f;
-    DataAsset->FulgrixParams.FulgrixTapTotalDamage = 84.0f;
+    DataAsset->FulgrixParams.FulgrixTotalDamage = 90.0f;
     DataAsset->FulgrixParams.FulgrixTapCubeCount = 8;
     DataAsset->FulgrixParams.FulgrixSpeed = 2500.0f;
     DataAsset->FulgrixParams.FulgrixExplosionRadius = 300.0f;
@@ -936,7 +936,7 @@ bool FWTBRFulgrixFireConfiguresExplosiveTest::RunTest(const FString& /*Parameter
     {
         AWTBRProjectileBase* Proj = *It;
         if (!IsValid(Proj)) continue;
-        TestEqual(TEXT("Damage = total / cube count"), Proj->BaseDamage, 10.5f);
+        TestEqual(TEXT("Damage = total / cube count"), Proj->BaseDamage, 11.25f);
         TestTrue(TEXT("EVERY Fulgrix cube explodes, not just one"), Proj->bExplodeOnImpact);
         // The tap radius, NOT the 300 single-blast one — eight overlapping 300uu
         // blasts would cover far more ground than the shot they replaced.
@@ -987,7 +987,7 @@ bool FWTBRVenyxFireSpawnsProjectileTest::RunTest(const FString& /*Parameters*/)
 
     UWTBRTriggerDataAsset* DataAsset = TriggerRegressionTest_MakeDataAsset();
     DataAsset->VaelCostPerUse = 6.0f;
-    DataAsset->VenyxParams.VenyxTapTotalDamage = 76.0f;
+    DataAsset->VenyxParams.VenyxTotalDamage = 85.0f;
     DataAsset->VenyxParams.VenyxTapCubeCount = 8;
     DataAsset->VenyxParams.VenyxSpeed = 3500.0f;
     DataAsset->VenyxParams.VenyxFireCooldown = 0.6f;
@@ -1014,7 +1014,7 @@ bool FWTBRVenyxFireSpawnsProjectileTest::RunTest(const FString& /*Parameters*/)
     {
         AWTBRProjectileBase* Proj = *It;
         if (!IsValid(Proj)) continue;
-        TestEqual(TEXT("Damage = total / cube count"), Proj->BaseDamage, 9.5f);
+        TestEqual(TEXT("Damage = total / cube count"), Proj->BaseDamage, 10.625f);
         TestEqual(TEXT("Category = Gunner"), (int32)Proj->OwnerCategory, (int32)ETriggerCategory::Gunner);
     }
 

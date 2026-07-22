@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Trigger/WTBRTriggerBase.h"
+#include "Trigger/WTBRPathPresetTypes.h"
 #include "WTBRGunnerTrigger.generated.h"
 
 class AWTBRProjectileBase;
@@ -22,6 +23,48 @@ public:
 
     UFUNCTION(BlueprintImplementableEvent, Category="WTBR | Gunner | VFX")
     void OnGunnerFired(bool bIsDualWield, const FVector& FireDirection);
+
+    // ─── Hold / preset contract ──────────────────────────────────────────────
+    //
+    // Solux, Fulgrix and Venyx all hold to CHOOSE A PATTERN — never to buy damage
+    // or speed. The whole player-facing flow (hold gesture, wheel, charge, fire)
+    // lives on AWTBRCharacter and talks to this base rather than to any one
+    // archetype, so an archetype opts in by overriding these three and nothing on
+    // the character has to learn about it.
+    //
+    // Serpveil deliberately does NOT ride this: Viper authors turn points and has
+    // its own older flow.
+
+    // Deliberately NOT named FireSelectedPreset/HasPresets. UWTBRSerpveilTrigger
+    // already declares its own FireSelectedPreset with a different return type, and
+    // a same-name base virtual would be HIDDEN by it rather than overridden — a
+    // silent dispatch bug waiting for someone to call it through a base pointer.
+
+    // Null, or empty, leaves the trigger tap-only and the character flow ignores it.
+    virtual const TArray<FWTBRPathPreset>* GetHoldPresets() const { return nullptr; }
+
+    // Flat cost per shot regardless of which shape is chosen, so affordability is
+    // all-or-nothing rather than per-option.
+    virtual float GetHoldVaelCost() const { return 0.0f; }
+
+    // Seconds of held charge that reach full range. Must be safe with a null DataAsset.
+    virtual float GetHoldChargeSeconds() const { return 1.2f; }
+
+    /**
+     * Fires the chosen preset. SERVER-AUTHORITATIVE: the index arrives from a
+     * client, so implementations bounds-check it and re-derive cost and reach here
+     * rather than trusting anything sent.
+     */
+    virtual bool FireHoldPreset(int32 PresetIndex, float ChargeFraction, bool bIsMain)
+    {
+        return false;
+    }
+
+    bool HasHoldPresets() const
+    {
+        const TArray<FWTBRPathPreset>* Presets = GetHoldPresets();
+        return Presets && Presets->Num() > 0;
+    }
 
 protected:
     // NOTE: Pass parameters directly so child classes can provide their specific struct data
@@ -58,6 +101,38 @@ protected:
         float ImpactSpread = 0.0f,
         bool bExplode = false,
         float ExplodeRadius = 0.0f);
+
+    /**
+     * Everything a preset shot needs that is NOT the shape. The shape comes from the
+     * preset itself; this is the archetype's own payload and economy.
+     */
+    struct FWTBRPresetShot
+    {
+        const TArray<FWTBRPathPreset>* Presets = nullptr;
+        TSubclassOf<AWTBRProjectileBase> ProjectileClass;
+        float VaelCost = 0.0f;
+        float TotalDamage = 0.0f;
+        float Speed = 0.0f;
+        float MinRange = 0.0f;
+        float MaxRange = 0.0f;
+        float ScatterRadius = 0.0f;
+        // Payload. Left at zero/false by an archetype that has none — Solux carries
+        // nothing at all, and that absence is its identity.
+        bool bExplodes = false;
+        float ExplosionRadius = 0.0f;
+        float HomingAcceleration = 0.0f;
+        float HomingTurnRateDegPerSec = 0.0f;
+    };
+
+    /**
+     * Shared hold-fire path: validate, charge Vael, aim from the camera, scale the
+     * reach by charge, resolve the preset into cube paths, spawn the volley.
+     *
+     * Every line of this used to live in UWTBRVenyxTrigger and none of it was
+     * Venyx-specific — only the payload was. Copying it per archetype would mean
+     * fixing the next bug in one of three places.
+     */
+    bool FirePresetVolley(int32 PresetIndex, float ChargeFraction, const FWTBRPresetShot& Shot);
 
     AWTBRProjectileBase* FireProjectile(
         TSubclassOf<AWTBRProjectileBase> ProjClass,

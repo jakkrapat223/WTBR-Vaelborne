@@ -28,10 +28,11 @@ public:
      * Server-authoritative — the index is bounds-checked and the reach re-derived
      * here, so a client may ask for a preset but never dictate the shot.
      */
-    bool FireSelectedPreset(int32 PresetIndex, float ChargeFraction, bool bIsMain);
+    virtual bool FireHoldPreset(int32 PresetIndex, float ChargeFraction, bool bIsMain) override;
 
     // Seconds of held charge that reach full range. Safe when DataAsset is null.
-    float GetPresetFullChargeSeconds() const;
+    virtual float GetHoldChargeSeconds() const override;
 
-    bool HasPresets() const;
+    virtual const TArray<FWTBRPathPreset>* GetHoldPresets() const override;
+    virtual float GetHoldVaelCost() const override;
 };

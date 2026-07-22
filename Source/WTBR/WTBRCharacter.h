@@ -31,6 +31,7 @@ class UWTBREscudoPresetWheelWidget;
 class UWTBREscudoTrigger;
 class UWTBRSerpveilTrigger;
 class UWTBRVenyxTrigger;
+class UWTBRGunnerTrigger;
 class AWTBRAegornWallActor;
 class UTexture2D;
 class UNiagaraComponent;
@@ -1065,7 +1066,7 @@ protected:
     UFUNCTION()
     void OnVenyxPresetLockExpired();
 
-    UWTBRVenyxTrigger* GetActiveVenyxTrigger(bool bIsMain) const;
+    UWTBRGunnerTrigger* GetActiveVenyxTrigger(bool bIsMain) const;
 
     UFUNCTION(Server, Reliable)
     void Server_FireVenyxPreset(bool bIsMain, int32 PresetIndex, float ChargeFraction);

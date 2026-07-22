@@ -544,9 +544,9 @@ bool FWTBRVenyxHoldRejectsBadPresetIndexTest::RunTest(const FString& /*Parameter
     // Vael before rejecting would let a malformed request drain a player's meter.
     const int32 OutOfRange = DataAsset->VenyxParams.VenyxPresets.Num() + 5;
     TestFalse(TEXT("An out-of-range preset index is rejected"),
-        Trigger->FireSelectedPreset(OutOfRange, 1.0f, true));
+        Trigger->FireHoldPreset(OutOfRange, 1.0f, true));
     TestFalse(TEXT("A negative preset index is rejected"),
-        Trigger->FireSelectedPreset(-1, 1.0f, true));
+        Trigger->FireHoldPreset(-1, 1.0f, true));
     TestEqual(TEXT("A rejected request spends no Vael"),
         Shooter->VaelComponent->GetCurrentVael(), VaelBefore);
 

@@ -17,6 +17,13 @@ public:
         bool bIsDualWield) override;
     virtual float GetCooldownDuration() const override;
 
+    // HOLD. Meteor's presets are about DIRECTION — where the blasts land — not the
+    // curve control Viper owns. The cubes still each detonate; only the shape moves.
+    virtual const TArray<FWTBRPathPreset>* GetHoldPresets() const override;
+    virtual float GetHoldVaelCost() const override;
+    virtual float GetHoldChargeSeconds() const override;
+    virtual bool FireHoldPreset(int32 PresetIndex, float ChargeFraction, bool bIsMain) override;
+
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Fulgrix | VFX")
     void OnFulgrixFired();
 

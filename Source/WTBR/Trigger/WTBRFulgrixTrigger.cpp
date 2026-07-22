@@ -29,7 +29,7 @@ bool UWTBRFulgrixTrigger::Activate_Implementation(
     FireProjectileVolley(
         Params.FulgrixProjectileClass,
         Params.FulgrixTapCubeCount,
-        Params.FulgrixTapTotalDamage,
+        Params.FulgrixTotalDamage,
         Params.FulgrixSpeed,
         Params.FulgrixTapScatterRadius,
         /*ConvergeDistance=*/Params.FulgrixRange,
@@ -46,6 +46,47 @@ bool UWTBRFulgrixTrigger::Activate_Implementation(
     OnFulgrixFired();
     StartCooldown();
     return true;
+}
+
+const TArray<FWTBRPathPreset>* UWTBRFulgrixTrigger::GetHoldPresets() const
+{
+    return IsValid(DataAsset) ? &DataAsset->FulgrixParams.FulgrixPresets : nullptr;
+}
+
+float UWTBRFulgrixTrigger::GetHoldVaelCost() const
+{
+    return IsValid(DataAsset) ? DataAsset->FulgrixParams.FulgrixPresetVaelCost : 0.0f;
+}
+
+float UWTBRFulgrixTrigger::GetHoldChargeSeconds() const
+{
+    if (!IsValid(DataAsset)) return 1.2f;
+    return FMath::Max(0.05f, DataAsset->FulgrixParams.FulgrixPresetFullChargeSeconds);
+}
+
+bool UWTBRFulgrixTrigger::FireHoldPreset(
+    int32 PresetIndex, float ChargeFraction, bool /*bIsMain*/)
+{
+    if (!IsValid(DataAsset)) return false;
+    const FWTBRFulgrixParams& Params = DataAsset->FulgrixParams;
+
+    FWTBRPresetShot Shot;
+    Shot.Presets = &Params.FulgrixPresets;
+    Shot.ProjectileClass = Params.FulgrixProjectileClass;
+    Shot.VaelCost = Params.FulgrixPresetVaelCost;
+    // Same number tap spends. Hold changes the shape, never the budget.
+    Shot.TotalDamage = Params.FulgrixTotalDamage;
+    Shot.Speed = Params.FulgrixSpeed;
+    Shot.MinRange = Params.FulgrixPresetMinRange;
+    Shot.MaxRange = Params.FulgrixRange;
+    Shot.ScatterRadius = Params.FulgrixPresetScatterRadius;
+    // Meteor's payload: every cube detonates, at the same reduced radius tap uses.
+    // A preset already spreads the impacts, so the full 300uu single-blast radius
+    // would stack far more area than the shot is priced for.
+    Shot.bExplodes = true;
+    Shot.ExplosionRadius = Params.FulgrixTapExplosionRadius;
+
+    return FirePresetVolley(PresetIndex, ChargeFraction, Shot);
 }
 
 float UWTBRFulgrixTrigger::GetCooldownDuration() const

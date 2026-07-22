@@ -103,7 +103,7 @@ bool FWTBRGunnerSplitDamageIsDividedTest::RunTest(const FString& /*Parameters*/)
     UWTBRTriggerDataAsset* DA = NewObject<UWTBRTriggerDataAsset>(Owner);
     DA->VaelCostPerUse = 10.0f;
     DA->SoluxParams.SoluxProjectileClass = AWTBRProjectileBase::StaticClass();
-    DA->SoluxParams.SoluxTapTotalDamage = 100.0f;
+    DA->SoluxParams.SoluxTotalDamage = 100.0f;
     DA->SoluxParams.SoluxTapCubeCount = 8;
 
     UWTBRSoluxTrigger* Solux = NewObject<UWTBRSoluxTrigger>(Owner);
@@ -213,6 +213,53 @@ bool FWTBRGunnerSplitVolleyHoldsFormationTest::RunTest(const FString& /*Paramete
 
     TestTrue(TEXT("Some cubes were off-axis enough to judge"), Checked > 0);
     TestEqual(TEXT("No cube crosses the volley's centre line"), Crossing, 0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRArcingPresetKeepsFlyingPastItsPathTest,
+    "WTBR.Gunner.CubeSplit.AnArcingCubeKeepsFlyingPastTheEndOfItsAuthoredPath",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRArcingPresetKeepsFlyingPastItsPathTest::RunTest(const FString& /*Parameters*/)
+{
+    // Owner-found in PIE on Solux's Hammer: the cubes climbed, turned over, and
+    // vanished mid-dive at about chest height having touched nothing. The authored
+    // path had simply run out in open air and the cube was destroyed for it.
+    //
+    // Owner rule: a bullet stops for THREE reasons only — it hits somebody, it hits
+    // the world, or it runs out of range. "The designer's curve ended" is not one.
+    FWTBRCubeSplitFixture Fixture(TEXT("WTBRArcContinues"));
+    UWorld* World = Fixture.World;
+    if (!World) return false;
+
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    AWTBRProjectileBase* Cube = World->SpawnActor<AWTBRProjectileBase>(
+        AWTBRProjectileBase::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
+    if (!Cube) return false;
+
+    Cube->InitializeProjectile(10.0f, 2000.0f, ETriggerCategory::Gunner, false, false, 0.0f);
+    Cube->MaxRange = 8000.0f;
+
+    // An arc that climbs and comes back down, ending well inside the range budget.
+    Cube->InitializePathMovement(
+        {FVector::ZeroVector, FVector(600.0f, 0.0f, 1200.0f), FVector(1500.0f, 0.0f, 0.0f)},
+        2000.0f, nullptr);
+
+    Cube->OnInterpMovementEndForTest();
+    TestTrue(TEXT("A cube with range left survives the end of its path"), IsValid(Cube));
+    if (!IsValid(Cube)) return false;
+
+    // And it must leave along the FINAL LEG's heading, which points down. Reading
+    // the actor's own facing would give the spawn direction instead: a path-driven
+    // projectile is translated, never rotated, so it still faces where it started.
+    if (IsValid(Cube->ProjectileMovement))
+    {
+        TestTrue(TEXT("It continues along the arc's descending heading, not its spawn facing"),
+            Cube->ProjectileMovement->Velocity.Z < 0.0f);
+    }
+
     return true;
 }
 

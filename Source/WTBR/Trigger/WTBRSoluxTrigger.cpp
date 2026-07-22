@@ -25,13 +25,51 @@ bool UWTBRSoluxTrigger::Activate_Implementation(
     FireProjectileVolley(
         Params.SoluxProjectileClass,
         Params.SoluxTapCubeCount,
-        Params.SoluxTapTotalDamage,
+        Params.SoluxTotalDamage,
         Params.SoluxSpeed,
         Params.SoluxTapScatterRadius,
         /*ConvergeDistance=*/Params.SoluxRange);
 
     StartCooldown();
     return true;
+}
+
+const TArray<FWTBRPathPreset>* UWTBRSoluxTrigger::GetHoldPresets() const
+{
+    return IsValid(DataAsset) ? &DataAsset->SoluxParams.SoluxPresets : nullptr;
+}
+
+float UWTBRSoluxTrigger::GetHoldVaelCost() const
+{
+    return IsValid(DataAsset) ? DataAsset->SoluxParams.SoluxPresetVaelCost : 0.0f;
+}
+
+float UWTBRSoluxTrigger::GetHoldChargeSeconds() const
+{
+    if (!IsValid(DataAsset)) return 1.2f;
+    return FMath::Max(0.05f, DataAsset->SoluxParams.SoluxPresetFullChargeSeconds);
+}
+
+bool UWTBRSoluxTrigger::FireHoldPreset(
+    int32 PresetIndex, float ChargeFraction, bool /*bIsMain*/)
+{
+    if (!IsValid(DataAsset)) return false;
+    const FWTBRSoluxParams& Params = DataAsset->SoluxParams;
+
+    FWTBRPresetShot Shot;
+    Shot.Presets = &Params.SoluxPresets;
+    Shot.ProjectileClass = Params.SoluxProjectileClass;
+    Shot.VaelCost = Params.SoluxPresetVaelCost;
+    // Same number tap spends. Hold changes the shape, never the budget.
+    Shot.TotalDamage = Params.SoluxTotalDamage;
+    Shot.Speed = Params.SoluxSpeed;
+    Shot.MinRange = Params.SoluxPresetMinRange;
+    Shot.MaxRange = Params.SoluxRange;
+    Shot.ScatterRadius = Params.SoluxPresetScatterRadius;
+    // No payload fields set on purpose: Asteroid cubes do not explode and do not
+    // hunt. Leaving them at zero IS the archetype.
+
+    return FirePresetVolley(PresetIndex, ChargeFraction, Shot);
 }
 
 float UWTBRSoluxTrigger::GetCooldownDuration() const

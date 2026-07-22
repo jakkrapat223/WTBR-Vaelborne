@@ -925,17 +925,26 @@ struct FWTBRSoluxParams
     // Solux is the raw-damage archetype and must stay clearly above Fulgrix, which
     // also has AOE. See the locked hierarchy: Solux > Fulgrix > Venyx = Serpveil.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Combat", meta = (ClampMin = "0.0"))
-    float SoluxTapTotalDamage = 100.0f;
+    float SoluxTotalDamage = 100.0f;
 
     // ⚠ PLAYTEST PENDING: cubes the conjured block splits into on tap.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Combat", meta = (ClampMin = "1"))
     int32 SoluxTapCubeCount = 8;
 
     // ⚠ PLAYTEST PENDING: radius of the sphere the cubes are conjured on, around
-    // the muzzle. Without a spread they spawn on one point, overlap, and destroy
-    // each other before they ever move.
+    // the muzzle.
+    //
+    // Deliberately TIGHT. A tap is meant to read as one shot that happens to be made
+    // of cubes; conjuring them a metre and a half apart made the volley visibly
+    // funnel inward on its way to the target, which the owner read as the shot
+    // drifting rather than as a formation.
+    //
+    // It used to be 135 to keep sibling cubes from spawning inside each other and
+    // clashing. That was a symptom of OwnerInstigator being assigned after
+    // FinishSpawning; with the assignment moved earlier the siblings recognise each
+    // other immediately and the spread no longer has to carry that job.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Combat", meta = (ClampMin = "0.0"))
-    float SoluxTapScatterRadius = 135.0f;
+    float SoluxTapScatterRadius = 70.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Projectile", meta = (ClampMin = "100.0"))
     float SoluxSpeed = 3000.0f;
@@ -948,6 +957,97 @@ struct FWTBRSoluxParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Combat", meta = (ClampMin = "0.05"))
     float SoluxFireCooldown = 0.5f;
+
+    // ── Hold / presets ───────────────────────────────────────────────────────
+    //
+    // Solux carries no per-cube ability at all, so its presets are pure SHAPE and
+    // TIMING — where each lane ends and when it launches. That is the whole point:
+    // hold buys control, never power, so the damage above is what a preset spends
+    // too.
+    //
+    // Every lane's final waypoint is a FRACTION of the committed range, so a lane
+    // ending at 0.5 stops halfway however far the player charged. One lane can run
+    // to the full reach while another waits short to catch someone walking in.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Presets")
+    TArray<FWTBRPathPreset> SoluxPresets;
+
+    // ⚠ PLAYTEST PENDING: reach at ZERO charge; SoluxRange is the full-charge reach.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Presets",
+        meta = (ClampMin = "100.0"))
+    float SoluxPresetMinRange = 2000.0f;
+
+    // ⚠ PLAYTEST PENDING: seconds of held charge that reach full range.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Presets",
+        meta = (ClampMin = "0.05"))
+    float SoluxPresetFullChargeSeconds = 1.2f;
+
+    // ⚠ PLAYTEST PENDING.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Presets",
+        meta = (ClampMin = "0.0"))
+    float SoluxPresetVaelCost = 20.0f;
+
+    // ⚠ PLAYTEST PENDING: spread of the conjure points. Non-zero is not cosmetic —
+    // cubes spawned on one spot overlap and destroy each other before they move.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Solux | Presets",
+        meta = (ClampMin = "0.0"))
+    float SoluxPresetScatterRadius = 135.0f;
+
+    FWTBRSoluxParams()
+    {
+        // ⚠ PLACEHOLDER TEST DATA, NOT FINAL DESIGN. Waypoints are fractions of the
+        // committed range: X forward, Y lateral, Z vertical.
+        auto MakeLane = [](const TArray<FVector>& Waypoints, int32 CubeCount, float Delay)
+        {
+            FWTBRPathLane Lane;
+            Lane.NormalizedWaypoints = Waypoints;
+            Lane.CubeCount = CubeCount;
+            Lane.LaunchDelay = Delay;
+            return Lane;
+        };
+
+        // Lance — four cubes now, four more two seconds later, along the same line.
+        // The delayed half is the whole idea: the first volley makes someone commit
+        // to cover or a dodge, and the second arrives after they have.
+        FWTBRPathPreset Lance;
+        Lance.PresetId = FName(TEXT("Lance"));
+        Lance.DisplayName = FText::FromString(TEXT("Lance (four now, four late)"));
+        Lance.Lanes.Add(MakeLane({FVector::ZeroVector, FVector(1.0f, 0.0f, 0.0f)}, 4, 0.0f));
+        Lance.Lanes.Add(MakeLane({FVector::ZeroVector, FVector(1.0f, 0.0f, 0.0f)}, 4, 2.0f));
+        SoluxPresets.Add(Lance);
+
+        // Fan — flat spread, everything at once. Kept deliberately plain: it exists
+        // to prove the preset flow end to end, not because a fan is good play.
+        FWTBRPathPreset Fan;
+        Fan.PresetId = FName(TEXT("Fan"));
+        Fan.DisplayName = FText::FromString(TEXT("Fan (test shape)"));
+        for (int32 i = 0; i < 8; ++i)
+        {
+            const float Lateral = (i - 3.5f) * 0.09f;
+            Fan.Lanes.Add(MakeLane(
+                {FVector::ZeroVector, FVector(1.0f, Lateral, 0.0f)}, 1, 0.0f));
+        }
+        SoluxPresets.Add(Fan);
+
+        // Hammer — straight up, then down onto the target. Clears anything the
+        // player cannot shoot through, and the lanes deliberately end at DIFFERENT
+        // fractions of the range so the shot covers a depth rather than a point:
+        // the short lanes come down in front of someone advancing, the long one
+        // lands on where they are now.
+        // The arc ends pointing DOWN and the cube carries on along that heading once
+        // the authored path runs out — a bullet only ever stops by hitting somebody,
+        // hitting the world, or running out of range. So the last leg only has to
+        // aim the dive; it does not have to reach the floor by itself.
+        FWTBRPathPreset Hammer;
+        Hammer.PresetId = FName(TEXT("Hammer"));
+        Hammer.DisplayName = FText::FromString(TEXT("Hammer (over cover, from above)"));
+        Hammer.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.12f, 0.00f, 0.70f), FVector(0.45f, 0.00f, 0.0f)}, 3, 0.0f));
+        Hammer.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.20f, -0.06f, 0.78f), FVector(0.70f, -0.06f, 0.0f)}, 3, 0.35f));
+        Hammer.Lanes.Add(MakeLane({FVector::ZeroVector,
+            FVector(0.28f, 0.06f, 0.86f), FVector(1.00f, 0.06f, 0.0f)}, 2, 0.70f));
+        SoluxPresets.Add(Hammer);
+    }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -960,12 +1060,12 @@ struct FWTBRFulgrixParams
 
     // ⚠ PLAYTEST PENDING. Damage for ONE tap, SPLIT across the volley — never per
     // cube. Replaces the old single-shot FulgrixDamage (80); see the note on
-    // SoluxTapTotalDamage for why the old field was deleted rather than reused.
+    // SoluxTotalDamage for why the old field was deleted rather than reused.
     //
     // Must stay clearly BELOW Solux: Fulgrix gets AOE, the slowest speed and the
     // shortest range as its compensation.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Combat", meta = (ClampMin = "0.0"))
-    float FulgrixTapTotalDamage = 84.0f;
+    float FulgrixTotalDamage = 90.0f;
 
     // ⚠ PLAYTEST PENDING: cubes the conjured block splits into on tap.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Combat", meta = (ClampMin = "1"))
@@ -973,7 +1073,7 @@ struct FWTBRFulgrixParams
 
     // ⚠ PLAYTEST PENDING: radius of the conjure sphere around the muzzle.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Combat", meta = (ClampMin = "0.0"))
-    float FulgrixTapScatterRadius = 135.0f;
+    float FulgrixTapScatterRadius = 70.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile", meta = (ClampMin = "100.0"))
     float FulgrixSpeed = 2500.0f;
@@ -1119,6 +1219,27 @@ struct FWTBRFulgrixParams
         FulgrixPresets.Add(Converge);
     }
 
+    // ⚠ PLAYTEST PENDING: reach at ZERO charge; FulgrixRange is the full-charge reach.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Presets",
+        meta = (ClampMin = "100.0"))
+    float FulgrixPresetMinRange = 1600.0f;
+
+    // ⚠ PLAYTEST PENDING: seconds of held charge that reach full range.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Presets",
+        meta = (ClampMin = "0.05"))
+    float FulgrixPresetFullChargeSeconds = 1.2f;
+
+    // ⚠ PLAYTEST PENDING.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Presets",
+        meta = (ClampMin = "0.0"))
+    float FulgrixPresetVaelCost = 24.0f;
+
+    // ⚠ PLAYTEST PENDING: spread of the conjure points. Non-zero is not cosmetic —
+    // cubes spawned on one spot overlap and destroy each other before they move.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Presets",
+        meta = (ClampMin = "0.0"))
+    float FulgrixPresetScatterRadius = 135.0f;
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Fulgrix | Projectile")
     TSubclassOf<AWTBRProjectileBase> FulgrixProjectileClass;
 
@@ -1138,12 +1259,12 @@ struct FWTBRVenyxParams
 
     // ⚠ PLAYTEST PENDING. Damage for ONE tap, SPLIT across the volley — never per
     // cube. Replaces the old single-shot VenyxDamage (25); see the note on
-    // SoluxTapTotalDamage for why the old field was deleted rather than reused.
+    // SoluxTotalDamage for why the old field was deleted rather than reused.
     //
     // Venyx and Serpveil are deliberate stat twins — equal damage, equal range —
     // differentiated purely by behaviour: Venyx homes, Serpveil's path is authored.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Combat", meta = (ClampMin = "0.0"))
-    float VenyxTapTotalDamage = 76.0f;
+    float VenyxTotalDamage = 85.0f;
 
     // ⚠ PLAYTEST PENDING: cubes the conjured block splits into on tap. Each one
     // homes independently, so this is also an actor-count number, not just balance.
@@ -1152,7 +1273,7 @@ struct FWTBRVenyxParams
 
     // ⚠ PLAYTEST PENDING: radius of the conjure sphere around the muzzle.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Combat", meta = (ClampMin = "0.0"))
-    float VenyxTapScatterRadius = 135.0f;
+    float VenyxTapScatterRadius = 70.0f;
 
     // ⚠ PLAYTEST PENDING: how close an enemy must come to a travelling cube before
     // it peels off and chases.
@@ -1249,12 +1370,15 @@ struct FWTBRVenyxParams
         meta = (ClampMin = "0.0"))
     float VenyxPresetVaelCost = 20.0f;
 
-    // ⚠ PLAYTEST PENDING: how the shot's damage budget is split across whatever
-    // number of cubes the chosen preset asks for. Budget is SPLIT, never
-    // multiplied, so picking a busier preset trades punch for coverage.
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Venyx | Presets",
-        meta = (ClampMin = "0.0"))
-    float VenyxPresetTotalDamage = 100.0f;
+    // VenyxPresetTotalDamage was DELETED, not set equal to VenyxTotalDamage.
+    //
+    // Hold chooses a PATTERN, it does not buy power, so tap and hold spend the same
+    // budget. Two fields that must always match is a field that will eventually stop
+    // matching — someone tunes one in the editor and the lock quietly dies. One
+    // number per archetype makes the rule structural instead of a comment.
+    //
+    // (It sat at 100 against a tap of 76 before this, which is exactly the drift
+    // being designed out.)
 
     // ⚠ PLAYTEST PENDING: spread of the conjure points. Non-zero is not cosmetic —
     // cubes spawned on one spot overlap and destroy each other before they move.
