@@ -306,7 +306,12 @@ public:
         float HomingTurnRateDegPerSec = 0.0f,
         float MaxRangeUU = 0.0f,
         bool bReacquireAfterOvershoot = false,
-        float DetonationRadiusUU = 0.0f);
+        float DetonationRadiusUU = 0.0f,
+        // Weapon-supplied hunting radius. Non-zero arms EVERY cube with it and
+        // overrides the per-lane radius the resolver produced — the Preset Editor
+        // stopped authoring hunting range per lane, so the gun supplies it instead.
+        // Zero keeps the old per-lane behaviour, which is what composites still use.
+        float OverrideHomingRadiusUU = 0.0f);
 
     bool IsWaitingToLaunchForTest() const
     {

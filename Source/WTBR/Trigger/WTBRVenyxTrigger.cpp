@@ -116,6 +116,16 @@ bool UWTBRVenyxTrigger::FireHoldPreset(
     Shot.HomingTurnRateDegPerSec = Params.VenyxHomingTurnRateDegreesPerSecond;
     Shot.ProximityDetonationRadius = Params.VenyxProximityDetonationRadius;
 
+    // ONE hunting radius for the weapon, used by tap and by every preset alike.
+    // The Preset Editor deliberately does not author this per lane — a preset says
+    // where along its path hunting is on or off, never how far it reaches.
+    //
+    // ⚠ The field is still named VenyxTapHomingRadius from when tap was its only
+    // user. It is the weapon's radius now; the name is under-descriptive rather than
+    // wrong, and renaming a UPROPERTY would drop the value already authored in
+    // DA_Venyx.
+    Shot.HomingRadiusUU = Params.VenyxTapHomingRadius;
+
     return FirePresetVolley(PresetIndex, ChargeFraction, Shot);
 }
 

@@ -131,6 +131,20 @@ protected:
         // Proximity fuse so a turn-capped chasing cube can connect with a target
         // tighter than its turn radius. Zero = contact-only, the old behaviour.
         float ProximityDetonationRadius = 0.0f;
+
+        // How far this WEAPON hunts, in world units. Non-zero arms every cube of the
+        // volley with it, overriding whatever the lane carried.
+        //
+        // Hunting range is a property of the gun, not of a shape the player drew, so
+        // the Preset Editor does not author it per lane — a preset only says WHERE
+        // along its path hunting is on or off, via SetHoming markers. Those markers
+        // RESTORE the radius the cube was armed with, so without a weapon-supplied
+        // value here a player-authored preset would arm at zero and every SetHoming
+        // marker in it would do nothing.
+        //
+        // Zero for archetypes that do not hunt at all (Solux, Fulgrix), which is the
+        // default and leaves them exactly as they were.
+        float HomingRadiusUU = 0.0f;
     };
 
     /**

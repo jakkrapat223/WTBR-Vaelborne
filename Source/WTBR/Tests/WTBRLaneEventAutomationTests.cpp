@@ -107,9 +107,8 @@ bool FWTBRLaneEventsFireByDistanceTest::RunTest(const FString& /*Parameters*/)
         // Deliberately authored out of order — the player clicks wherever they like,
         // and a later click can land earlier along the line.
         TArray<FWTBRLaneEvent> Events;
-        Events.Add(WTBRMakeEvent(EWTBRLaneEventType::SetSpeed, 0.9f));
+        Events.Add(WTBRMakeEvent(EWTBRLaneEventType::Hover, 0.9f));
         Events.Add(WTBRMakeEvent(EWTBRLaneEventType::SetHoming, 0.2f));
-        Events[0].SpeedMultiplier = 0.5f;
         Cube->SetAuthoredLaneEventsForTest(Events);
 
         Cube->InitializePathMovement(

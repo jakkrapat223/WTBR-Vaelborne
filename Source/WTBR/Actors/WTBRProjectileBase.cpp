@@ -1154,7 +1154,8 @@ int32 AWTBRProjectileBase::SpawnSweptVolley(
     float HomingTurnRateDegPerSec,
     float MaxRangeUU,
     bool bReacquireAfterOvershoot,
-    float DetonationRadiusUU)
+    float DetonationRadiusUU,
+    float OverrideHomingRadiusUU)
 {
     if (!IsValid(OwningCharacter) || !ProjectileClass) return 0;
 
@@ -1196,10 +1197,18 @@ int32 AWTBRProjectileBase::SpawnSweptVolley(
             ? CubeLaunches[CubeIndex] : FWTBRResolvedCubeLaunch();
 
         // Armed BEFORE the path starts — starting the path is what begins ticking.
-        if (Launch.HomingRadiusUU > 0.0f)
+        //
+        // The weapon's own radius wins when it supplies one. That is what lets a
+        // player-authored preset hunt at all: the editor no longer writes a per-lane
+        // radius, and a SetHoming marker can only ever RESTORE the radius a cube was
+        // armed with, so a cube armed at zero would ignore every marker on its path.
+        const float EffectiveHomingRadius = OverrideHomingRadiusUU > 0.0f
+            ? OverrideHomingRadiusUU : Launch.HomingRadiusUU;
+
+        if (EffectiveHomingRadius > 0.0f)
         {
             Projectile->EnableProximityHoming(
-                Launch.HomingRadiusUU, HomingTurnRateDegPerSec, bReacquireAfterOvershoot,
+                EffectiveHomingRadius, HomingTurnRateDegPerSec, bReacquireAfterOvershoot,
                 DetonationRadiusUU);
         }
 
@@ -1404,29 +1413,9 @@ void AWTBRProjectileBase::ApplyLaneEvent(const FWTBRLaneEvent& Event)
         break;
     }
 
-    case EWTBRLaneEventType::SetSpeed:
-    {
-        if (Event.SpeedMultiplier <= 0.0f) break;
-
-        // Scaled through the ACTOR's own time dilation rather than through
-        // InterpToMovement. Its TimeMultiplier is locked to 1/Duration when the
-        // control points are finalised, is never recomputed, and is protected
-        // besides; rewriting Duration afterwards does nothing. Dilating this one
-        // actor moves it slower or faster with no such coupling, and touches nothing
-        // else in the world.
-        //
-        // Timers are NOT dilated by this — they run on world time — so a hover still
-        // lasts the seconds it was authored for even inside a slowed stretch.
-        CustomTimeDilation *= Event.SpeedMultiplier;
-
-        // Kept in step because the post-path continuation and the range budget are
-        // both derived from it.
-        CachedSpeed *= Event.SpeedMultiplier;
-
-        WTBR_VALIDATION_LOG(Log, TEXT("[Lane Event] SetSpeed | Cube=%s | x%.2f | NewSpeed=%.0f"),
-            *GetNameSafe(this), Event.SpeedMultiplier, CachedSpeed);
-        break;
-    }
+    // SetSpeed used to live here and was removed 2026-07-23 — see the note on
+    // EWTBRLaneEventType. It scaled CustomTimeDilation, which compounded rather than
+    // set, and does not replicate.
     }
 }
 

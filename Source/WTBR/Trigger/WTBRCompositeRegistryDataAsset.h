@@ -355,6 +355,21 @@ public:
     static void SampleSmoothPath(const TArray<FVector>& InWaypoints, TArray<FVector>& OutPoints);
 
     /**
+     * How far along a lane's path one of its authored waypoints sits, as 0-1.
+     *
+     * Measured along the path the cube will actually FLY, so a smoothed lane is
+     * measured along its curve rather than along the straight polyline. Lane markers
+     * fire by distance travelled, so a fraction derived any other way would place a
+     * pause somewhere the player did not put it.
+     *
+     * Shared by the resolver (which converts a marker's waypoint index into the
+     * fraction the projectile consumes) and by the editor (which draws markers where
+     * they will fire).
+     */
+    static float ComputeWaypointPathFraction(
+        const TArray<FVector>& AuthoredWaypoints, int32 WaypointIndex, bool bSmoothCurve);
+
+    /**
      * True when a weapon built from these two archetypes flies SHARP lines.
      *
      * Owner rule (2026-07-23): Viper is the sharp-line archetype and everything else

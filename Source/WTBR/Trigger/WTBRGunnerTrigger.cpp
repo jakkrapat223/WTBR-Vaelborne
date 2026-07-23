@@ -155,7 +155,8 @@ bool UWTBRGunnerTrigger::FirePresetVolley(
         Shot.HomingTurnRateDegPerSec,
         Shot.MaxRange,
         Shot.bReacquireAfterOvershoot,
-        Shot.ProximityDetonationRadius);
+        Shot.ProximityDetonationRadius,
+        Shot.HomingRadiusUU);
 
     WTBR_VALIDATION_LOG(Log,
         TEXT("[Hold Preset] Fired | Owner=%s | Index=%d | Charge=%.2f | Range=%.0fuu | MaxRange=%.0fuu | Lanes=%d | Cubes=%d | Spawned=%d"),

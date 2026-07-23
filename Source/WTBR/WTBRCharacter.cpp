@@ -63,6 +63,7 @@
 #include "UI/WTBRMarkPingHUDWidget.h"
 #include "UI/WTBREscudoPresetWheelWidget.h"
 #include "UI/WTBRPathGraphViewWidget.h"
+#include "UI/WTBRLaneListRailWidget.h"
 #include "Trigger/WTBRGunnerTrigger.h"
 #include "Trigger/WTBREscudoTrigger.h"
 #include "Actors/WTBRAegornWallActor.h"
@@ -2970,12 +2971,23 @@ void AWTBRCharacter::SaveDebugPathGraphEdits()
         GameInstance ? GameInstance->GetSubsystem<UWTBRCustomPresetSubsystem>() : nullptr;
     if (!Subsystem) return;
 
-    const FWTBRPathPreset& Edited = DebugPathGraphWidgetInstance->GetPreset();
+    if (DebugPathGraphSaveTargetId.IsNone()) return;
 
-    // Only a CUSTOM preset can be written back. A baked one lives in a DataAsset and
-    // has no runtime home to save into, so editing it stays preview-only rather than
-    // silently forking a copy the player never asked for.
-    if (!Subsystem->FindPreset(Edited.PresetId)) return;
+    // Saved under the target resolved when the graph was opened, NOT under the
+    // preset's own id. A built-in preset lives in a DataAsset and cannot be written
+    // to, so editing one forks it into a new player-owned preset instead — an
+    // earlier version simply refused, which read as "the editor silently discards
+    // your work" the moment anyone tried to modify a preset the game shipped with.
+    FWTBRPathPreset Edited = DebugPathGraphWidgetInstance->GetPreset();
+
+    if (Edited.PresetId != DebugPathGraphSaveTargetId)
+    {
+        // A fork needs its own label too, or the wheel shows two entries reading
+        // "Skyfall (bait then punish)" and the player cannot tell which is theirs.
+        Edited.DisplayName = FText::FromString(FString::Printf(
+            TEXT("%s *"), *Edited.DisplayName.ToString()));
+        Edited.PresetId = DebugPathGraphSaveTargetId;
+    }
 
     Subsystem->AddOrUpdatePreset(Edited);
     // Re-uploads to the server too: the fire RPC resolves its index against the
@@ -3004,6 +3016,10 @@ void AWTBRCharacter::WTBRDebugCharacterShowPathGraph(int32 PresetIndex)
         {
             DebugPathGraphWidgetInstance->SetAllowEditing(false);
             DebugPathGraphWidgetInstance->SetVisibility(ESlateVisibility::Collapsed);
+        }
+        if (IsValid(DebugLaneRailWidgetInstance))
+        {
+            DebugLaneRailWidgetInstance->SetVisibility(ESlateVisibility::Collapsed);
         }
         // Hand the cursor back to gameplay, or the player is left unable to look
         // around with a stray cursor on screen.
@@ -3087,13 +3103,62 @@ void AWTBRCharacter::WTBRDebugCharacterShowPathGraph(int32 PresetIndex)
             this, &AWTBRCharacter::SaveDebugPathGraphEdits);
     }
 
+    if (!IsValid(DebugLaneRailWidgetInstance))
+    {
+        DebugLaneRailWidgetInstance =
+            CreateWidget<UWTBRLaneListRailWidget>(PC, UWTBRLaneListRailWidget::StaticClass());
+        if (IsValid(DebugLaneRailWidgetInstance))
+        {
+            // Down the left edge, clear of the graph's own 0.15-0.85 box so the two
+            // panels do not overlap and steal each other's clicks.
+            DebugLaneRailWidgetInstance->AddToViewport(6);
+            DebugLaneRailWidgetInstance->SetAnchorsInViewport(FAnchors(0.0f, 0.15f, 0.145f, 0.85f));
+            DebugLaneRailWidgetInstance->SetAlignmentInViewport(FVector2D::ZeroVector);
+            DebugLaneRailWidgetInstance->BindToGraph(DebugPathGraphWidgetInstance);
+        }
+    }
+
     const FWTBRPathPreset& Preset = (*Presets)[PresetIndex];
+
+    // Resolve where edits will land, once, before any editing happens.
+    {
+        UGameInstance* GameInstance = GetGameInstance();
+        UWTBRCustomPresetSubsystem* Subsystem =
+            GameInstance ? GameInstance->GetSubsystem<UWTBRCustomPresetSubsystem>() : nullptr;
+
+        if (!Subsystem)
+        {
+            DebugPathGraphSaveTargetId = NAME_None;
+        }
+        else if (Subsystem->FindPreset(Preset.PresetId))
+        {
+            // Already the player's own — edit it in place.
+            DebugPathGraphSaveTargetId = Preset.PresetId;
+        }
+        else
+        {
+            // A built-in preset. Fork it under a name that is not already taken, so
+            // opening Skyfall twice in one session does not overwrite the fork made
+            // the first time.
+            const FString Base = Preset.PresetId.ToString() + TEXT("_Custom");
+            FName Candidate(*Base);
+            for (int32 Suffix = 2; Subsystem->FindPreset(Candidate); ++Suffix)
+            {
+                Candidate = FName(*(Base + FString::FromInt(Suffix)));
+            }
+            DebugPathGraphSaveTargetId = Candidate;
+        }
+    }
+
     DebugPathGraphWidgetInstance->SetPreset(Preset);
     DebugPathGraphWidgetInstance->SetSelectedLaneIndex(0);
+    const bool bIsFork = (DebugPathGraphSaveTargetId != Preset.PresetId);
     DebugPathGraphWidgetInstance->SetHeaderText(FText::FromString(FString::Printf(
-        TEXT("%s  |  preset %d/%d '%s'  |  %d lane(s)"),
+        TEXT("%s  |  preset %d/%d '%s'  |  %d lane(s)  |  edits save to '%s'%s"),
         *Gunner->GetClass()->GetName(), PresetIndex, Presets->Num() - 1,
-        *Preset.PresetId.ToString(), Preset.Lanes.Num())));
+        *Preset.PresetId.ToString(), Preset.Lanes.Num(),
+        *DebugPathGraphSaveTargetId.ToString(),
+        bIsFork ? TEXT(" (new copy)") : TEXT(""))));
     // Editing on, plus the cursor and input mode it needs. GameAndUI rather than
     // UIOnly so the console stays usable to switch preset or dismiss the graph —
     // the real editor (Step 7) is lobby-only and will use UIOnly instead.
@@ -3105,6 +3170,13 @@ void AWTBRCharacter::WTBRDebugCharacterShowPathGraph(int32 PresetIndex)
     InputMode.SetHideCursorDuringCapture(false);
     PC->SetInputMode(InputMode);
     PC->SetShowMouseCursor(true);
+
+    if (IsValid(DebugLaneRailWidgetInstance))
+    {
+        DebugLaneRailWidgetInstance->SetVisibility(ESlateVisibility::Visible);
+        // The rail was bound before this preset was loaded, so pull the new lanes in.
+        DebugLaneRailWidgetInstance->RefreshFromGraph();
+    }
 
     FString LaneReport;
     for (int32 LaneIndex = 0; LaneIndex < Preset.Lanes.Num(); ++LaneIndex)

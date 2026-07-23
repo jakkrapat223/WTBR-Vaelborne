@@ -1013,7 +1013,7 @@ struct FWTBRSoluxParams
             return Lane;
         };
 
-        // Solux has NO homing to switch, so its markers are hover and speed only.
+        // Solux has NO homing to switch, so Hover is the only marker it can use.
         // A SetHoming marker here would do nothing and say so in the log.
         auto Hover = [](float AtFraction, float Seconds)
         {
@@ -1021,14 +1021,6 @@ struct FWTBRSoluxParams
             Event.Type = EWTBRLaneEventType::Hover;
             Event.AtPathFraction = AtFraction;
             Event.DurationSeconds = Seconds;
-            return Event;
-        };
-        auto Speed = [](float AtFraction, float Multiplier)
-        {
-            FWTBRLaneEvent Event;
-            Event.Type = EWTBRLaneEventType::SetSpeed;
-            Event.AtPathFraction = AtFraction;
-            Event.SpeedMultiplier = Multiplier;
             return Event;
         };
 
@@ -1085,9 +1077,11 @@ struct FWTBRSoluxParams
         // is paid for honestly — a hovering cube keeps its collision and can simply
         // be shot out of the air.
         //
-        // The speed marker fires just after the hover so the drop reads as a fall
-        // rather than a resume, and a second one near the floor takes the edge off an
-        // arrival nobody could otherwise react to.
+        // ⚠ Gallows originally paired the hover with two SetSpeed markers so the drop
+        // read as a fall rather than a resume. SetSpeed was removed 2026-07-23 (see
+        // EWTBRLaneEventType), so the drop is now plain. The hover — which is what
+        // actually makes the preset work — is untouched, but if the fall wants weight
+        // back it has to come from the lane's SHAPE, not from re-timing the cube.
         FWTBRPathPreset Gallows;
         Gallows.PresetId = FName(TEXT("Gallows"));
         Gallows.DisplayName = FText::FromString(TEXT("Gallows (hang, then drop)"));
@@ -1095,8 +1089,6 @@ struct FWTBRSoluxParams
             FWTBRPathLane Lane = MakeLane({FVector::ZeroVector,
                 FVector(0.30f, 0.00f, 0.82f), FVector(0.62f, 0.00f, 0.0f)}, 8, 0.0f);
             Lane.Events.Add(Hover(0.52f, 1.5f));
-            Lane.Events.Add(Speed(0.56f, 1.8f));
-            Lane.Events.Add(Speed(0.90f, 0.5f));
             Gallows.Lanes.Add(Lane);
         }
         SoluxPresets.Add(Gallows);

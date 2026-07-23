@@ -45,6 +45,32 @@ static constexpr int32 WTBR_TURNS_PER_VIPER = 4;
 static constexpr int32 WTBR_MAX_CUSTOM_LANE_WAYPOINTS = 5;
 
 /**
+ * Lanes a player-authored preset may hold.
+ *
+ * Shared so the editor and the server's upload sanitizer agree. They must: the
+ * sanitizer TRUNCATES past this, so a UI that allowed more would let a player build
+ * lanes that silently disappear the moment the preset is uploaded.
+ *
+ * 5 is the owner's call — every shipped preset already sits at or under it, and it
+ * is as many simultaneous paths as a shot can present before they stop reading as
+ * distinct.
+ */
+static constexpr int32 WTBR_MAX_CUSTOM_LANES = 5;
+
+/**
+ * Cubes a single preset may spend across ALL of its lanes.
+ *
+ * A per-lane limit alone is not a limit: five lanes of fifteen is seventy-five
+ * actors, each a real per-tick cost. Damage is a fixed budget split across the
+ * volley, so this is a performance and readability ceiling rather than a power one —
+ * more cubes has always meant weaker cubes.
+ *
+ * Dual-wielding is deliberately NOT special-cased: each side fires its own preset,
+ * so two sides naturally reach thirty without this number needing to know about it.
+ */
+static constexpr int32 WTBR_MAX_CUSTOM_PRESET_CUBES = 15;
+
+/**
  * What a cube does when it reaches a point the player marked on the lane.
  *
  * The player does not type a percentage — they click the drawn line where they want
@@ -72,9 +98,15 @@ enum class EWTBRLaneEventType : uint8
     // those archetypes it does nothing and says so in the log.
     SetHoming UMETA(DisplayName = "Enable / disable homing (Hound line only)"),
 
-    // Scale cruise speed from this point on. Slow at the end reads as an arrival a
-    // target can answer; fast at the end reads as a snap.
-    SetSpeed  UMETA(DisplayName = "Change speed"),
+    // SetSpeed was REMOVED 2026-07-23 and should not come back in this shape.
+    //
+    // Three reasons, any one of them sufficient. Canon never shows a bullet changing
+    // speed in flight. The implementation multiplied CustomTimeDilation rather than
+    // setting it, so speed changes COMPOUNDED and "back to normal" was not
+    // expressible — a player would have to author the exact reciprocal. And
+    // CustomTimeDilation does not replicate while projectiles do, so the server and
+    // the client disagreed about where a slowed cube was, producing correction
+    // stutter rather than a slow bullet.
 };
 
 /** One player-placed marker on a lane. */
@@ -84,9 +116,27 @@ struct FWTBRLaneEvent
     GENERATED_BODY()
 
     // Where on the lane, 0 at the muzzle and 1 at the authored end.
+    //
+    // Used directly only by C++-authored presets. Anything the Preset Editor writes
+    // sets AtWaypointIndex instead and leaves this to be derived — see below.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path",
         meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float AtPathFraction = 0.5f;
+
+    /**
+     * The waypoint this marker is pinned to, or INDEX_NONE to use AtPathFraction.
+     *
+     * The editor authors markers BY WAYPOINT because that is what the player is
+     * actually doing — they click a corner they drew and say "wait here". A raw
+     * fraction cannot express that: drag the corner afterwards and the marker stays
+     * at, say, half way along a path whose halfway point is now somewhere else, so
+     * the pause detaches from the bend it was placed on.
+     *
+     * Resolved into AtPathFraction at fire time, once the real path length is known
+     * (ResolvePathPreset). The projectile still consumes fractions and is unchanged.
+     */
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
+    int32 AtWaypointIndex = INDEX_NONE;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
     EWTBRLaneEventType Type = EWTBRLaneEventType::Hover;
@@ -99,11 +149,6 @@ struct FWTBRLaneEvent
     // SetHoming only.
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path")
     bool bEnable = true;
-
-    // SetSpeed only: multiplier on the shot's speed from here on.
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Composite | Path",
-        meta = (ClampMin = "0.05", ClampMax = "4.0"))
-    float SpeedMultiplier = 1.0f;
 };
 
 /** One lane of a path preset: a shape plus its projectile formation. */

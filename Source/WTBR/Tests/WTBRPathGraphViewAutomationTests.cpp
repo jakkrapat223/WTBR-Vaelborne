@@ -301,4 +301,161 @@ bool FWTBRPathGraphEditNotifiesTest::RunTest(const FString& /*Parameters*/)
     return true;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane-level rules (Step 5). The rail panel is Slate and needs a viewport, but
+// everything it can DO goes through these, so the rules themselves stay testable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRPathGraphAddLaneTest,
+    "WTBR.UI.PathGraph.AddedLaneIsVisibleAndSelected",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRPathGraphAddLaneTest::RunTest(const FString& /*Parameters*/)
+{
+    UWTBRPathGraphViewWidget* Widget = MakeGraphWithLane(
+        {FVector::ZeroVector, FVector(1.0f, 0.0f, 0.0f)});
+
+    TestTrue(TEXT("Adding a lane succeeds"), Widget->TryAddLane());
+    TestEqual(TEXT("There are now two lanes"), Widget->GetPreset().Lanes.Num(), 2);
+    TestEqual(TEXT("The new lane becomes the selected one"), Widget->GetSelectedLaneIndex(), 1);
+
+    // A lane with no waypoints draws nothing, so "add lane" would look like it did
+    // nothing at all.
+    TestEqual(TEXT("The new lane is seeded with a drawable, draggable pair of points"),
+        Widget->GetPreset().Lanes[1].NormalizedWaypoints.Num(), 2);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRPathGraphLaneCapTest,
+    "WTBR.UI.PathGraph.AddLaneStopsAtTheSharedLaneCap",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRPathGraphLaneCapTest::RunTest(const FString& /*Parameters*/)
+{
+    // Must match the server sanitizer's ceiling: a UI that allowed more would let a
+    // player build lanes that vanish on upload.
+    UWTBRPathGraphViewWidget* Widget = MakeGraphWithLane(
+        {FVector::ZeroVector, FVector(1.0f, 0.0f, 0.0f)});
+
+    while (Widget->CanAddLane())
+    {
+        if (!Widget->TryAddLane()) break;
+        if (Widget->GetPreset().Lanes.Num() > WTBR_MAX_CUSTOM_LANES * 2) break;
+    }
+
+    TestEqual(TEXT("Lanes fill exactly to the shared cap"),
+        Widget->GetPreset().Lanes.Num(), WTBR_MAX_CUSTOM_LANES);
+    TestFalse(TEXT("A full preset refuses another lane"), Widget->TryAddLane());
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRPathGraphKeepsOneLaneTest,
+    "WTBR.UI.PathGraph.DeleteNeverRemovesTheLastLane",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRPathGraphKeepsOneLaneTest::RunTest(const FString& /*Parameters*/)
+{
+    UWTBRPathGraphViewWidget* Widget = MakeGraphWithLane(
+        {FVector::ZeroVector, FVector(1.0f, 0.0f, 0.0f)});
+    Widget->TryAddLane();
+
+    TestTrue(TEXT("Deleting one of two lanes is allowed"), Widget->TryDeleteLane(1));
+    TestEqual(TEXT("One lane remains"), Widget->GetPreset().Lanes.Num(), 1);
+
+    // A preset with no lanes fires nothing at all.
+    TestFalse(TEXT("Deleting the last lane is refused"), Widget->TryDeleteLane(0));
+    TestEqual(TEXT("The lane survives"), Widget->GetPreset().Lanes.Num(), 1);
+
+    // Selection must not be left pointing past the end.
+    TestTrue(TEXT("Selection stays in range after a delete"),
+        Widget->GetPreset().Lanes.IsValidIndex(Widget->GetSelectedLaneIndex()));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRPathGraphScalarsDoNotTouchShapeTest,
+    "WTBR.UI.PathGraph.EditingLaneNumbersLeavesTheDraggedShapeAlone",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRPathGraphScalarsDoNotTouchShapeTest::RunTest(const FString& /*Parameters*/)
+{
+    // The rail edits numbers and the graph edits shape. If a scalar commit could
+    // carry waypoints with it, typing a delay would silently undo a drag.
+    const TArray<FVector> Shape = {
+        FVector::ZeroVector, FVector(0.5f, 0.3f, 0.2f), FVector(1.0f, -0.1f, 0.0f)};
+    UWTBRPathGraphViewWidget* Widget = MakeGraphWithLane(Shape);
+
+    FWTBRPathLane Incoming;
+    Incoming.CubeCount = 4;
+    Incoming.LaunchDelay = 2.5f;
+    Incoming.HomingRadius = 0.3f;
+    // Deliberately hostile: a caller that fills in waypoints must still not win.
+    Incoming.NormalizedWaypoints = {FVector::ZeroVector, FVector(0.1f, 0.0f, 0.0f)};
+
+    TestTrue(TEXT("Scalar update succeeds"), Widget->TryUpdateLaneScalars(0, Incoming));
+
+    const FWTBRPathLane& Result = Widget->GetPreset().Lanes[0];
+    TestEqual(TEXT("Cube count applied"), Result.CubeCount, 4);
+    TestEqual(TEXT("Launch delay applied"), Result.LaunchDelay, 2.5f);
+    TestEqual(TEXT("Homing radius applied"), Result.HomingRadius, 0.3f);
+    TestEqual(TEXT("The authored shape is untouched"), Result.NormalizedWaypoints.Num(), Shape.Num());
+    TestTrue(TEXT("The mid waypoint still holds its dragged position"),
+        Result.NormalizedWaypoints[1].Equals(Shape[1], KINDA_SMALL_NUMBER));
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRPathGraphScalarClampTest,
+    "WTBR.UI.PathGraph.LaneNumbersAreClampedToTheServerRanges",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRPathGraphScalarClampTest::RunTest(const FString& /*Parameters*/)
+{
+    // Clamping here as well as server-side means the player never authors a number
+    // that the upload would quietly alter behind them.
+    UWTBRPathGraphViewWidget* Widget = MakeGraphWithLane(
+        {FVector::ZeroVector, FVector(1.0f, 0.0f, 0.0f)});
+
+    FWTBRPathLane Incoming;
+    Incoming.CubeCount = 0;
+    Incoming.LaunchDelay = 99.0f;
+    Incoming.HomingRadius = -1.0f;
+    Incoming.HomingRadiusFloorUU = -50.0f;
+    Widget->TryUpdateLaneScalars(0, Incoming);
+
+    const FWTBRPathLane& Result = Widget->GetPreset().Lanes[0];
+    TestEqual(TEXT("Cube count floors at one"), Result.CubeCount, 1);
+    TestEqual(TEXT("Launch delay clamps to five seconds"), Result.LaunchDelay, 5.0f);
+    TestEqual(TEXT("Homing radius floors at zero"), Result.HomingRadius, 0.0f);
+    TestEqual(TEXT("Homing floor cannot go negative"), Result.HomingRadiusFloorUU, 0.0f);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FWTBRPathGraphLaneSelectionNotifiesTest,
+    "WTBR.UI.PathGraph.SelectingALaneNotifiesOnlyOnChange",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FWTBRPathGraphLaneSelectionNotifiesTest::RunTest(const FString& /*Parameters*/)
+{
+    // The rail's highlight follows this, including for number-key presses made while
+    // the graph has focus.
+    UWTBRPathGraphViewWidget* Widget = MakeGraphWithLane(
+        {FVector::ZeroVector, FVector(1.0f, 0.0f, 0.0f)});
+    Widget->TryAddLane();
+
+    int32 Notifications = 0;
+    Widget->OnLaneSelected.AddLambda([&Notifications](int32) { ++Notifications; });
+
+    Widget->SetSelectedLaneIndex(0);
+    TestEqual(TEXT("Changing selection notifies"), Notifications, 1);
+
+    Widget->SetSelectedLaneIndex(0);
+    TestEqual(TEXT("Re-selecting the same lane does not notify again"), Notifications, 1);
+    return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

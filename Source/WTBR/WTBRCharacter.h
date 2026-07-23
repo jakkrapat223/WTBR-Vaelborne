@@ -29,6 +29,7 @@ class UWTBRTriggerWheelWidget;
 class UWTBRMarkPingHUDWidget;
 class UWTBREscudoPresetWheelWidget;
 class UWTBRPathGraphViewWidget;
+class UWTBRLaneListRailWidget;
 class UWTBREscudoTrigger;
 class UWTBRSerpveilTrigger;
 class UWTBRVenyxTrigger;
@@ -359,6 +360,9 @@ public:
     UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
     TObjectPtr<UWTBRPathGraphViewWidget> DebugPathGraphWidgetInstance;
 
+    UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
+    TObjectPtr<UWTBRLaneListRailWidget> DebugLaneRailWidgetInstance;
+
     // Seconds Q/E must be held before the selection wheel opens. Below this the
     // release is treated as a tap and cycles the slot, preserving the existing
     // behaviour. Mirrors UWTBRInputGestureComponent's own HoldThreshold.
@@ -626,6 +630,11 @@ private:
     // fires. Stands in for the real editor's Save button (Step 7) — without it the
     // graph mutates its own copy and firing silently uses the unedited original.
     void SaveDebugPathGraphEdits();
+
+    // Which custom preset the debug graph's edits are written to. Resolved ONCE when
+    // the graph is opened, not per edit: editing a built-in preset forks it, and
+    // re-deriving a fresh name on every drag would spawn a new preset per mouse move.
+    FName DebugPathGraphSaveTargetId;
 
 public:
 

@@ -10,6 +10,16 @@
 // (the editor root widget owns the draft this view mutates).
 DECLARE_MULTICAST_DELEGATE(FWTBRPathGraphPresetEdited);
 
+// Broadcast when the selected lane changes, so the lane rail's highlight follows a
+// number-key press made while the graph has focus.
+DECLARE_MULTICAST_DELEGATE_OneParam(FWTBRPathGraphLaneSelected, int32 /*LaneIndex*/);
+
+// Broadcast when the selected WAYPOINT changes. The properties panel shows a
+// different set of fields per waypoint — the start carries the shot's cube count and
+// launch delay, a mid waypoint carries what happens when the cube reaches it, and
+// the last carries nothing at all — so it has to follow this.
+DECLARE_MULTICAST_DELEGATE_OneParam(FWTBRPathGraphWaypointSelected, int32 /*WaypointIndex*/);
+
 /** Which handle, in which pane, a screen point landed on. */
 struct FWTBRPathGraphHandleHit
 {
@@ -56,6 +66,8 @@ class WTBR_API UWTBRPathGraphViewWidget : public UUserWidget
     GENERATED_BODY()
 
 public:
+    UWTBRPathGraphViewWidget(const FObjectInitializer& ObjectInitializer);
+
     // Display bounds in normalized (fraction-of-range) space. Every authored preset
     // today sits inside these: the widest baked lane reaches forward 1.14, lateral
     // 0.54 and vertical 0.64. Purely a view concern — the data model itself has no
@@ -102,7 +114,17 @@ public:
         meta = (ClampMin = "1.0"))
     float HandleGrabRadius = 14.0f;
 
+    // Only the selected lane may be grabbed; the others are drawn for context and
+    // are inert. Owner's call after driving Step 4: lanes overlap constantly in the
+    // plan view, and a click meant for the lane being edited would otherwise pick up
+    // a neighbour and move somebody else's shape. Select with the number keys or the
+    // lane rail instead of by grabbing.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WTBR | Path Graph")
+    bool bLockUnselectedLanes = true;
+
     FWTBRPathGraphPresetEdited OnPresetEdited;
+    FWTBRPathGraphLaneSelected OnLaneSelected;
+    FWTBRPathGraphWaypointSelected OnWaypointSelected;
 
     // Use this rather than writing bAllowEditing directly: the flag also decides the
     // widget's visibility, and a HitTestInvisible widget receives no mouse events at
@@ -144,6 +166,85 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "WTBR | Path Graph")
     bool CanDeleteWaypoint(int32 LaneIndex, int32 WaypointIndex) const;
+
+    /**
+     * Adds a lane, seeded as a straight shot to the front of the view so it is
+     * immediately visible and draggable rather than a zero-length stub the player
+     * has to find. Refused at WTBR_MAX_CUSTOM_LANES, which is the same ceiling the
+     * server's sanitizer truncates at.
+     */
+    bool TryAddLane();
+
+    /** Refused on the last lane: a preset with no lanes fires nothing. */
+    bool TryDeleteLane(int32 LaneIndex);
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Path Graph")
+    bool CanAddLane() const;
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Path Graph")
+    bool CanDeleteLane() const;
+
+    /**
+     * Copies the SCALAR settings of a lane — count, delay, formation — from Source,
+     * clamping each. Deliberately ignores Source's waypoints and events: the rail
+     * edits numbers and the graph edits shape, and one panel silently overwriting
+     * the other's work is the bug this shape prevents outright.
+     *
+     * CubeCount is additionally clamped against the WHOLE preset's remaining budget,
+     * not just its own range — see GetRemainingCubeBudgetForLane.
+     */
+    bool TryUpdateLaneScalars(int32 LaneIndex, const FWTBRPathLane& Source);
+
+    /**
+     * Largest CubeCount this lane may take without the preset exceeding
+     * WTBR_MAX_CUSTOM_PRESET_CUBES across every lane. Always at least 1: a lane that
+     * fires nothing is not a lane.
+     */
+    UFUNCTION(BlueprintPure, Category = "WTBR | Path Graph")
+    int32 GetRemainingCubeBudgetForLane(int32 LaneIndex) const;
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Path Graph")
+    int32 GetTotalCubeCount() const;
+
+    // ── Waypoint selection and the markers pinned to a waypoint ────────────────
+    //
+    // What a waypoint can carry depends on WHERE it sits, and that is the whole
+    // model: the start is where the shot leaves (how many cubes, how long it waits),
+    // a middle waypoint is somewhere the cube passes through (so it can pause there,
+    // or change whether it is hunting), and the last is only a destination — there
+    // is nothing left to schedule once the lane has arrived.
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Path Graph")
+    int32 GetSelectedWaypointIndex() const { return SelectedWaypointIndex; }
+
+    void SetSelectedWaypointIndex(int32 InWaypointIndex);
+
+    /** True for a waypoint that is neither the caster nor the landing point. */
+    UFUNCTION(BlueprintPure, Category = "WTBR | Path Graph")
+    bool IsMidWaypoint(int32 LaneIndex, int32 WaypointIndex) const;
+
+    /** Seconds the cube pauses at this waypoint; zero when it has no pause marker. */
+    UFUNCTION(BlueprintPure, Category = "WTBR | Path Graph")
+    float GetWaypointHoverSeconds(int32 LaneIndex, int32 WaypointIndex) const;
+
+    /** Zero removes the marker entirely rather than leaving a pause of no length. */
+    bool TrySetWaypointHoverSeconds(int32 LaneIndex, int32 WaypointIndex, float Seconds);
+
+    /**
+     * Homing at this waypoint, as three states rather than two: no marker at all
+     * (whatever was happening continues), switch hunting ON here, or switch it OFF.
+     *
+     * "Off until half way, then on" — the shape flies as drawn and only commits
+     * late — needs exactly this: an OFF marker at the start and an ON marker part
+     * way along. A plain bool could not say "leave it alone".
+     */
+    UFUNCTION(BlueprintPure, Category = "WTBR | Path Graph")
+    bool HasWaypointHomingMarker(int32 LaneIndex, int32 WaypointIndex) const;
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Path Graph")
+    bool GetWaypointHomingEnabled(int32 LaneIndex, int32 WaypointIndex) const;
+
+    bool TrySetWaypointHoming(int32 LaneIndex, int32 WaypointIndex, bool bMarkerPresent, bool bEnable);
 
     // Free-text provenance line drawn along the top ("which preset, from which
     // Trigger"). Without it the view is anonymous, and a graph that silently shows
@@ -208,6 +309,10 @@ protected:
     virtual FReply NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
     virtual FReply NativeOnMouseButtonUp(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent) override;
 
+    // Number keys 1-9 select a lane. Chosen over cycling because the rail shows the
+    // numbers, so the shortcut is discoverable from the panel rather than learned.
+    virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+
 private:
     // Pane rects derived from the widget's own allotted size. Both are computed in
     // one place so paint and (next pass) hit-testing agree on where each pane is.
@@ -257,6 +362,19 @@ private:
 
     int32 SelectedLaneIndex = 0;
 
+    // Starts on the caster, which is the one waypoint that always exists.
+    int32 SelectedWaypointIndex = 0;
+
     // In-flight drag. Waypoint index is INDEX_NONE when nothing is being dragged.
     FWTBRPathGraphHandleHit ActiveDrag;
+
+    // Finds the marker of a given type pinned to a waypoint, or nullptr.
+    FWTBRLaneEvent* FindWaypointEvent(int32 LaneIndex, int32 WaypointIndex, EWTBRLaneEventType Type);
+    const FWTBRLaneEvent* FindWaypointEvent(int32 LaneIndex, int32 WaypointIndex, EWTBRLaneEventType Type) const;
+
+    // Keeps every marker pinned to the waypoint it was placed on after the list
+    // shifts. Without it, inserting a bend early in a lane silently moves every
+    // marker after it onto the wrong corner.
+    void RemapWaypointEventsAfterInsert(int32 LaneIndex, int32 InsertedAt);
+    void RemapWaypointEventsAfterDelete(int32 LaneIndex, int32 DeletedAt);
 };

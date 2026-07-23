@@ -1184,8 +1184,10 @@ namespace
 bool UWTBRTriggerSetComponent::SanitizeCustomVenyxPreset(FWTBRPathPreset& Preset)
 {
     // Anti-abuse ceilings, not balance numbers — a modified client could otherwise
-    // upload an unbounded number of lanes/events per preset.
-    static constexpr int32 MaxLanesPerPreset = 8;
+    // upload an unbounded number of lanes/events per preset. The lane ceiling is
+    // shared with the editor so its "add lane" button cannot build lanes that this
+    // function would then silently truncate away.
+    static constexpr int32 MaxLanesPerPreset = WTBR_MAX_CUSTOM_LANES;
     static constexpr int32 MaxEventsPerLane = 8;
 
     // Waypoints are fractions of the committed range, so anything authorable in the
@@ -1271,7 +1273,6 @@ bool UWTBRTriggerSetComponent::SanitizeCustomVenyxPreset(FWTBRPathPreset& Preset
         {
             Event.AtPathFraction = WTBRSanitizeFloat(Event.AtPathFraction, 0.5f, 0.0f, 1.0f);
             Event.DurationSeconds = WTBRSanitizeFloat(Event.DurationSeconds, 0.0f, 0.0f, 5.0f);
-            Event.SpeedMultiplier = WTBRSanitizeFloat(Event.SpeedMultiplier, 1.0f, 0.05f, 4.0f);
         }
     }
 

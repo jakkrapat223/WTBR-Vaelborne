@@ -131,6 +131,47 @@ void UWTBRCompositeRegistryDataAsset::SampleSmoothPath(
     OutPoints.Add(InWaypoints.Last());
 }
 
+float UWTBRCompositeRegistryDataAsset::ComputeWaypointPathFraction(
+    const TArray<FVector>& AuthoredWaypoints, int32 WaypointIndex, bool bSmoothCurve)
+{
+    if (AuthoredWaypoints.Num() < 2) return 0.0f;
+
+    const int32 Clamped = FMath::Clamp(WaypointIndex, 0, AuthoredWaypoints.Num() - 1);
+    if (Clamped == 0) return 0.0f;
+    if (Clamped == AuthoredWaypoints.Num() - 1) return 1.0f;
+
+    TArray<FVector> Points;
+    if (bSmoothCurve)
+    {
+        SampleSmoothPath(AuthoredWaypoints, Points);
+    }
+    else
+    {
+        Points = AuthoredWaypoints;
+    }
+    if (Points.Num() < 2) return 0.0f;
+
+    // Catmull-Rom passes THROUGH every authored point and the sampler emits a fixed
+    // number of samples per segment, so waypoint N is sample N*SamplesPerSegment. On
+    // a sharp path the sampler is a no-op and the index is the waypoint's own.
+    const int32 SamplesPerSegment = bSmoothCurve
+        ? (Points.Num() - 1) / FMath::Max(1, AuthoredWaypoints.Num() - 1)
+        : 1;
+    const int32 TargetSample = FMath::Min(Clamped * SamplesPerSegment, Points.Num() - 1);
+
+    float DistanceToTarget = 0.0f;
+    float TotalDistance = 0.0f;
+    for (int32 Index = 1; Index < Points.Num(); ++Index)
+    {
+        const float Step = static_cast<float>(FVector::Dist(Points[Index - 1], Points[Index]));
+        TotalDistance += Step;
+        if (Index <= TargetSample) DistanceToTarget += Step;
+    }
+
+    return TotalDistance > KINDA_SMALL_NUMBER
+        ? FMath::Clamp(DistanceToTarget / TotalDistance, 0.0f, 1.0f) : 0.0f;
+}
+
 bool UWTBRCompositeRegistryDataAsset::UsesSharpPath(
     EWTBRBulletArchetype ArchetypeA, EWTBRBulletArchetype ArchetypeB)
 {
@@ -285,7 +326,9 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
         }
         else
         {
-            LaneWaypoints = MoveTemp(ClampedWaypoints);
+            // Copied, not moved: ClampedWaypoints is still needed below to resolve
+            // any waypoint-pinned lane markers into path fractions.
+            LaneWaypoints = ClampedWaypoints;
         }
 
         const int32 CubeCount = LaneCubeCounts[LaneIndex];
@@ -323,6 +366,19 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
                 FWTBRResolvedCubeLaunch& Launch = OutCubeLaunches->AddDefaulted_GetRef();
                 Launch.DelaySeconds = FMath::Max(0.0f, Lane.LaunchDelay);
                 Launch.Events = Lane.Events;
+
+                // A marker the editor pinned to a waypoint becomes a fraction here,
+                // where the shape is finally known. Done on the COPY so the authored
+                // preset keeps its waypoint pin and survives the player dragging that
+                // corner somewhere else. Markers authored in C++ carry no pin and
+                // keep the fraction they were written with.
+                for (FWTBRLaneEvent& Event : Launch.Events)
+                {
+                    if (Event.AtWaypointIndex == INDEX_NONE) continue;
+
+                    Event.AtPathFraction = ComputeWaypointPathFraction(
+                        ClampedWaypoints, Event.AtWaypointIndex, bSmoothCurve);
+                }
                 // Authored as a fraction of range for the same reason the waypoints
                 // are: one preset then reads the same at every charge level. The
                 // floor keeps a short shot from resolving to a radius too small to

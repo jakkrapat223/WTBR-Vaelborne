@@ -136,7 +136,6 @@ bool FWTBRCustomPresetValidationClampsScalarsTest::RunTest(const FString& /*Para
     FWTBRLaneEvent Event;
     Event.AtPathFraction = 5.0f;
     Event.DurationSeconds = -1.0f;
-    Event.SpeedMultiplier = 999.0f;
     Lane.Events.Add(Event);
 
     Preset.Lanes.Add(Lane);
@@ -154,8 +153,6 @@ bool FWTBRCustomPresetValidationClampsScalarsTest::RunTest(const FString& /*Para
     {
         TestEqual(TEXT("AtPathFraction clamped into 0..1"), Sanitized.Events[0].AtPathFraction, 1.0f);
         TestEqual(TEXT("DurationSeconds clamped to its floor"), Sanitized.Events[0].DurationSeconds, 0.0f);
-        TestEqual(TEXT("SpeedMultiplier clamped to its documented ceiling"),
-            Sanitized.Events[0].SpeedMultiplier, 4.0f);
     }
     return true;
 }
@@ -220,7 +217,6 @@ bool FWTBRCustomPresetValidationReplacesNonFiniteScalarsTest::RunTest(const FStr
     FWTBRLaneEvent Event;
     Event.AtPathFraction = NaN;
     Event.DurationSeconds = NaN;
-    Event.SpeedMultiplier = NaN;
     Lane.Events.Add(Event);
 
     Preset.Lanes.Add(Lane);
@@ -241,8 +237,6 @@ bool FWTBRCustomPresetValidationReplacesNonFiniteScalarsTest::RunTest(const FStr
             FMath::IsFinite(Sanitized.Events[0].AtPathFraction));
         TestTrue(TEXT("DurationSeconds is finite after sanitizing"),
             FMath::IsFinite(Sanitized.Events[0].DurationSeconds));
-        TestTrue(TEXT("SpeedMultiplier is finite after sanitizing"),
-            FMath::IsFinite(Sanitized.Events[0].SpeedMultiplier));
     }
     return true;
 }

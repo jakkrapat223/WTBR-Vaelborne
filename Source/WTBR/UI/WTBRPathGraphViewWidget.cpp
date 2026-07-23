@@ -19,6 +19,14 @@ namespace
     constexpr int32 WTBRGraphLateralGridLines = 4;
 }
 
+UWTBRPathGraphViewWidget::UWTBRPathGraphViewWidget(const FObjectInitializer& ObjectInitializer)
+    : Super(ObjectInitializer)
+{
+    // Required for NativeOnKeyDown to ever fire — number-key lane selection is dead
+    // without it, and silently so.
+    bIsFocusable = true;
+}
+
 FVector2D UWTBRPathGraphViewWidget::ProjectNormalizedToPane(
     const FVector& Normalized,
     const FSlateRect& PaneRect,
@@ -79,6 +87,9 @@ void UWTBRPathGraphViewWidget::SetPreset(const FWTBRPathPreset& InPreset)
 {
     DisplayPreset = InPreset;
     SelectedLaneIndex = FMath::Clamp(SelectedLaneIndex, 0, FMath::Max(0, DisplayPreset.Lanes.Num() - 1));
+    // Back to the caster: a waypoint index from the previous preset means nothing in
+    // this one, and the start is the one waypoint every lane is guaranteed to have.
+    SelectedWaypointIndex = 0;
     ActiveDrag = FWTBRPathGraphHandleHit();
     ApplyEditingVisibility();
 }
@@ -155,6 +166,10 @@ bool UWTBRPathGraphViewWidget::TryInsertWaypoint(
         FMath::Clamp(Normalized.Y, -Extent, Extent),
         FMath::Clamp(Normalized.Z, -Extent, Extent)), ClampedIndex);
 
+    // Everything after the new bend shifts up one, and its markers have to shift with
+    // it or a pause placed on the third corner ends up on the second.
+    RemapWaypointEventsAfterInsert(LaneIndex, ClampedIndex);
+
     OnPresetEdited.Broadcast();
     return true;
 }
@@ -164,7 +179,10 @@ bool UWTBRPathGraphViewWidget::TryDeleteWaypoint(int32 LaneIndex, int32 Waypoint
     if (!CanDeleteWaypoint(LaneIndex, WaypointIndex)) return false;
 
     DisplayPreset.Lanes[LaneIndex].NormalizedWaypoints.RemoveAt(WaypointIndex);
+    RemapWaypointEventsAfterDelete(LaneIndex, WaypointIndex);
+
     ActiveDrag = FWTBRPathGraphHandleHit();
+    SetSelectedWaypointIndex(SelectedWaypointIndex);
 
     OnPresetEdited.Broadcast();
     return true;
@@ -172,7 +190,291 @@ bool UWTBRPathGraphViewWidget::TryDeleteWaypoint(int32 LaneIndex, int32 Waypoint
 
 void UWTBRPathGraphViewWidget::SetSelectedLaneIndex(int32 InLaneIndex)
 {
-    SelectedLaneIndex = FMath::Clamp(InLaneIndex, 0, FMath::Max(0, DisplayPreset.Lanes.Num() - 1));
+    const int32 NewIndex = FMath::Clamp(InLaneIndex, 0, FMath::Max(0, DisplayPreset.Lanes.Num() - 1));
+    if (NewIndex == SelectedLaneIndex) return;
+
+    SelectedLaneIndex = NewIndex;
+    // A drag belongs to the lane it started on; switching selection mid-gesture
+    // would otherwise keep moving a handle the player can no longer see as selected.
+    ActiveDrag = FWTBRPathGraphHandleHit();
+    OnLaneSelected.Broadcast(SelectedLaneIndex);
+}
+
+void UWTBRPathGraphViewWidget::SetSelectedWaypointIndex(int32 InWaypointIndex)
+{
+    const int32 Count = DisplayPreset.Lanes.IsValidIndex(SelectedLaneIndex)
+        ? DisplayPreset.Lanes[SelectedLaneIndex].NormalizedWaypoints.Num() : 0;
+
+    const int32 NewIndex = FMath::Clamp(InWaypointIndex, 0, FMath::Max(0, Count - 1));
+    if (NewIndex == SelectedWaypointIndex) return;
+
+    SelectedWaypointIndex = NewIndex;
+    OnWaypointSelected.Broadcast(SelectedWaypointIndex);
+}
+
+bool UWTBRPathGraphViewWidget::IsMidWaypoint(int32 LaneIndex, int32 WaypointIndex) const
+{
+    if (!DisplayPreset.Lanes.IsValidIndex(LaneIndex)) return false;
+
+    const int32 Count = DisplayPreset.Lanes[LaneIndex].NormalizedWaypoints.Num();
+    return WaypointIndex > 0 && WaypointIndex < Count - 1;
+}
+
+FWTBRLaneEvent* UWTBRPathGraphViewWidget::FindWaypointEvent(
+    int32 LaneIndex, int32 WaypointIndex, EWTBRLaneEventType Type)
+{
+    if (!DisplayPreset.Lanes.IsValidIndex(LaneIndex)) return nullptr;
+
+    return DisplayPreset.Lanes[LaneIndex].Events.FindByPredicate(
+        [WaypointIndex, Type](const FWTBRLaneEvent& Event)
+        {
+            return Event.AtWaypointIndex == WaypointIndex && Event.Type == Type;
+        });
+}
+
+const FWTBRLaneEvent* UWTBRPathGraphViewWidget::FindWaypointEvent(
+    int32 LaneIndex, int32 WaypointIndex, EWTBRLaneEventType Type) const
+{
+    return const_cast<UWTBRPathGraphViewWidget*>(this)->FindWaypointEvent(LaneIndex, WaypointIndex, Type);
+}
+
+float UWTBRPathGraphViewWidget::GetWaypointHoverSeconds(int32 LaneIndex, int32 WaypointIndex) const
+{
+    const FWTBRLaneEvent* Event = FindWaypointEvent(LaneIndex, WaypointIndex, EWTBRLaneEventType::Hover);
+    return Event ? Event->DurationSeconds : 0.0f;
+}
+
+bool UWTBRPathGraphViewWidget::TrySetWaypointHoverSeconds(
+    int32 LaneIndex, int32 WaypointIndex, float Seconds)
+{
+    // Only a middle waypoint can hold a pause. Pausing at the muzzle is the launch
+    // delay, which the start waypoint already carries, and pausing at the landing
+    // point would hold a cube still at the exact moment its path ends.
+    if (!IsMidWaypoint(LaneIndex, WaypointIndex)) return false;
+
+    const float Clamped = FMath::Clamp(Seconds, 0.0f, 5.0f);
+    TArray<FWTBRLaneEvent>& Events = DisplayPreset.Lanes[LaneIndex].Events;
+
+    if (FWTBRLaneEvent* Existing = FindWaypointEvent(LaneIndex, WaypointIndex, EWTBRLaneEventType::Hover))
+    {
+        if (Clamped <= 0.0f)
+        {
+            // Removed rather than left at zero: a pause of no length is not a pause,
+            // and keeping it would draw a marker on the path that does nothing.
+            Events.RemoveAll([WaypointIndex](const FWTBRLaneEvent& Event)
+            {
+                return Event.AtWaypointIndex == WaypointIndex
+                    && Event.Type == EWTBRLaneEventType::Hover;
+            });
+        }
+        else
+        {
+            Existing->DurationSeconds = Clamped;
+        }
+    }
+    else
+    {
+        if (Clamped <= 0.0f) return false;
+
+        FWTBRLaneEvent& Added = Events.AddDefaulted_GetRef();
+        Added.Type = EWTBRLaneEventType::Hover;
+        Added.AtWaypointIndex = WaypointIndex;
+        Added.DurationSeconds = Clamped;
+    }
+
+    OnPresetEdited.Broadcast();
+    return true;
+}
+
+bool UWTBRPathGraphViewWidget::HasWaypointHomingMarker(int32 LaneIndex, int32 WaypointIndex) const
+{
+    return FindWaypointEvent(LaneIndex, WaypointIndex, EWTBRLaneEventType::SetHoming) != nullptr;
+}
+
+bool UWTBRPathGraphViewWidget::GetWaypointHomingEnabled(int32 LaneIndex, int32 WaypointIndex) const
+{
+    const FWTBRLaneEvent* Event = FindWaypointEvent(LaneIndex, WaypointIndex, EWTBRLaneEventType::SetHoming);
+    return Event ? Event->bEnable : false;
+}
+
+bool UWTBRPathGraphViewWidget::TrySetWaypointHoming(
+    int32 LaneIndex, int32 WaypointIndex, bool bMarkerPresent, bool bEnable)
+{
+    // The start waypoint is allowed one, unlike a pause: "do not hunt yet" has to be
+    // sayable at the muzzle, or a lane can never fly its opening stretch blind.
+    if (!DisplayPreset.Lanes.IsValidIndex(LaneIndex)) return false;
+
+    const int32 Count = DisplayPreset.Lanes[LaneIndex].NormalizedWaypoints.Num();
+    if (WaypointIndex < 0 || WaypointIndex >= Count - 1) return false;
+
+    TArray<FWTBRLaneEvent>& Events = DisplayPreset.Lanes[LaneIndex].Events;
+
+    if (!bMarkerPresent)
+    {
+        Events.RemoveAll([WaypointIndex](const FWTBRLaneEvent& Event)
+        {
+            return Event.AtWaypointIndex == WaypointIndex
+                && Event.Type == EWTBRLaneEventType::SetHoming;
+        });
+    }
+    else if (FWTBRLaneEvent* Existing =
+        FindWaypointEvent(LaneIndex, WaypointIndex, EWTBRLaneEventType::SetHoming))
+    {
+        Existing->bEnable = bEnable;
+    }
+    else
+    {
+        FWTBRLaneEvent& Added = Events.AddDefaulted_GetRef();
+        Added.Type = EWTBRLaneEventType::SetHoming;
+        Added.AtWaypointIndex = WaypointIndex;
+        Added.bEnable = bEnable;
+    }
+
+    OnPresetEdited.Broadcast();
+    return true;
+}
+
+void UWTBRPathGraphViewWidget::RemapWaypointEventsAfterInsert(int32 LaneIndex, int32 InsertedAt)
+{
+    if (!DisplayPreset.Lanes.IsValidIndex(LaneIndex)) return;
+
+    for (FWTBRLaneEvent& Event : DisplayPreset.Lanes[LaneIndex].Events)
+    {
+        if (Event.AtWaypointIndex >= InsertedAt) ++Event.AtWaypointIndex;
+    }
+}
+
+void UWTBRPathGraphViewWidget::RemapWaypointEventsAfterDelete(int32 LaneIndex, int32 DeletedAt)
+{
+    if (!DisplayPreset.Lanes.IsValidIndex(LaneIndex)) return;
+
+    TArray<FWTBRLaneEvent>& Events = DisplayPreset.Lanes[LaneIndex].Events;
+
+    // Markers on the waypoint that just went away go with it — there is no longer a
+    // point in the path for them to describe.
+    Events.RemoveAll([DeletedAt](const FWTBRLaneEvent& Event)
+    {
+        return Event.AtWaypointIndex == DeletedAt;
+    });
+
+    for (FWTBRLaneEvent& Event : Events)
+    {
+        if (Event.AtWaypointIndex > DeletedAt) --Event.AtWaypointIndex;
+    }
+}
+
+bool UWTBRPathGraphViewWidget::CanAddLane() const
+{
+    return DisplayPreset.Lanes.Num() < WTBR_MAX_CUSTOM_LANES;
+}
+
+bool UWTBRPathGraphViewWidget::CanDeleteLane() const
+{
+    return DisplayPreset.Lanes.Num() > 1;
+}
+
+bool UWTBRPathGraphViewWidget::TryAddLane()
+{
+    if (!CanAddLane()) return false;
+
+    // Seeded as a straight shot to the front of the view, NOT an empty lane: a lane
+    // with no waypoints draws nothing, so the player would add one and see no change
+    // at all. Starting straight also makes the two handles immediately grabbable.
+    FWTBRPathLane& Lane = DisplayPreset.Lanes.AddDefaulted_GetRef();
+    Lane.NormalizedWaypoints = {FVector::ZeroVector, FVector(ForwardMax, 0.0f, 0.0f)};
+
+    SetSelectedLaneIndex(DisplayPreset.Lanes.Num() - 1);
+    OnPresetEdited.Broadcast();
+    return true;
+}
+
+bool UWTBRPathGraphViewWidget::TryDeleteLane(int32 LaneIndex)
+{
+    if (!DisplayPreset.Lanes.IsValidIndex(LaneIndex) || !CanDeleteLane()) return false;
+
+    DisplayPreset.Lanes.RemoveAt(LaneIndex);
+    ActiveDrag = FWTBRPathGraphHandleHit();
+
+    // Clamp rather than keep the old number: deleting the last lane in the list would
+    // otherwise leave the selection pointing past the end.
+    SelectedLaneIndex = FMath::Clamp(SelectedLaneIndex, 0, DisplayPreset.Lanes.Num() - 1);
+    OnLaneSelected.Broadcast(SelectedLaneIndex);
+    OnPresetEdited.Broadcast();
+    return true;
+}
+
+int32 UWTBRPathGraphViewWidget::GetTotalCubeCount() const
+{
+    int32 Total = 0;
+    for (const FWTBRPathLane& Lane : DisplayPreset.Lanes)
+    {
+        Total += FMath::Max(1, Lane.CubeCount);
+    }
+    return Total;
+}
+
+int32 UWTBRPathGraphViewWidget::GetRemainingCubeBudgetForLane(int32 LaneIndex) const
+{
+    if (!DisplayPreset.Lanes.IsValidIndex(LaneIndex)) return 1;
+
+    // Everything the OTHER lanes already spend. What is left is this lane's ceiling.
+    const int32 SpentElsewhere =
+        GetTotalCubeCount() - FMath::Max(1, DisplayPreset.Lanes[LaneIndex].CubeCount);
+
+    return FMath::Max(1, WTBR_MAX_CUSTOM_PRESET_CUBES - SpentElsewhere);
+}
+
+bool UWTBRPathGraphViewWidget::TryUpdateLaneScalars(int32 LaneIndex, const FWTBRPathLane& Source)
+{
+    if (!DisplayPreset.Lanes.IsValidIndex(LaneIndex)) return false;
+
+    FWTBRPathLane& Lane = DisplayPreset.Lanes[LaneIndex];
+
+    // Same ranges the server's sanitizer enforces on upload. Clamping here too means
+    // the player never authors a number that would be silently altered later.
+    //
+    // The cube count is clamped against what the rest of the preset already spends,
+    // so the total can never exceed the budget however the player reaches it —
+    // clamping each lane to 15 on its own would still allow five lanes of fifteen.
+    Lane.CubeCount = FMath::Clamp(Source.CubeCount, 1, GetRemainingCubeBudgetForLane(LaneIndex));
+    Lane.LaunchDelay = FMath::Clamp(Source.LaunchDelay, 0.0f, 5.0f);
+    Lane.HomingRadius = FMath::Clamp(Source.HomingRadius, 0.0f, 1.0f);
+    Lane.HomingRadiusFloorUU = FMath::Max(0.0f, Source.HomingRadiusFloorUU);
+    Lane.FormationOffset = Source.FormationOffset;
+
+    // NormalizedWaypoints and Events are deliberately untouched — see the header.
+
+    OnPresetEdited.Broadcast();
+    return true;
+}
+
+FReply UWTBRPathGraphViewWidget::NativeOnKeyDown(
+    const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+    if (!bAllowEditing)
+    {
+        return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+    }
+
+    static const FKey NumberKeys[] = {
+        EKeys::One, EKeys::Two, EKeys::Three, EKeys::Four, EKeys::Five,
+        EKeys::Six, EKeys::Seven, EKeys::Eight, EKeys::Nine
+    };
+
+    const FKey Pressed = InKeyEvent.GetKey();
+    for (int32 Index = 0; Index < UE_ARRAY_COUNT(NumberKeys); ++Index)
+    {
+        if (Pressed != NumberKeys[Index]) continue;
+
+        // Out-of-range numbers are swallowed rather than clamped to the last lane:
+        // pressing 5 on a three-lane preset meaning "lane 3" would be a surprise.
+        if (!DisplayPreset.Lanes.IsValidIndex(Index)) return FReply::Handled();
+
+        SetSelectedLaneIndex(Index);
+        return FReply::Handled();
+    }
+
+    return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
 
 void UWTBRPathGraphViewWidget::ComputePaneRects(
@@ -296,7 +598,12 @@ void UWTBRPathGraphViewWidget::PaintPane(
     for (int32 LaneIndex = 0; LaneIndex < DisplayPreset.Lanes.Num(); ++LaneIndex)
     {
         const bool bSelected = (LaneIndex == SelectedLaneIndex);
-        const FLinearColor LaneColor = bSelected ? WTBRGraphLaneSelected : WTBRGraphLane;
+
+        // Locked lanes are drawn markedly fainter so "cannot be grabbed" is visible
+        // rather than something the player discovers by clicking and getting nothing.
+        const bool bLocked = bAllowEditing && bLockUnselectedLanes && !bSelected;
+        FLinearColor LaneColor = bSelected ? WTBRGraphLaneSelected : WTBRGraphLane;
+        if (bLocked) LaneColor.A *= 0.45f;
 
         TArray<FVector2D> CurvePoints;
         ComputeLaneCurvePositions(LaneIndex, PaneRect, bElevationPane, CurvePoints);
@@ -307,7 +614,11 @@ void UWTBRPathGraphViewWidget::PaintPane(
             LaneColor, true, bSelected ? 2.6f : 1.6f);
 
         // Handles come from the AUTHORED waypoints, never the curve samples — one
-        // handle per point the player actually placed.
+        // handle per point the player actually placed. Skipped entirely on a locked
+        // lane: drawing grab points on something that cannot be grabbed invites the
+        // click the lock exists to prevent.
+        if (bLocked) continue;
+
         TArray<FVector2D> LanePoints;
         ComputeLaneHandlePositions(LaneIndex, PaneRect, bElevationPane, LanePoints);
 
@@ -373,17 +684,23 @@ bool UWTBRPathGraphViewWidget::HitTestHandle(
 
     const float RadiusSq = HandleGrabRadius * HandleGrabRadius;
 
-    // Selected lane first, then the rest — a click on overlapping handles should keep
-    // the player on the lane they are already editing rather than switching under them.
     TArray<int32> SearchOrder;
     SearchOrder.Reserve(DisplayPreset.Lanes.Num());
     if (DisplayPreset.Lanes.IsValidIndex(SelectedLaneIndex))
     {
         SearchOrder.Add(SelectedLaneIndex);
     }
-    for (int32 LaneIndex = 0; LaneIndex < DisplayPreset.Lanes.Num(); ++LaneIndex)
+
+    // With the lock on, the selected lane is the ONLY grabbable one. Lanes overlap
+    // heavily in the plan view, and a click meant for the lane being edited would
+    // otherwise pick up a neighbour and move a shape the player was not looking at.
+    // Selection moves by number key or the rail instead.
+    if (!bLockUnselectedLanes)
     {
-        if (LaneIndex != SelectedLaneIndex) SearchOrder.Add(LaneIndex);
+        for (int32 LaneIndex = 0; LaneIndex < DisplayPreset.Lanes.Num(); ++LaneIndex)
+        {
+            if (LaneIndex != SelectedLaneIndex) SearchOrder.Add(LaneIndex);
+        }
     }
 
     for (const int32 LaneIndex : SearchOrder)
@@ -479,6 +796,9 @@ FReply UWTBRPathGraphViewWidget::NativeOnMouseButtonDown(
     if (bHitHandle)
     {
         SelectedLaneIndex = Hit.LaneIndex;
+        // Grabbing a handle also SELECTS it, so the properties panel follows the
+        // point the player is working on without a second click.
+        SetSelectedWaypointIndex(Hit.WaypointIndex);
         ActiveDrag = Hit;
 
         FReply Reply = FReply::Handled();
@@ -506,6 +826,10 @@ FReply UWTBRPathGraphViewWidget::NativeOnMouseButtonDown(
         if (Handles.Num() > 0
             && FVector2D::DistSquared(Handles[0], LocalPoint) <= HandleGrabRadius * HandleGrabRadius)
         {
+            // Immovable, but still SELECTABLE: the start waypoint is where the shot's
+            // cube count and launch delay are authored, so the player has to be able
+            // to click it and reach those fields.
+            SetSelectedWaypointIndex(0);
             return FReply::Handled();
         }
 
