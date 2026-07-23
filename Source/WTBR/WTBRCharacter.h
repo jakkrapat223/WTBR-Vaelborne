@@ -596,6 +596,16 @@ public:
     UFUNCTION(Exec)
     void WTBRDebugCharacterSetMatchPhase(const FString& PhaseName);
 
+    // PIE-only spot check for the Preset Editor's server-upload path (see
+    // UWTBRTriggerSetComponent::Server_SetCustomVenyxPresets). Uploads one
+    // hand-written custom Venyx preset exactly the way the real editor eventually
+    // will, so a tester can open the existing Venyx hold wheel and confirm it
+    // appears and fires — the one thing headless automation cannot prove (real
+    // RPC + real wheel UI). TEMP — delete once the real editor (Preset Editor
+    // Steps 3-8) can author a preset directly instead.
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterInjectTestCustomVenyxPreset();
+
     UFUNCTION(Server, Reliable)
     void Server_RequestPickupDroppedTrigger(AWTBRDroppedTriggerActor* DroppedTrigger, int32 TargetSlotIndex);
 

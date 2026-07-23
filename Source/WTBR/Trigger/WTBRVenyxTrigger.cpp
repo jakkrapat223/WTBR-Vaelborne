@@ -59,7 +59,23 @@ bool UWTBRVenyxTrigger::Activate_Implementation(
 
 const TArray<FWTBRPathPreset>* UWTBRVenyxTrigger::GetHoldPresets() const
 {
-    return IsValid(DataAsset) ? &DataAsset->VenyxParams.VenyxPresets : nullptr;
+    if (!IsValid(DataAsset)) return nullptr;
+
+    if (!bCombinedPresetsCacheValid)
+    {
+        CombinedPresetsCache = DataAsset->VenyxParams.VenyxPresets;
+        bCombinedPresetsCacheValid = true;
+    }
+    return &CombinedPresetsCache;
+}
+
+void UWTBRVenyxTrigger::RefreshCustomHoldPresets(const TArray<FWTBRPathPreset>& InCustomPresets)
+{
+    if (!IsValid(DataAsset)) return;
+
+    CombinedPresetsCache = DataAsset->VenyxParams.VenyxPresets;
+    CombinedPresetsCache.Append(InCustomPresets);
+    bCombinedPresetsCacheValid = true;
 }
 
 float UWTBRVenyxTrigger::GetHoldVaelCost() const
@@ -80,7 +96,11 @@ bool UWTBRVenyxTrigger::FireHoldPreset(
     const FWTBRVenyxParams& Params = DataAsset->VenyxParams;
 
     FWTBRPresetShot Shot;
-    Shot.Presets = &Params.VenyxPresets;
+    // GetHoldPresets(), not &Params.VenyxPresets directly — this is what lets a
+    // player-authored custom preset (Preset Editor) actually fire: the wheel and
+    // the fire path must agree on the exact same array, or an index the wheel
+    // showed could resolve to the wrong entry (or none) here.
+    Shot.Presets = GetHoldPresets();
     Shot.ProjectileClass = Params.VenyxProjectileClass;
     Shot.VaelCost = Params.VenyxPresetVaelCost;
     Shot.TotalDamage = Params.VenyxTotalDamage;

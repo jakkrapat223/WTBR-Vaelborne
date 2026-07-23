@@ -26,6 +26,22 @@
 static constexpr int32 WTBR_TURNS_PER_VIPER = 4;
 
 /**
+ * Waypoint ceiling for PLAYER-AUTHORED lanes specifically (the Preset Editor).
+ *
+ * Not the same rule as WTBR_TURNS_PER_VIPER above — that is a Viper/composite
+ * design rule about how much path complexity a merge buys. Standalone hold-presets
+ * (Venyx today) apply no turn budget at all: FirePresetVolley never passes MaxTurns
+ * to ResolvePathPreset, because every existing preset is C++-authored and trusted.
+ *
+ * The editor is the first place an untrusted, player-controlled waypoint array can
+ * reach ResolvePathPreset, and every waypoint becomes a real InterpToMovement
+ * control point — a per-tick cost, not just a data-size one. This exists purely as
+ * an anti-abuse / performance ceiling, chosen to sit under Labyrn's own ceiling
+ * (4 turns x 2 Viper + start/end = 10). Not a playtested balance number.
+ */
+static constexpr int32 WTBR_MAX_CUSTOM_LANE_WAYPOINTS = 8;
+
+/**
  * What a cube does when it reaches a point the player marked on the lane.
  *
  * The player does not type a percentage — they click the drawn line where they want

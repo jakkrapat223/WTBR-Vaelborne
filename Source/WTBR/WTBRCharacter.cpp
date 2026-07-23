@@ -39,6 +39,7 @@
 #include "WTBRGameState.h"
 #include "Trigger/WTBRTriggerSetComponent.h"
 #include "Trigger/WTBRTriggerBase.h"
+#include "Subsystem/WTBRCustomPresetSubsystem.h"
 #include "Trigger/WTBRAcervynTrigger.h"
 #include "Trigger/WTBRAegornTrigger.h"
 #include "Trigger/WTBRArcvenTrigger.h"
@@ -409,6 +410,15 @@ void AWTBRCharacter::BeginPlay()
             this, &AWTBRCharacter::OnDualWieldStateChangedHandler);
         TriggerSetComponent->OnActiveTriggerChanged.AddDynamic(
             this, &AWTBRCharacter::OnActiveTriggerChangedHandler);
+
+        // Preset Editor: only the locally-controlled owner has anything meaningful
+        // in their own UWTBRCustomPresetSubsystem — pulling here (once per pawn,
+        // not per BeginPlay of every character a client can see) is what lets a
+        // custom Venyx preset authored in the lobby survive the lobby->match travel.
+        if (IsLocallyControlled())
+        {
+            TriggerSetComponent->RefreshCustomVenyxPresetsFromLocalSubsystem();
+        }
     }
     if (InteractionComponent)
     {
@@ -2878,6 +2888,73 @@ void AWTBRCharacter::WTBRDebugCharacterPrintTriggerLoadoutGate() const
         *GetNameSafe(this),
         *GetNameSafe(TriggerSetComponent));
     TriggerSetComponent->DebugPrintTriggerLoadoutMutationGate();
+#endif
+}
+
+void AWTBRCharacter::WTBRDebugCharacterInjectTestCustomVenyxPreset()
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterInjectTestCustomVenyxPreset is disabled in Shipping builds."));
+#else
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterInjectTestCustomVenyxPreset rejected: TriggerSetComponent is missing for character %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    UGameInstance* GameInstance = GetGameInstance();
+    UWTBRCustomPresetSubsystem* Subsystem = GameInstance ? GameInstance->GetSubsystem<UWTBRCustomPresetSubsystem>() : nullptr;
+    if (!Subsystem)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterInjectTestCustomVenyxPreset rejected: no UWTBRCustomPresetSubsystem for %s."),
+            *GetNameSafe(this));
+        return;
+    }
+
+    FWTBRPathPreset TestPreset;
+    TestPreset.PresetId = FName(TEXT("PIE_TestCustom"));
+    TestPreset.DisplayName = FText::FromString(TEXT("PIE Test Custom"));
+
+    // Distinctive shape (bows up and to one side before landing off to the other
+    // side) so it reads as obviously different from the baked Skyfall/Sweep/
+    // Encircle presets when the wheel is opened.
+    FWTBRPathLane& Lane = TestPreset.Lanes.AddDefaulted_GetRef();
+    Lane.NormalizedWaypoints = {
+        FVector::ZeroVector,
+        FVector(0.5f, 0.4f, 0.3f),
+        FVector(1.0f, -0.2f, 0.0f)
+    };
+
+    // HomingRadius deliberately ZERO. An earlier version of this used 0.2, which at
+    // a charged range of ~4700uu resolves to a 937uu acquisition radius — so an
+    // enemy standing anywhere within ~9m was already inside it at spawn, the cube
+    // acquired on its first tick and detonated at closest approach, and the authored
+    // arc was never flown at all (PIE log: Armed RadiusUU=937 -> Acquired Dist=725uu
+    // -> Detonate, on a path 7233uu/2.07s long). Damage landed, but nothing visible
+    // happened, which reads exactly like a broken projectile.
+    //
+    // This command exists to verify that a PLAYER-AUTHORED SHAPE actually flies as
+    // drawn, so homing — which by design abandons the shape the moment it acquires —
+    // has to be off for the check to mean anything. Homing itself is already proven
+    // by that same log and by the Venyx sweep automation tests.
+    Lane.HomingRadius = 0.0f;
+
+    // Goes through the subsystem + the same refresh entry point the real Preset
+    // Editor will call on Save (RefreshCustomVenyxPresetsFromLocalSubsystem), NOT
+    // a direct Server_SetCustomVenyxPresets call — that direct-RPC shortcut is what
+    // an earlier version of this function did, and it only updated the SERVER's
+    // copy of RuntimeTriggers. RuntimeTriggers is Transient/unreplicated, so the
+    // CLIENT window's own wheel (which reads its own local copy) never saw the
+    // change unless this was typed into the server's own PIE window. Going through
+    // RefreshCustomVenyxPresetsFromLocalSubsystem refreshes THIS side immediately
+    // regardless of which PIE window/side the command was typed into.
+    Subsystem->AddOrUpdatePreset(TestPreset);
+    TriggerSetComponent->RefreshCustomVenyxPresetsFromLocalSubsystem();
+
+    UE_LOG(LogTemp, Log,
+        TEXT("WTBRDebugCharacterInjectTestCustomVenyxPreset: saved+refreshed 1 test preset ('%s') for %s. Open the Venyx hold wheel to confirm it appears and fires."),
+        *TestPreset.PresetId.ToString(), *GetNameSafe(this));
 #endif
 }
 

@@ -10,6 +10,7 @@
 #include "Trigger/WTBRMantornTrigger.h"
 #include "Trigger/WTBRCompositeBehaviorBase.h"
 #include "Trigger/WTBRLabyrnCompositeBehavior.h"
+#include "Trigger/WTBRVenyxTrigger.h"
 #include "Engine/Engine.h"
 #include "WTBRCharacter.h"
 #include "WTBRGameState.h"
@@ -18,7 +19,9 @@
 #include "Components/WTBRMovementExtComponent.h"
 #include "Engine/StreamableManager.h"
 #include "Engine/AssetManager.h"
+#include "Engine/GameInstance.h"
 #include "Net/UnrealNetwork.h"
+#include "Subsystem/WTBRCustomPresetSubsystem.h"
 
 UWTBRTriggerSetComponent::UWTBRTriggerSetComponent()
 {
@@ -978,6 +981,15 @@ void UWTBRTriggerSetComponent::InitializeLoadedSlot(int32 SlotIndex)
 
     NewTrigger->InitializeTrigger(Cast<AWTBRCharacter>(GetOwner()), LoadedDataAsset);
     RuntimeTriggers[SlotIndex] = NewTrigger;
+
+    // A freshly-instantiated Venyx Trigger starts with an empty combined-preset
+    // cache; if this player's custom presets were already known (an earlier-equipped
+    // slot already triggered RefreshCustomVenyxPresetsFromLocalSubsystem this
+    // session), apply them now instead of waiting for the next upload.
+    if (UWTBRVenyxTrigger* VenyxTrigger = Cast<UWTBRVenyxTrigger>(NewTrigger))
+    {
+        VenyxTrigger->RefreshCustomHoldPresets(CachedCustomVenyxPresets);
+    }
 }
 
 void UWTBRTriggerSetComponent::InstantiateRuntimeTrigger(int32 SlotIndex)
@@ -1017,6 +1029,14 @@ void UWTBRTriggerSetComponent::InstantiateRuntimeTrigger(int32 SlotIndex)
     UE_LOG(LogTemp, Log,
         TEXT("WTBR Instantiated [%s] for slot %d"),
         *DA->TriggerClass->GetName(), SlotIndex);
+
+    // Same reasoning as InitializeLoadedSlot above: a mid-session slot switch INTO
+    // Venyx should not have to wait for a fresh upload to see presets this player
+    // already authored earlier in the session.
+    if (UWTBRVenyxTrigger* VenyxTrigger = Cast<UWTBRVenyxTrigger>(NewTrigger))
+    {
+        VenyxTrigger->RefreshCustomHoldPresets(CachedCustomVenyxPresets);
+    }
 }
 
 bool UWTBRTriggerSetComponent::HasServerAuthority() const
@@ -1140,6 +1160,199 @@ void UWTBRTriggerSetComponent::Server_SetTriggerLoadout_Implementation(
             RuntimeTriggers[i] = nullptr;
         }
     }
+}
+
+namespace
+{
+    // FMath::Clamp does NOT sanitize NaN: it is implemented as a pair of
+    // comparisons, and every comparison against NaN is false, so a NaN passes
+    // straight through every ClampMin/ClampMax in this file. A NaN reaching
+    // ResolvePathPreset propagates into an InterpToMovement control point and from
+    // there into an actor transform, which is undefined behaviour rather than a
+    // merely wrong shot. So non-finite values are REPLACED with a safe default
+    // before any clamping happens.
+    float WTBRSanitizeFloat(float Value, float Fallback, float Min, float Max)
+    {
+        if (!FMath::IsFinite(Value))
+        {
+            return Fallback;
+        }
+        return FMath::Clamp(Value, Min, Max);
+    }
+}
+
+bool UWTBRTriggerSetComponent::SanitizeCustomVenyxPreset(FWTBRPathPreset& Preset)
+{
+    // Anti-abuse ceilings, not balance numbers — a modified client could otherwise
+    // upload an unbounded number of lanes/events per preset.
+    static constexpr int32 MaxLanesPerPreset = 8;
+    static constexpr int32 MaxEventsPerLane = 8;
+
+    // Waypoints are fractions of the committed range, so anything authorable in the
+    // editor sits comfortably inside +/-2. This is a sanity bound on a finite but
+    // absurd value (1e30 is finite and would still resolve to a nonsense world
+    // position), not a design constraint on how far a lane may reach.
+    static constexpr float MaxWaypointComponent = 4.0f;
+
+    if (Preset.PresetId.IsNone())
+    {
+        return false;
+    }
+
+    if (Preset.Lanes.Num() > MaxLanesPerPreset)
+    {
+        Preset.Lanes.SetNum(MaxLanesPerPreset);
+    }
+    Preset.CubeCount = FMath::Max(0, Preset.CubeCount);
+
+    for (int32 LaneIndex = Preset.Lanes.Num() - 1; LaneIndex >= 0; --LaneIndex)
+    {
+        FWTBRPathLane& Lane = Preset.Lanes[LaneIndex];
+
+        // A lane carrying a non-finite waypoint is DROPPED rather than repaired.
+        // Unlike a scalar, there is no defensible "safe default" for a position the
+        // player supposedly drew — silently substituting one would fire a shot that
+        // does not match anything they authored.
+        bool bLaneHasNonFiniteWaypoint = false;
+        for (const FVector& Waypoint : Lane.NormalizedWaypoints)
+        {
+            if (Waypoint.ContainsNaN())
+            {
+                bLaneHasNonFiniteWaypoint = true;
+                break;
+            }
+        }
+
+        // ResolvePathPreset itself only requires >= 2 waypoints; that waypoint 0 is
+        // the caster origin is a project-wide authoring convention every existing
+        // (C++-authored, trusted) preset follows but nothing has ever validated.
+        // This RPC is the first place an untrusted waypoint array can reach it, so
+        // a lane that doesn't start at the caster is dropped rather than silently
+        // re-based — there is no safe way to guess what the player meant.
+        const bool bStartsAtCaster =
+            Lane.NormalizedWaypoints.Num() >= 2 &&
+            Lane.NormalizedWaypoints[0].Equals(FVector::ZeroVector, KINDA_SMALL_NUMBER);
+
+        if (bLaneHasNonFiniteWaypoint || !bStartsAtCaster)
+        {
+            Preset.Lanes.RemoveAt(LaneIndex);
+            continue;
+        }
+
+        // Reuses the same truncation the composite turn-budget rule already relies
+        // on (keeps the first N turns, always keeps the final waypoint) rather than
+        // re-deriving it — see UWTBRCompositeRegistryDataAsset::ClampLaneTurns.
+        TArray<FVector> Clamped;
+        UWTBRCompositeRegistryDataAsset::ClampLaneTurns(
+            Lane.NormalizedWaypoints, WTBR_MAX_CUSTOM_LANE_WAYPOINTS - 2, Clamped);
+        Lane.NormalizedWaypoints = Clamped;
+
+        for (FVector& Waypoint : Lane.NormalizedWaypoints)
+        {
+            Waypoint.X = FMath::Clamp(Waypoint.X, -MaxWaypointComponent, MaxWaypointComponent);
+            Waypoint.Y = FMath::Clamp(Waypoint.Y, -MaxWaypointComponent, MaxWaypointComponent);
+            Waypoint.Z = FMath::Clamp(Waypoint.Z, -MaxWaypointComponent, MaxWaypointComponent);
+        }
+
+        // Every remaining field's UPROPERTY meta=(ClampMin/ClampMax) is a
+        // details-panel constraint only — it enforces nothing on data that arrives
+        // over an RPC, so each range is re-applied here explicitly, through the
+        // NaN-safe helper above.
+        Lane.CubeCount = FMath::Max(1, Lane.CubeCount);
+        Lane.LaunchDelay = WTBRSanitizeFloat(Lane.LaunchDelay, 0.0f, 0.0f, 5.0f);
+        Lane.HomingRadius = WTBRSanitizeFloat(Lane.HomingRadius, 0.0f, 0.0f, 1.0f);
+        Lane.HomingRadiusFloorUU = WTBRSanitizeFloat(Lane.HomingRadiusFloorUU, 400.0f, 0.0f, 100000.0f);
+
+        if (Lane.Events.Num() > MaxEventsPerLane)
+        {
+            Lane.Events.SetNum(MaxEventsPerLane);
+        }
+        for (FWTBRLaneEvent& Event : Lane.Events)
+        {
+            Event.AtPathFraction = WTBRSanitizeFloat(Event.AtPathFraction, 0.5f, 0.0f, 1.0f);
+            Event.DurationSeconds = WTBRSanitizeFloat(Event.DurationSeconds, 0.0f, 0.0f, 5.0f);
+            Event.SpeedMultiplier = WTBRSanitizeFloat(Event.SpeedMultiplier, 1.0f, 0.05f, 4.0f);
+        }
+    }
+
+    return Preset.Lanes.Num() > 0;
+}
+
+void UWTBRTriggerSetComponent::SanitizeCustomVenyxPresetList(
+    const TArray<FWTBRPathPreset>& InPresets, TArray<FWTBRPathPreset>& OutPresets)
+{
+    // Anti-abuse ceiling on preset COUNT, alongside the per-preset ceilings in
+    // SanitizeCustomVenyxPreset.
+    static constexpr int32 MaxCustomPresets = 12;
+
+    OutPresets.Reset();
+    for (const FWTBRPathPreset& Incoming : InPresets)
+    {
+        if (OutPresets.Num() >= MaxCustomPresets) break;
+
+        FWTBRPathPreset Sanitized = Incoming;
+        if (SanitizeCustomVenyxPreset(Sanitized))
+        {
+            OutPresets.Add(MoveTemp(Sanitized));
+        }
+    }
+}
+
+void UWTBRTriggerSetComponent::RefreshAllVenyxHoldPresetCaches()
+{
+    for (UWTBRTriggerBase* Trigger : RuntimeTriggers)
+    {
+        if (UWTBRVenyxTrigger* VenyxTrigger = Cast<UWTBRVenyxTrigger>(Trigger))
+        {
+            VenyxTrigger->RefreshCustomHoldPresets(CachedCustomVenyxPresets);
+        }
+    }
+}
+
+void UWTBRTriggerSetComponent::Server_SetCustomVenyxPresets_Implementation(
+    const TArray<FWTBRPathPreset>& InCustomPresets)
+{
+    if (!HasServerAuthority()) return;
+
+    SanitizeCustomVenyxPresetList(InCustomPresets, CachedCustomVenyxPresets);
+    RefreshAllVenyxHoldPresetCaches();
+}
+
+void UWTBRTriggerSetComponent::RefreshCustomVenyxPresetsFromLocalSubsystem()
+{
+    AActor* Owner = GetOwner();
+    if (!Owner) return;
+    UGameInstance* GameInstance = Owner->GetGameInstance();
+    if (!GameInstance) return;
+    UWTBRCustomPresetSubsystem* Subsystem = GameInstance->GetSubsystem<UWTBRCustomPresetSubsystem>();
+    if (!Subsystem) return;
+
+    // ⚠ The local copy is sanitized with the SAME function the server applies on
+    // receipt, and this is load-bearing rather than defensive tidiness.
+    //
+    // The fire path sends only an int32 index; the server resolves it against its
+    // own array. Sanitizing DROPS presets and lanes that fail validation. If the
+    // client displayed its raw list while the server held a filtered one, the two
+    // arrays would differ in LENGTH and therefore in ORDER — the wheel would offer
+    // an entry at index N that resolves to a different preset server-side, or to
+    // none. That is a wrong-shot-fired bug, not a cosmetic one.
+    //
+    // Running the identical sanitizer on both sides makes the two arrays equal by
+    // construction, so no confirm-back round trip is needed to keep indices aligned.
+    TArray<FWTBRPathPreset> Sanitized;
+    SanitizeCustomVenyxPresetList(Subsystem->GetCustomVenyxPresets(), Sanitized);
+
+    // Local copy first — this is the same process, so there's no reason to wait on
+    // a round trip before this player's own Venyx wheel can see their presets.
+    CachedCustomVenyxPresets = Sanitized;
+    RefreshAllVenyxHoldPresetCaches();
+
+    // Then upload so a remote listen-server/dedicated-server also has a validated
+    // copy before it can be asked to fire an index into it. Harmless when this side
+    // already IS the server (a listen-server's own local player) — the RPC just
+    // re-validates (idempotent: sanitizing an already-sanitized list is a no-op)
+    // and re-applies the same data.
+    Server_SetCustomVenyxPresets(Sanitized);
 }
 
 void UWTBRTriggerSetComponent::NotifySubSlotChanged(int32 OldAbsIdx, int32 NewAbsIdx)

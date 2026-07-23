@@ -49,16 +49,51 @@ FVector UWTBRGunnerTrigger::GetMuzzleLocation(const FVector& AimDirection) const
 bool UWTBRGunnerTrigger::FirePresetVolley(
     int32 PresetIndex, float ChargeFraction, const FWTBRPresetShot& Shot)
 {
-    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
-    if (IsOnCooldown() || !IsValid(DataAsset)) return false;
+    // Every early return below used to be silent — a rejected hold-preset shot
+    // looked identical to a successful no-op one to the player (see the Preset
+    // Editor's "selected the wheel entry, fired, nothing happened" symptom this
+    // logging was added to diagnose). Gated behind the existing
+    // wtbr.Debug.ValidationLogs CVar like every other diagnostic in this file.
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority())
+    {
+        WTBR_VALIDATION_LOG(Warning,
+            TEXT("[Hold Preset] Rejected | Reason=NoAuthorityOrInvalidOwner | Index=%d"), PresetIndex);
+        return false;
+    }
+    if (IsOnCooldown() || !IsValid(DataAsset))
+    {
+        WTBR_VALIDATION_LOG(Warning,
+            TEXT("[Hold Preset] Rejected | Owner=%s | Reason=%s | Index=%d"),
+            *GetNameSafe(OwnerCharacter.Get()),
+            IsOnCooldown() ? TEXT("OnCooldown") : TEXT("NoDataAsset"), PresetIndex);
+        return false;
+    }
 
     // The index arrives from a client, so it is validated rather than trusted.
-    if (!Shot.Presets || !Shot.Presets->IsValidIndex(PresetIndex)) return false;
-    if (!Shot.ProjectileClass) return false;
+    if (!Shot.Presets || !Shot.Presets->IsValidIndex(PresetIndex))
+    {
+        WTBR_VALIDATION_LOG(Warning,
+            TEXT("[Hold Preset] Rejected | Owner=%s | Reason=InvalidPresetIndex | Index=%d | PresetsAvailable=%d"),
+            *GetNameSafe(OwnerCharacter.Get()), PresetIndex, Shot.Presets ? Shot.Presets->Num() : -1);
+        return false;
+    }
+    if (!Shot.ProjectileClass)
+    {
+        WTBR_VALIDATION_LOG(Warning,
+            TEXT("[Hold Preset] Rejected | Owner=%s | Reason=NoProjectileClass | Index=%d"),
+            *GetNameSafe(OwnerCharacter.Get()), PresetIndex);
+        return false;
+    }
 
     if (IsValid(OwnerCharacter->VaelComponent))
     {
-        if (!OwnerCharacter->VaelComponent->TryConsumeVael(Shot.VaelCost)) return false;
+        if (!OwnerCharacter->VaelComponent->TryConsumeVael(Shot.VaelCost))
+        {
+            WTBR_VALIDATION_LOG(Warning,
+                TEXT("[Hold Preset] Rejected | Owner=%s | Reason=InsufficientVael | Index=%d | Cost=%.1f"),
+                *GetNameSafe(OwnerCharacter.Get()), PresetIndex, Shot.VaelCost);
+            return false;
+        }
     }
 
     // Aim from the camera, not the capsule — GetActorRotation() carries no pitch, so

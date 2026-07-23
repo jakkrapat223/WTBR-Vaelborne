@@ -35,4 +35,19 @@ public:
 
     virtual const TArray<FWTBRPathPreset>* GetHoldPresets() const override;
     virtual float GetHoldVaelCost() const override;
+
+    // Rebuilds CombinedPresetsCache as DataAsset-baked presets + this player's
+    // custom ones (Preset Editor), so GetHoldPresets()/FireHoldPreset() see custom
+    // entries without either one needing to know custom presets exist at all — they
+    // only ever go through the cache. Called by UWTBRTriggerSetComponent whenever
+    // this player's custom preset list changes or this Trigger is (re)instantiated.
+    void RefreshCustomHoldPresets(const TArray<FWTBRPathPreset>& InCustomPresets);
+
+private:
+    // Lazily seeded from DataAsset the first time GetHoldPresets() is called, so a
+    // Venyx Trigger that never receives a RefreshCustomHoldPresets call (bots, or
+    // before the owning client's upload arrives) still returns the baked presets
+    // exactly as before this feature existed.
+    mutable TArray<FWTBRPathPreset> CombinedPresetsCache;
+    mutable bool bCombinedPresetsCacheValid = false;
 };

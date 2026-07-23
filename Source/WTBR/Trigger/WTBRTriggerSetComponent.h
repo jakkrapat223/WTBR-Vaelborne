@@ -200,6 +200,20 @@ public:
     // the CanMutateTriggerLoadout()/AWTBRGameState gate InstallTrigger enforces
     // (headless trigger-regression fixtures never spawn a GameState).
     void InstallTriggerForTest(ETriggerSlot Slot, UWTBRTriggerBase* Trigger);
+
+    // Test-only: exposes the private static sanitizer directly, the same way other
+    // Server_* validation logic in this codebase is unit-tested by calling
+    // _Implementation directly rather than going over a real RPC channel.
+    static bool SanitizeCustomVenyxPresetForTest(FWTBRPathPreset& Preset)
+    {
+        return SanitizeCustomVenyxPreset(Preset);
+    }
+
+    static void SanitizeCustomVenyxPresetListForTest(
+        const TArray<FWTBRPathPreset>& InPresets, TArray<FWTBRPathPreset>& OutPresets)
+    {
+        SanitizeCustomVenyxPresetList(InPresets, OutPresets);
+    }
 #endif
 
     bool ReplaceTriggerSlotFromDataAsset(int32 SlotIndex, TSoftObjectPtr<UWTBRTriggerDataAsset> NewDataAsset);
@@ -207,6 +221,26 @@ public:
     // Loadout assignment — called from PlayerController after character spawn
     UFUNCTION(Server, Reliable)
     void Server_SetTriggerLoadout(const TArray<TSoftObjectPtr<UWTBRTriggerDataAsset>>& InLoadout);
+
+    // ── Preset Editor: player-authored custom Venyx presets (session-only) ──────
+    //
+    // Uploads this player's Preset-Editor-authored custom Venyx presets so a
+    // remote listen-server/dedicated-server has a validated copy before any fire
+    // request can reference an index into them (see
+    // UWTBRVenyxTrigger::RefreshCustomHoldPresets). Every preset/lane/scalar is
+    // clamped server-side on receipt — this is the first RPC in the project
+    // carrying player-authored preset DATA instead of a trusted index, so nothing
+    // here is trusted as-is.
+    UFUNCTION(Server, Reliable)
+    void Server_SetCustomVenyxPresets(const TArray<FWTBRPathPreset>& InCustomPresets);
+
+    // Called once this player's pawn is locally controlled (BeginPlay): pulls
+    // custom presets straight from this machine's UWTBRCustomPresetSubsystem (no
+    // round trip needed for the local copy — it's the same process), refreshes any
+    // already-instantiated local Venyx Trigger immediately, then uploads via the
+    // RPC above so the server side (which may be a different machine/process) has
+    // them too.
+    void RefreshCustomVenyxPresetsFromLocalSubsystem();
 
     void DebugPrintTriggerLoadoutMutationGate() const;
 
@@ -393,6 +427,38 @@ private:
     // TMap is NOT replicated. Server uses it for gameplay slot loads; clients
     // use it only for HUD/name DataAsset loads after TriggerSlots replication.
     TMap<int32, TSharedPtr<FStreamableHandle>> PendingSlotLoads;
+
+    // This side's own belief about this player's custom Venyx presets — set
+    // directly from UWTBRCustomPresetSubsystem when this side IS the locally
+    // controlled owner, or from the validated RPC receipt otherwise. Deliberately
+    // NOT replicated: nobody but the owning player and the server needs it, and
+    // the owning client already has the authoritative copy in its own subsystem.
+    UPROPERTY(Transient)
+    TArray<FWTBRPathPreset> CachedCustomVenyxPresets;
+
+    // Applies CachedCustomVenyxPresets to every currently-instantiated Venyx
+    // Trigger in RuntimeTriggers (Main or Sub — a preset upload doesn't know or
+    // care which slot Venyx occupies).
+    void RefreshAllVenyxHoldPresetCaches();
+
+    // Clamps one uploaded preset's fields in place to the ranges their own
+    // UPROPERTY metadata documents (metadata is a details-panel constraint only —
+    // it enforces nothing on data that arrives over an RPC) and truncates its lane
+    // waypoints via UWTBRCompositeRegistryDataAsset::ClampLaneTurns. Returns false
+    // if the preset should be dropped entirely (no PresetId, or every lane was
+    // invalid after sanitizing).
+    static bool SanitizeCustomVenyxPreset(FWTBRPathPreset& Preset);
+
+    // Whole-list sanitize: applies the preset-count ceiling and drops every preset
+    // SanitizeCustomVenyxPreset rejects.
+    //
+    // ⚠ Both the client-local path (RefreshCustomVenyxPresetsFromLocalSubsystem)
+    // and the server receipt path (Server_SetCustomVenyxPresets) MUST go through
+    // this, so the two sides hold arrays of identical length and order. The fire
+    // RPC carries only an index; divergent arrays mean an index that resolves to a
+    // different preset on each side. Idempotent, so running it twice is safe.
+    static void SanitizeCustomVenyxPresetList(
+        const TArray<FWTBRPathPreset>& InPresets, TArray<FWTBRPathPreset>& OutPresets);
 
     bool IsValidSlotIndex(int32 Index) const { return TriggerSlots.IsValidIndex(Index); }
     bool HasServerAuthority() const;
