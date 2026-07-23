@@ -134,7 +134,12 @@ bool UWTBRGunnerTrigger::FirePresetVolley(
         Shot.ScatterRadius,
         /*bIsMainSlot=*/true,
         TotalCubeOverride,
-        &CubeLaunches);
+        &CubeLaunches,
+        /*MaxTurns=*/0,
+        // Everything on this path is a non-Viper archetype by construction — Serpveil
+        // deliberately does not ride the hold-preset contract at all (see the header)
+        // — so every standalone hold preset flies the smooth curve.
+        /*bSmoothCurve=*/true);
 
     const int32 Spawned = AWTBRProjectileBase::SpawnSweptVolley(
         OwnerCharacter.Get(),

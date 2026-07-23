@@ -87,6 +87,57 @@ void UWTBRCompositeRegistryDataAsset::ClampLaneTurns(
     OutWaypoints.Add(InWaypoints.Last());
 }
 
+void UWTBRCompositeRegistryDataAsset::SampleSmoothPath(
+    const TArray<FVector>& InWaypoints, TArray<FVector>& OutPoints)
+{
+    // Segments per authored span. Every sample becomes a real InterpToMovement
+    // control point and therefore a per-tick cost on every cube in a volley, so this
+    // buys "reads as a curve" and not geometric exactness. 8 keeps a typical
+    // three-waypoint lane at 17 points.
+    static constexpr int32 SamplesPerSegment = 8;
+
+    const int32 Count = InWaypoints.Num();
+    if (Count < 3)
+    {
+        OutPoints = InWaypoints;
+        return;
+    }
+
+    OutPoints.Reset((Count - 1) * SamplesPerSegment + 1);
+
+    for (int32 Index = 0; Index < Count - 1; ++Index)
+    {
+        // Endpoints have no neighbour to take a tangent from, so they borrow their
+        // own position. That makes the curve leave the muzzle and arrive at the final
+        // waypoint along the segment direction rather than overshooting past it.
+        const FVector& Previous = InWaypoints[FMath::Max(Index - 1, 0)];
+        const FVector& Start = InWaypoints[Index];
+        const FVector& End = InWaypoints[Index + 1];
+        const FVector& Next = InWaypoints[FMath::Min(Index + 2, Count - 1)];
+
+        const FVector StartTangent = (End - Previous) * 0.5f;
+        const FVector EndTangent = (Next - Start) * 0.5f;
+
+        for (int32 Step = 0; Step < SamplesPerSegment; ++Step)
+        {
+            const float Alpha = static_cast<float>(Step) / static_cast<float>(SamplesPerSegment);
+            OutPoints.Add(FMath::CubicInterp(Start, StartTangent, End, EndTangent, Alpha));
+        }
+    }
+
+    // The loop above stops one short of each segment's end so shared points are not
+    // emitted twice; the very last waypoint still has to land exactly, because it is
+    // where the lane is authored to arrive.
+    OutPoints.Add(InWaypoints.Last());
+}
+
+bool UWTBRCompositeRegistryDataAsset::UsesSharpPath(
+    EWTBRBulletArchetype ArchetypeA, EWTBRBulletArchetype ArchetypeB)
+{
+    return ArchetypeA == EWTBRBulletArchetype::Serpveil
+        || ArchetypeB == EWTBRBulletArchetype::Serpveil;
+}
+
 int32 UWTBRCompositeRegistryDataAsset::ComputeTurnBudget(const FWTBRCompositeDefinition& Definition)
 {
     int32 ViperCount = 0;
@@ -125,7 +176,8 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
     bool bIsMainSlot,
     int32 TotalCubeOverride,
     TArray<FWTBRResolvedCubeLaunch>* OutCubeLaunches,
-    int32 MaxTurns)
+    int32 MaxTurns,
+    bool bSmoothCurve)
 {
     OutCubeWorldPaths.Reset();
     if (OutCubeLaunches) OutCubeLaunches->Reset();
@@ -219,8 +271,22 @@ void UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
         // editor: the editor's counter is what the player sees, but a client that
         // sends a preset with twenty turns must not get twenty turns. Same reason
         // every other preset value is re-derived server-side rather than trusted.
+        TArray<FVector> ClampedWaypoints;
+        ClampLaneTurns(Lane.NormalizedWaypoints, MaxTurns, ClampedWaypoints);
+
+        // Smoothed BEFORE the world transform, not after. The transform is affine, so
+        // either order gives the same curve, but doing it here means the turn cap
+        // still counts the points the PLAYER authored — smoothing after the cap would
+        // otherwise look like a lane had spent its whole turn budget on samples.
         TArray<FVector> LaneWaypoints;
-        ClampLaneTurns(Lane.NormalizedWaypoints, MaxTurns, LaneWaypoints);
+        if (bSmoothCurve)
+        {
+            SampleSmoothPath(ClampedWaypoints, LaneWaypoints);
+        }
+        else
+        {
+            LaneWaypoints = MoveTemp(ClampedWaypoints);
+        }
 
         const int32 CubeCount = LaneCubeCounts[LaneIndex];
         if (CubeCount <= 0) continue;

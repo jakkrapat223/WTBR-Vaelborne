@@ -1,5 +1,6 @@
 // Copyright Vaelborne: Dominion Project. All Rights Reserved.
 #include "UI/WTBRPathGraphViewWidget.h"
+#include "Trigger/WTBRCompositeRegistryDataAsset.h"
 #include "Rendering/DrawElements.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Layout/SBox.h"
@@ -71,16 +72,43 @@ void UWTBRPathGraphViewWidget::ComputePaneRects(
         UsableTop + PaneHeight + PaneGap + PaneHeight);
 }
 
-void UWTBRPathGraphViewWidget::ComputeLaneScreenPositions(
+void UWTBRPathGraphViewWidget::ComputeLaneCurvePositions(
     int32 LaneIndex, const FSlateRect& PaneRect, bool bElevationPane,
     TArray<FVector2D>& OutPositions) const
 {
     OutPositions.Reset();
     if (!DisplayPreset.Lanes.IsValidIndex(LaneIndex)) return;
 
-    const TArray<FVector>& Waypoints = DisplayPreset.Lanes[LaneIndex].NormalizedWaypoints;
+    // Smoothed with the SAME function the flight path uses, in the same (normalized)
+    // space, so the drawn line is the flown line rather than an approximation of it.
+    // The projection below is affine, so sampling before it gives the identical curve
+    // ResolvePathPreset produces by sampling before its own world transform.
+    const TArray<FVector>& Authored = DisplayPreset.Lanes[LaneIndex].NormalizedWaypoints;
+    TArray<FVector> Sampled;
+    if (bSmoothPreview)
+    {
+        UWTBRCompositeRegistryDataAsset::SampleSmoothPath(Authored, Sampled);
+    }
+    const TArray<FVector>& Waypoints = bSmoothPreview ? Sampled : Authored;
+
     OutPositions.Reserve(Waypoints.Num());
     for (const FVector& Waypoint : Waypoints)
+    {
+        OutPositions.Add(ProjectNormalizedToPane(
+            Waypoint, PaneRect, bElevationPane, ForwardMin, ForwardMax, LateralExtent));
+    }
+}
+
+void UWTBRPathGraphViewWidget::ComputeLaneHandlePositions(
+    int32 LaneIndex, const FSlateRect& PaneRect, bool bElevationPane,
+    TArray<FVector2D>& OutPositions) const
+{
+    OutPositions.Reset();
+    if (!DisplayPreset.Lanes.IsValidIndex(LaneIndex)) return;
+
+    const TArray<FVector>& Authored = DisplayPreset.Lanes[LaneIndex].NormalizedWaypoints;
+    OutPositions.Reserve(Authored.Num());
+    for (const FVector& Waypoint : Authored)
     {
         OutPositions.Add(ProjectNormalizedToPane(
             Waypoint, PaneRect, bElevationPane, ForwardMin, ForwardMax, LateralExtent));
@@ -129,9 +157,19 @@ void UWTBRPathGraphViewWidget::PaintPane(
             bIsZeroAxis ? WTBRGraphAxis : WTBRGraphGrid, true, bIsZeroAxis ? 1.5f : 1.0f);
     }
 
+    // "right", not "left": +Y is the character's RIGHT in Unreal's left-handed axes
+    // (GetActorRightVector returns the Y axis), and this pane draws +Y upward. So
+    // dragging a handle toward the top of the plan pane moves the lane to the
+    // player's right — which is what Step 4's drag has to agree with.
+    //
+    // Whether up SHOULD be right is a UX call, not a correctness one: mirroring the
+    // pane (drawing +Y downward) gives the more familiar "looking down at a map"
+    // reading, at the cost of no longer matching the axis sign directly. Flip
+    // ProjectNormalizedToPane's lateral term if that feels better once dragging is
+    // in — but flip this label with it.
     FText PaneLabel = bElevationPane
-        ? FText::FromString(TEXT("ELEVATION  ->forward / ^up"))
-        : FText::FromString(TEXT("PLAN  ->forward / ^left"));
+        ? FText::FromString(TEXT("ELEVATION  ->forward / ^up (+Z)"))
+        : FText::FromString(TEXT("PLAN  ->forward / ^right (+Y)"));
     FSlateDrawElement::MakeText(OutDrawElements, ++LayerId,
         AllottedGeometry.ToPaintGeometry(FVector2D(260.0f, 16.0f),
             FSlateLayoutTransform(FVector2D(PaneRect.Left + 6.0f, PaneRect.Top + 4.0f))),
@@ -142,13 +180,18 @@ void UWTBRPathGraphViewWidget::PaintPane(
         const bool bSelected = (LaneIndex == SelectedLaneIndex);
         const FLinearColor LaneColor = bSelected ? WTBRGraphLaneSelected : WTBRGraphLane;
 
-        TArray<FVector2D> LanePoints;
-        ComputeLaneScreenPositions(LaneIndex, PaneRect, bElevationPane, LanePoints);
-        if (LanePoints.Num() < 2) continue;
+        TArray<FVector2D> CurvePoints;
+        ComputeLaneCurvePositions(LaneIndex, PaneRect, bElevationPane, CurvePoints);
+        if (CurvePoints.Num() < 2) continue;
 
         FSlateDrawElement::MakeLines(OutDrawElements, ++LayerId,
-            AllottedGeometry.ToPaintGeometry(), LanePoints, ESlateDrawEffect::None,
+            AllottedGeometry.ToPaintGeometry(), CurvePoints, ESlateDrawEffect::None,
             LaneColor, true, bSelected ? 2.6f : 1.6f);
+
+        // Handles come from the AUTHORED waypoints, never the curve samples — one
+        // handle per point the player actually placed.
+        TArray<FVector2D> LanePoints;
+        ComputeLaneHandlePositions(LaneIndex, PaneRect, bElevationPane, LanePoints);
 
         for (int32 PointIndex = 0; PointIndex < LanePoints.Num(); ++PointIndex)
         {

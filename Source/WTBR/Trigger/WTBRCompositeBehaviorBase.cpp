@@ -145,6 +145,13 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
     // uncapped, which is correct: their presets are not Viper presets.
     const int32 MaxTurns = UWTBRCompositeRegistryDataAsset::ComputeTurnBudget(Definition);
 
+    // A composite that contains a Viper inherits Viper's sharp line; every other
+    // composite flies the smooth curve, same rule as the standalone archetypes.
+    // Read off the definition's own archetypes rather than named per composite, so a
+    // future pairing gets the right answer without being listed anywhere.
+    const bool bSmoothCurve = !UWTBRCompositeRegistryDataAsset::UsesSharpPath(
+        Definition.RequiredArchetypeA, Definition.RequiredArchetypeB);
+
     if (!Presets || !Presets->IsValidIndex(PresetIndex))
     {
         UWTBRCompositeRegistryDataAsset::ResolvePathPreset(
@@ -152,7 +159,7 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
             Definition.PathRange, OutCubePaths,
             /*ScatterRadius=*/Definition.TapScatterRadius, /*bIsMainSlot=*/true,
             /*TotalCubeOverride=*/CubeCount,
-            OutCubeLaunches, MaxTurns);
+            OutCubeLaunches, MaxTurns, bSmoothCurve);
         return;
     }
 
@@ -179,7 +186,7 @@ void UWTBRCompositeBehaviorBase::ResolveCompositeCubePaths(
         (*Presets)[PresetIndex], SpawnLocation, SpawnRotation, Range, OutCubePaths,
         /*ScatterRadius=*/Definition.TapScatterRadius, /*bIsMainSlot=*/true,
         /*TotalCubeOverride=*/CubeCount,
-        OutCubeLaunches, MaxTurns);
+        OutCubeLaunches, MaxTurns, bSmoothCurve);
 }
 
 bool UWTBRCompositeBehaviorBase::FireSweptVolley(

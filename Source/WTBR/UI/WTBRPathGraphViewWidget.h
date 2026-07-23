@@ -59,6 +59,14 @@ public:
         meta = (ClampMin = "0.0"))
     float PanePadding = 26.0f;
 
+    // Must match how the previewed weapon actually flies: every non-Viper bullet
+    // curves, anything with a Viper in it stays sharp. Defaults to true because the
+    // editor's v1 target (Venyx) is a curved archetype — set it false before showing
+    // a Viper or Viper-composite preset, or the preview draws a shape the shot will
+    // not fly. See UWTBRCompositeRegistryDataAsset::UsesSharpPath.
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WTBR | Path Graph")
+    bool bSmoothPreview = true;
+
     void SetPreset(const FWTBRPathPreset& InPreset);
     void SetSelectedLaneIndex(int32 InLaneIndex);
 
@@ -105,9 +113,19 @@ private:
     // one place so paint and (next pass) hit-testing agree on where each pane is.
     void ComputePaneRects(const FVector2D& LocalSize, FSlateRect& OutPlan, FSlateRect& OutElevation) const;
 
-    // Screen positions of one lane's waypoints within a pane, in order.
-    // Shared by paint and, from the next pass, by drag hit-testing.
-    void ComputeLaneScreenPositions(int32 LaneIndex, const FSlateRect& PaneRect,
+    // The drawn LINE: smoothed to dense points when the previewed weapon curves, so
+    // this is what the shot's real trajectory looks like. Not grabbable — a curve has
+    // far more points than the player authored.
+    void ComputeLaneCurvePositions(int32 LaneIndex, const FSlateRect& PaneRect,
+        bool bElevationPane, TArray<FVector2D>& OutPositions) const;
+
+    // The GRABBABLE points: exactly the waypoints the player authored, one handle
+    // each, never the smoothing samples.
+    //
+    // Shared by paint and, from the next pass, by drag hit-testing — two
+    // implementations of "where is this handle" would let the drawn position and the
+    // grabbable position drift apart.
+    void ComputeLaneHandlePositions(int32 LaneIndex, const FSlateRect& PaneRect,
         bool bElevationPane, TArray<FVector2D>& OutPositions) const;
 
     void PaintPane(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements,

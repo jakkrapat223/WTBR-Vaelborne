@@ -300,6 +300,10 @@ public:
     // MaxTurns caps how many intermediate waypoints a lane may steer through; zero
     // means uncapped, which is what every non-Viper family wants. See
     // WTBR_TURNS_PER_VIPER, and ComputeTurnBudget below for the composite rule.
+    // bSmoothCurve bakes a Catmull-Rom curve through the authored waypoints instead
+    // of flying the straight segments between them — every non-Viper bullet. It
+    // defaults OFF so Viper, and anything not yet audited, keeps its exact existing
+    // path. See SampleSmoothPath and UsesSharpPath below.
     static void ResolvePathPreset(
         const FWTBRPathPreset& Preset,
         const FVector& SpawnOrigin,
@@ -310,7 +314,8 @@ public:
         bool bIsMainSlot = true,
         int32 TotalCubeOverride = 0,
         TArray<FWTBRResolvedCubeLaunch>* OutCubeLaunches = nullptr,
-        int32 MaxTurns = 0);
+        int32 MaxTurns = 0,
+        bool bSmoothCurve = false);
 
     /**
      * Drops the turns a lane is not entitled to, keeping the first MaxTurns of them.
@@ -324,6 +329,40 @@ public:
      */
     static void ClampLaneTurns(
         const TArray<FVector>& InWaypoints, int32 MaxTurns, TArray<FVector>& OutWaypoints);
+
+    /**
+     * Samples a Catmull-Rom spline THROUGH the given waypoints into a dense point
+     * list, so a lane reads as a smooth arc instead of a run of straight segments.
+     *
+     * This is how a curve exists at all in this project. InterpToMovementComponent
+     * only ever interpolates linearly between consecutive control points, so the
+     * curve cannot live in the movement component — it has to be baked into the
+     * points before they get there.
+     *
+     * Catmull-Rom rather than Bezier because it passes THROUGH every authored point.
+     * A Bezier's control points sit off the curve, so a dragged handle would not be
+     * where the line goes, and correcting for that needs the control offset doubled
+     * to keep the handle under the cursor — a trap this project already documented
+     * once and does not need to re-learn.
+     *
+     * Fewer than 3 points cannot describe a curve and are copied through untouched,
+     * which also keeps every ordinary two-point lane at exactly two control points
+     * rather than paying for samples that all sit on the same straight line.
+     *
+     * ⚠ Used by BOTH the flight path and the Preset Editor's preview. They must call
+     * this same function or the drawn shape stops being the fired shape.
+     */
+    static void SampleSmoothPath(const TArray<FVector>& InWaypoints, TArray<FVector>& OutPoints);
+
+    /**
+     * True when a weapon built from these two archetypes flies SHARP lines.
+     *
+     * Owner rule (2026-07-23): Viper is the sharp-line archetype and everything else
+     * is smooth — and a composite that contains a Viper inherits the sharp line, so
+     * "Viper in it anywhere" is what decides, not which half is dominant. Mirrors how
+     * ComputeTurnBudget already reads the archetypes rather than naming composites.
+     */
+    static bool UsesSharpPath(EWTBRBulletArchetype ArchetypeA, EWTBRBulletArchetype ArchetypeB);
 
     /**
      * Turn budget for a composite: WTBR_TURNS_PER_VIPER per Serpveil that went into
