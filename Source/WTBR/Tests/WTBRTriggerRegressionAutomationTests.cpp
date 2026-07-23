@@ -1418,55 +1418,41 @@ bool FWTBRPiercexCooldownBlocksImmediateReactivationTest::RunTest(const FString&
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Vexorn — Signal Block (passive Sub-Trigger)
+// Vexorn — Bagworm radar cloak (passive Sub-Trigger)
 //
-// Vexorn has NO button action: it pulses a sphere overlap every 0.5s while
-// equipped and registers a radar signal-block (via UWTBRActionPingSubsystem)
-// for every enemy inside VexornSuppressionRadius, unregistering those who leave.
-// The overlap itself needs a physics scene headless fixtures lack (finds zero
-// overlaps), so the pulse->suppress->unsuppress loop is a PIE-gate item. What IS
-// headless-testable and locked here: (1) the ActionPingSubsystem signal-block
-// registry contract Vexorn drives, and (2) that Vexorn's button press is a true
-// no-op — a passive Sub-Trigger must never consume Vael or fire on LMB/RMB.
+// Vexorn has NO button action: while equipped it sets the owner's replicated
+// bRadarCloaked state. It does not suppress action markers: Radar contact and
+// action-marker visibility are deliberately separate systems.
 // ═════════════════════════════════════════════════════════════════════════════
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-    FWTBRActionPingSignalBlockRegistryTest,
-    "WTBR.Subsystem.ActionPing.SignalBlockRegisterUnregisterQuery",
+    FWTBRActionPingIsMarkerOnlyTest,
+    "WTBR.Subsystem.ActionPing.CloakDoesNotSuppressActionMarker",
     EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FWTBRActionPingSignalBlockRegistryTest::RunTest(const FString& /*Parameters*/)
+bool FWTBRActionPingIsMarkerOnlyTest::RunTest(const FString& /*Parameters*/)
 {
-    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Subsystem_SignalBlock"));
+    FWTBRTriggerRegressionWorldFixture Fixture(TEXT("WTBR_Subsystem_ActionMarker"));
     UWorld* World = Fixture.GetWorld();
 
     UWTBRActionPingSubsystem* PingSys = World ? World->GetSubsystem<UWTBRActionPingSubsystem>() : nullptr;
     TestNotNull(TEXT("ActionPing world subsystem exists in the fixture"), PingSys);
     if (!PingSys) return false;
 
-    AWTBRCharacter* A = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
-    AWTBRCharacter* B = TriggerRegressionTest_SpawnCharacter(World, FVector(200.0f, 0.0f, 0.0f));
-    if (!A || !B) return false;
+    AWTBRCharacter* Source = TriggerRegressionTest_SpawnCharacter(World, FVector::ZeroVector);
+    if (!Source) return false;
 
-    TestFalse(TEXT("Nobody blocked initially (A)"), PingSys->IsSignalBlocked(A));
-    TestFalse(TEXT("Nobody blocked initially (B)"), PingSys->IsSignalBlocked(B));
+    int32 MarkerCount = 0;
+    PingSys->OnActionPingNative.AddLambda([&MarkerCount](AActor* MarkedActor)
+    {
+        if (IsValid(MarkedActor)) ++MarkerCount;
+    });
 
-    PingSys->RegisterSignalBlock(A);
-    PingSys->RegisterSignalBlock(B);
-    TestTrue(TEXT("A blocked after register"), PingSys->IsSignalBlocked(A));
-    TestTrue(TEXT("B blocked after register"), PingSys->IsSignalBlocked(B));
-
-    // Unregistering one must not affect the other (per-actor registry).
-    PingSys->UnregisterSignalBlock(A);
-    TestFalse(TEXT("A unblocked after unregister"), PingSys->IsSignalBlocked(A));
-    TestTrue(TEXT("B still blocked (independent)"), PingSys->IsSignalBlocked(B));
-
-    // Idempotent: unregistering A again is harmless.
-    PingSys->UnregisterSignalBlock(A);
-    TestFalse(TEXT("A still unblocked after redundant unregister"), PingSys->IsSignalBlocked(A));
-
-    PingSys->UnregisterSignalBlock(B);
-    TestFalse(TEXT("B unblocked after unregister"), PingSys->IsSignalBlocked(B));
+    // Bagworm hides the baseline radar signature, but does not retroactively
+    // turn an action marker into a radar-visibility rule.
+    Source->SetRadarCloaked(true);
+    PingSys->RegisterActionPing(Source);
+    TestEqual(TEXT("A cloaked source can still create an action marker"), MarkerCount, 1);
 
     return true;
 }

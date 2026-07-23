@@ -113,11 +113,11 @@ public:
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnActiveTriggerChanged OnActiveTriggerChanged;
 
-    // Fired when a Sub-Trigger becomes active (e.g. Vexorn equip → RegisterSignalBlock)
+    // Fired when a Sub-Trigger becomes active (e.g. Vexorn equip → radar cloak on)
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnSubTriggerEquipped OnSubTriggerEquipped;
 
-    // Fired when the active Sub-Trigger is replaced (e.g. Vexorn unequip → UnregisterSignalBlock)
+    // Fired when the active Sub-Trigger is replaced (e.g. Vexorn unequip → radar cloak off)
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnSubTriggerUnequipped OnSubTriggerUnequipped;
 

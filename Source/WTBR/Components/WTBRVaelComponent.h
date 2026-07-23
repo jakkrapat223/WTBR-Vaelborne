@@ -8,8 +8,9 @@
 #include "Misc/Guid.h"
 #include "WTBRVaelComponent.generated.h"
 
-// EVaelReleaseEvent — fired when Vael energy physically leaves the character capsule.
-// Drives the Action Ping system on the radar.  Rule: ฟัน/กาง = no ping; projectile/wave = ping.
+// EVaelReleaseEvent — fired when an action releases Vael beyond the character capsule.
+// This is a short-lived action MARKER only; it never controls baseline Radar visibility.
+// Canon radar sees every non-Bagworm trion body, including an agent merely holding Kogetsu.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnVaelReleased);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnVaelChanged, float, NewVael, float, MaxVael);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnOverheatChanged, bool, bIsOverheated);
@@ -31,7 +32,8 @@ public:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "WTBR | Config")
     TSoftObjectPtr<UWTBRCoreStatsDataAsset> CoreStatsAsset;
 
-    // Broadcast when Vael energy leaves the character capsule → radar gets a ping
+    // Broadcast an action marker when Vael energy leaves the character capsule.
+    // Radar contact visibility is instead owned by AWTBRCharacter::bRadarCloaked.
     UPROPERTY(BlueprintAssignable, Category="Events")
     FOnVaelReleased OnVaelReleased;
 
@@ -72,6 +74,8 @@ public:
     void DebugSetCurrentVaelDirect(float NewVael);
 
     // Call this from a Trigger/Projectile the moment the Vael actor exits the capsule
+    // and should create an action marker. Do not call it for equipping, holding, or
+    // ordinary Kogetsu/Lacern swings.
     UFUNCTION(BlueprintCallable, Category="Vael")
     void NotifyVaelLeftCharacterBounds();
 

@@ -331,7 +331,8 @@ float UWTBRVaelComponent::GetVaelCostMultiplier() const
 
 void UWTBRVaelComponent::NotifyVaelLeftCharacterBounds()
 {
-    // Only fires when Vael energy exits the capsule — see Action Ping Rule in GDD §3.2
+    // This is an action marker, not a radar-detection event. Baseline radar visibility
+    // comes from the trion body and is suppressed only by Bagworm/Vexorn cloak.
     OnVaelReleased.Broadcast();
 }
 
