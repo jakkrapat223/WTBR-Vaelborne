@@ -2960,6 +2960,30 @@ void AWTBRCharacter::WTBRDebugCharacterInjectTestCustomVenyxPreset()
 #endif
 }
 
+void AWTBRCharacter::SaveDebugPathGraphEdits()
+{
+#if !UE_BUILD_SHIPPING
+    if (!IsValid(DebugPathGraphWidgetInstance) || !IsValid(TriggerSetComponent)) return;
+
+    UGameInstance* GameInstance = GetGameInstance();
+    UWTBRCustomPresetSubsystem* Subsystem =
+        GameInstance ? GameInstance->GetSubsystem<UWTBRCustomPresetSubsystem>() : nullptr;
+    if (!Subsystem) return;
+
+    const FWTBRPathPreset& Edited = DebugPathGraphWidgetInstance->GetPreset();
+
+    // Only a CUSTOM preset can be written back. A baked one lives in a DataAsset and
+    // has no runtime home to save into, so editing it stays preview-only rather than
+    // silently forking a copy the player never asked for.
+    if (!Subsystem->FindPreset(Edited.PresetId)) return;
+
+    Subsystem->AddOrUpdatePreset(Edited);
+    // Re-uploads to the server too: the fire RPC resolves its index against the
+    // SERVER's array, so a local-only save would still fire the old shape.
+    TriggerSetComponent->RefreshCustomVenyxPresetsFromLocalSubsystem();
+#endif
+}
+
 void AWTBRCharacter::WTBRDebugCharacterShowPathGraph(int32 PresetIndex)
 {
 #if UE_BUILD_SHIPPING
@@ -2978,8 +3002,13 @@ void AWTBRCharacter::WTBRDebugCharacterShowPathGraph(int32 PresetIndex)
     {
         if (IsValid(DebugPathGraphWidgetInstance))
         {
+            DebugPathGraphWidgetInstance->SetAllowEditing(false);
             DebugPathGraphWidgetInstance->SetVisibility(ESlateVisibility::Collapsed);
         }
+        // Hand the cursor back to gameplay, or the player is left unable to look
+        // around with a stray cursor on screen.
+        PC->SetInputMode(FInputModeGameOnly());
+        PC->SetShowMouseCursor(false);
         UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterShowPathGraph: hidden."));
         return;
     }
@@ -3049,6 +3078,13 @@ void AWTBRCharacter::WTBRDebugCharacterShowPathGraph(int32 PresetIndex)
         DebugPathGraphWidgetInstance->AddToViewport(5);
         DebugPathGraphWidgetInstance->SetAnchorsInViewport(FAnchors(0.15f, 0.15f, 0.85f, 0.85f));
         DebugPathGraphWidgetInstance->SetAlignmentInViewport(FVector2D::ZeroVector);
+
+        // Save on every edit. The real editor commits on an explicit Save button
+        // (Step 7); this stands in for it so a dragged shape is testable NOW —
+        // without it the graph edits its own copy and firing uses the original,
+        // which reads exactly like the drag doing nothing at all.
+        DebugPathGraphWidgetInstance->OnPresetEdited.AddUObject(
+            this, &AWTBRCharacter::SaveDebugPathGraphEdits);
     }
 
     const FWTBRPathPreset& Preset = (*Presets)[PresetIndex];
@@ -3058,7 +3094,17 @@ void AWTBRCharacter::WTBRDebugCharacterShowPathGraph(int32 PresetIndex)
         TEXT("%s  |  preset %d/%d '%s'  |  %d lane(s)"),
         *Gunner->GetClass()->GetName(), PresetIndex, Presets->Num() - 1,
         *Preset.PresetId.ToString(), Preset.Lanes.Num())));
-    DebugPathGraphWidgetInstance->SetVisibility(ESlateVisibility::HitTestInvisible);
+    // Editing on, plus the cursor and input mode it needs. GameAndUI rather than
+    // UIOnly so the console stays usable to switch preset or dismiss the graph —
+    // the real editor (Step 7) is lobby-only and will use UIOnly instead.
+    DebugPathGraphWidgetInstance->SetAllowEditing(true);
+
+    FInputModeGameAndUI InputMode;
+    InputMode.SetWidgetToFocus(DebugPathGraphWidgetInstance->TakeWidget());
+    InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+    InputMode.SetHideCursorDuringCapture(false);
+    PC->SetInputMode(InputMode);
+    PC->SetShowMouseCursor(true);
 
     FString LaneReport;
     for (int32 LaneIndex = 0; LaneIndex < Preset.Lanes.Num(); ++LaneIndex)

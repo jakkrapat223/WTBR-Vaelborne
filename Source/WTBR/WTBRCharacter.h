@@ -620,6 +620,15 @@ public:
     UFUNCTION(Exec)
     void WTBRDebugCharacterShowPathGraph(int32 PresetIndex);
 
+private:
+    // Saves whatever the debug graph currently shows back into the custom-preset
+    // subsystem and re-uploads it, so an edited shape is the shape that actually
+    // fires. Stands in for the real editor's Save button (Step 7) — without it the
+    // graph mutates its own copy and firing silently uses the unedited original.
+    void SaveDebugPathGraphEdits();
+
+public:
+
     UFUNCTION(Server, Reliable)
     void Server_RequestPickupDroppedTrigger(AWTBRDroppedTriggerActor* DroppedTrigger, int32 TargetSlotIndex);
 

@@ -35,11 +35,14 @@ static constexpr int32 WTBR_TURNS_PER_VIPER = 4;
  *
  * The editor is the first place an untrusted, player-controlled waypoint array can
  * reach ResolvePathPreset, and every waypoint becomes a real InterpToMovement
- * control point — a per-tick cost, not just a data-size one. This exists purely as
- * an anti-abuse / performance ceiling, chosen to sit under Labyrn's own ceiling
- * (4 turns x 2 Viper + start/end = 10). Not a playtested balance number.
+ * control point — a per-tick cost, not just a data-size one.
+ *
+ * 5 = start + THREE bends + end. Owner's call after driving the editor: three
+ * mid-flight corners is as much shape as a lane can carry before the extra points
+ * stop reading as anything, and a smaller ceiling also keeps the curve sampler's
+ * output smaller. Lowered from a provisional 8 on 2026-07-23.
  */
-static constexpr int32 WTBR_MAX_CUSTOM_LANE_WAYPOINTS = 8;
+static constexpr int32 WTBR_MAX_CUSTOM_LANE_WAYPOINTS = 5;
 
 /**
  * What a cube does when it reaches a point the player marked on the lane.
