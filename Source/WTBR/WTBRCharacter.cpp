@@ -62,6 +62,8 @@
 #include "UI/WTBRTriggerWheelWidget.h"
 #include "UI/WTBRMarkPingHUDWidget.h"
 #include "UI/WTBREscudoPresetWheelWidget.h"
+#include "UI/WTBRPathGraphViewWidget.h"
+#include "Trigger/WTBRGunnerTrigger.h"
 #include "Trigger/WTBREscudoTrigger.h"
 #include "Actors/WTBRAegornWallActor.h"
 #include "Components/BoxComponent.h"
@@ -2955,6 +2957,123 @@ void AWTBRCharacter::WTBRDebugCharacterInjectTestCustomVenyxPreset()
     UE_LOG(LogTemp, Log,
         TEXT("WTBRDebugCharacterInjectTestCustomVenyxPreset: saved+refreshed 1 test preset ('%s') for %s. Open the Venyx hold wheel to confirm it appears and fires."),
         *TestPreset.PresetId.ToString(), *GetNameSafe(this));
+#endif
+}
+
+void AWTBRCharacter::WTBRDebugCharacterShowPathGraph(int32 PresetIndex)
+{
+#if UE_BUILD_SHIPPING
+    UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterShowPathGraph is disabled in Shipping builds."));
+#else
+    APlayerController* PC = Cast<APlayerController>(Controller);
+    if (!IsValid(PC) || !IsLocallyControlled())
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("WTBRDebugCharacterShowPathGraph rejected: needs a locally controlled player | Owner=%s"),
+            *GetNameSafe(this));
+        return;
+    }
+
+    if (PresetIndex < 0)
+    {
+        if (IsValid(DebugPathGraphWidgetInstance))
+        {
+            DebugPathGraphWidgetInstance->SetVisibility(ESlateVisibility::Collapsed);
+        }
+        UE_LOG(LogTemp, Log, TEXT("WTBRDebugCharacterShowPathGraph: hidden."));
+        return;
+    }
+
+    if (!IsValid(TriggerSetComponent))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WTBRDebugCharacterShowPathGraph rejected: no TriggerSetComponent."));
+        return;
+    }
+
+    // Searches ALL EIGHT SLOTS rather than just the active Main/Sub pair. A preview
+    // is worth having without first having to equip and switch to the Trigger, and
+    // the active pair is also empty early in a match before slots are instantiated —
+    // which is what "available=-1" meant the first time this was run.
+    //
+    // Reads through GetHoldPresets() so custom (Preset-Editor-authored) entries are
+    // reachable by the same index the wheel shows, not just the DataAsset-baked ones.
+    // The ACTIVE Main/Sub pair wins, because that is the Trigger whose wheel the
+    // player is comparing this graph against. Falling straight to a whole-slot scan
+    // silently picks whichever gunner sits in the lowest slot — Solux and Fulgrix
+    // both carry hold presets too, so the graph would confidently draw a preset
+    // belonging to a different weapon than the one being tested.
+    UWTBRGunnerTrigger* Gunner = nullptr;
+    auto TakeIfUsable = [&Gunner](UWTBRTriggerBase* Candidate)
+    {
+        UWTBRGunnerTrigger* AsGunner = Cast<UWTBRGunnerTrigger>(Candidate);
+        if (!Gunner && IsValid(AsGunner) && AsGunner->HasHoldPresets())
+        {
+            Gunner = AsGunner;
+        }
+    };
+
+    TakeIfUsable(TriggerSetComponent->GetActiveMainTrigger());
+    TakeIfUsable(TriggerSetComponent->GetActiveSubTrigger());
+
+    FString SlotReport;
+    for (int32 SlotIndex = 0; SlotIndex < UWTBRTriggerSetComponent::TotalSlotCount; ++SlotIndex)
+    {
+        UWTBRTriggerBase* SlotTrigger = TriggerSetComponent->GetTriggerInSlot(
+            static_cast<ETriggerSlot>(SlotIndex));
+        if (!IsValid(SlotTrigger)) continue;
+
+        SlotReport += FString::Printf(TEXT(" [%d]=%s"), SlotIndex, *SlotTrigger->GetClass()->GetName());
+        TakeIfUsable(SlotTrigger);
+    }
+
+    const TArray<FWTBRPathPreset>* Presets = IsValid(Gunner) ? Gunner->GetHoldPresets() : nullptr;
+    if (!Presets || !Presets->IsValidIndex(PresetIndex))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("WTBRDebugCharacterShowPathGraph rejected: no hold preset at index %d (available=%d). Instantiated slots:%s"),
+            PresetIndex, Presets ? Presets->Num() : -1,
+            SlotReport.IsEmpty() ? TEXT(" <none>") : *SlotReport);
+        return;
+    }
+
+    if (!IsValid(DebugPathGraphWidgetInstance))
+    {
+        DebugPathGraphWidgetInstance =
+            CreateWidget<UWTBRPathGraphViewWidget>(PC, UWTBRPathGraphViewWidget::StaticClass());
+        if (!IsValid(DebugPathGraphWidgetInstance)) return;
+
+        // Same full-stretch anchoring as every other native overlay here, and the
+        // same deliberate omission of SetPositionInViewport — calling it resets the
+        // anchors and collapses AllottedGeometry to 0x0, which is the documented
+        // reason the Scope and Radar overlays once drew nothing at all.
+        DebugPathGraphWidgetInstance->AddToViewport(5);
+        DebugPathGraphWidgetInstance->SetAnchorsInViewport(FAnchors(0.15f, 0.15f, 0.85f, 0.85f));
+        DebugPathGraphWidgetInstance->SetAlignmentInViewport(FVector2D::ZeroVector);
+    }
+
+    const FWTBRPathPreset& Preset = (*Presets)[PresetIndex];
+    DebugPathGraphWidgetInstance->SetPreset(Preset);
+    DebugPathGraphWidgetInstance->SetSelectedLaneIndex(0);
+    DebugPathGraphWidgetInstance->SetHeaderText(FText::FromString(FString::Printf(
+        TEXT("%s  |  preset %d/%d '%s'  |  %d lane(s)"),
+        *Gunner->GetClass()->GetName(), PresetIndex, Presets->Num() - 1,
+        *Preset.PresetId.ToString(), Preset.Lanes.Num())));
+    DebugPathGraphWidgetInstance->SetVisibility(ESlateVisibility::HitTestInvisible);
+
+    FString LaneReport;
+    for (int32 LaneIndex = 0; LaneIndex < Preset.Lanes.Num(); ++LaneIndex)
+    {
+        LaneReport += FString::Printf(TEXT("\n  lane %d:"), LaneIndex);
+        for (const FVector& Waypoint : Preset.Lanes[LaneIndex].NormalizedWaypoints)
+        {
+            LaneReport += FString::Printf(TEXT(" (%.2f,%.2f,%.2f)"), Waypoint.X, Waypoint.Y, Waypoint.Z);
+        }
+    }
+
+    UE_LOG(LogTemp, Log,
+        TEXT("WTBRDebugCharacterShowPathGraph: %s preset %d ('%s') | Lanes=%d%s"),
+        *Gunner->GetClass()->GetName(), PresetIndex, *Preset.PresetId.ToString(),
+        Preset.Lanes.Num(), *LaneReport);
 #endif
 }
 

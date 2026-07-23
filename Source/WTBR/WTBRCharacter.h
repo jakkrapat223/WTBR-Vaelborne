@@ -28,6 +28,7 @@ class UWTBRSniperScopeWidget;
 class UWTBRTriggerWheelWidget;
 class UWTBRMarkPingHUDWidget;
 class UWTBREscudoPresetWheelWidget;
+class UWTBRPathGraphViewWidget;
 class UWTBREscudoTrigger;
 class UWTBRSerpveilTrigger;
 class UWTBRVenyxTrigger;
@@ -353,6 +354,11 @@ public:
     UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
     TObjectPtr<UWTBREscudoPresetWheelWidget> EscudoPresetWheelWidgetInstance;
 
+    // TEMP scaffolding for WTBRDebugCharacterShowPathGraph — the real Preset Editor
+    // root widget will own its own graph view instead. Delete with that command.
+    UPROPERTY(Transient, BlueprintReadOnly, Category="WTBR | UI")
+    TObjectPtr<UWTBRPathGraphViewWidget> DebugPathGraphWidgetInstance;
+
     // Seconds Q/E must be held before the selection wheel opens. Below this the
     // release is treated as a tap and cycles the slot, preserving the existing
     // behaviour. Mirrors UWTBRInputGestureComponent's own HoldThreshold.
@@ -605,6 +611,14 @@ public:
     // Steps 3-8) can author a preset directly instead.
     UFUNCTION(Exec)
     void WTBRDebugCharacterInjectTestCustomVenyxPreset();
+
+    // PIE-only: puts the Preset Editor's path graph on screen showing one of the
+    // active Venyx Trigger's presets, so the drawn shape can be compared against
+    // what that same preset actually fires. TEMP — the real editor (Step 7) owns
+    // this widget properly. Call again with a different index to switch preset;
+    // pass a negative index to hide it.
+    UFUNCTION(Exec)
+    void WTBRDebugCharacterShowPathGraph(int32 PresetIndex);
 
     UFUNCTION(Server, Reliable)
     void Server_RequestPickupDroppedTrigger(AWTBRDroppedTriggerActor* DroppedTrigger, int32 TargetSlotIndex);
