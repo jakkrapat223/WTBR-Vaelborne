@@ -34,6 +34,7 @@ class UWTBREscudoTrigger;
 class UWTBRSerpveilTrigger;
 class UWTBRVenyxTrigger;
 class UWTBRGunnerTrigger;
+class UWTBRFeryxTrigger;
 class AWTBRAegornWallActor;
 class UTexture2D;
 class UNiagaraComponent;
@@ -1098,6 +1099,21 @@ protected:
     bool HandleVenyxFirePressed(bool bIsMain);
     bool HandleVenyxFireReleased(bool bIsMain);
 
+    // Feryx: Tap remains the normal server-routed attack. Holding past the
+    // DataAsset threshold opens the shared Trigger radial wheel locally; release
+    // commits the highlighted form through a validated server RPC.
+    void BeginFeryxFormHold(bool bIsMain);
+    bool HandleFeryxFormRelease(bool bIsMain);
+    void OnMainFeryxFormHoldElapsed();
+    void OnSubFeryxFormHoldElapsed();
+    void OpenFeryxFormWheel(bool bIsMain);
+    void CancelLocalFeryxFormWheel();
+    UWTBRFeryxTrigger* GetActiveFeryxTrigger(bool bIsMain) const;
+
+    FTimerHandle MainFeryxFormHoldTimer;
+    FTimerHandle SubFeryxFormHoldTimer;
+    bool bFeryxFormWheelIsMain = true;
+
     UFUNCTION()
     void OnVenyxHoldThresholdReached();
 
@@ -1257,6 +1273,11 @@ protected:
     // rather than trusting the client's pick.
     UFUNCTION(Server, Reliable)
     void Server_SelectTriggerSlot(bool bIsMain, int32 SlotIndex);
+
+    // Feryx form-wheel commit. RequestedMode is revalidated by the active
+    // server-side Feryx; bHasSelection=false is the wheel dead-zone cancel path.
+    UFUNCTION(Server, Reliable)
+    void Server_SelectFeryxForm(bool bIsMain, uint8 RequestedMode, bool bHasSelection);
 
     // Re-traces server-side from the supplied eye location/direction (never
     // trusts a client-reported hit result); silently no-ops if

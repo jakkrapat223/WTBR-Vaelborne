@@ -3,13 +3,20 @@
 #include "WTBRValidationLog.h"
 #include "WTBRCharacter.h"
 #include "Actors/WTBRProjectileBase.h"
-#include "Components/WTBRVaelComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
 
 void UWTBRFeryxTrigger::ResolveTap(bool bIsDualWield)
 {
     bHoldPending = false;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority() || bSpent) return;
+
+    if (CurrentMode == EWTBRFeryxMode::Throw)
+    {
+        ThrowBladeStars();
+        return;
+    }
+
     UWTBRMeleeTrigger::Activate_Implementation(FInputActionValue(), bIsDualWield);
 }
 
@@ -22,7 +29,7 @@ bool UWTBRFeryxTrigger::Activate_Implementation(const FInputActionValue& /*Input
 
 void UWTBRFeryxTrigger::OnTriggerActivated_Implementation(AActor* /*OwnerActor*/, bool /*bIsMain*/)
 {
-    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority() || !GetWorld()) return;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority() || !GetWorld() || bSpent) return;
     HoldStartTime = GetWorld()->GetTimeSeconds();
     bHoldPending = true;
 }
@@ -36,19 +43,54 @@ void UWTBRFeryxTrigger::OnTriggerDeactivated_Implementation(AActor* /*OwnerActor
     const float HeldFor = GetWorld()->GetTimeSeconds() - HoldStartTime;
     if (HeldFor >= DataAsset->FeryxParams.HoldThreshold)
     {
-        ThrowBladeStars();
+        // A hold is resolved by the owning client's radial wheel through
+        // ResolveFormSelection. Releasing without a selection is a no-op.
         return;
     }
     ResolveTap(bPendingDualWield);
 }
 
+void UWTBRFeryxTrigger::OnEquipped()
+{
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return;
+
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(ReconjureTimer);
+    }
+    bSpent = false;
+    CurrentMode = EWTBRFeryxMode::ShortBlade;
+}
+
+bool UWTBRFeryxTrigger::ResolveFormSelection(
+    EWTBRFeryxMode RequestedMode, bool bHasSelection)
+{
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return false;
+
+    if (!bHoldPending || !GetWorld() || !IsValid(DataAsset)) return false;
+
+    const float HeldFor = GetWorld()->GetTimeSeconds() - HoldStartTime;
+    bHoldPending = false;
+    if (!bHasSelection || bSpent || !IsSupportedMode(RequestedMode)
+        || HeldFor < DataAsset->FeryxParams.HoldThreshold)
+    {
+        return false;
+    }
+
+    CurrentMode = RequestedMode;
+    return true;
+}
+
+bool UWTBRFeryxTrigger::IsSupportedMode(EWTBRFeryxMode Mode)
+{
+    return Mode == EWTBRFeryxMode::ShortBlade
+        || Mode == EWTBRFeryxMode::Throw;
+}
+
 void UWTBRFeryxTrigger::ThrowBladeStars()
 {
     if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority() || !GetWorld() || !IsValid(DataAsset)
-        || bStarOnCooldown) return;
-
-    UWTBRVaelComponent* VaelComp = OwnerCharacter->VaelComponent;
-    if (!IsValid(VaelComp) || !VaelComp->TryConsumeVael(DataAsset->FeryxParams.StarThrowVaelCost)) return;
+        || bSpent) return;
 
     const FWTBRFeryxParams& Params = DataAsset->FeryxParams;
     FVector EyeLocation;
@@ -72,16 +114,29 @@ void UWTBRFeryxTrigger::ThrowBladeStars()
         Star->FinishSpawning(FTransform(AimRotation, SpawnLocation));
         Star->Launch(AimRotation.Vector(), OwnerCharacter.Get());
     }
+    else
+    {
+        return;
+    }
 
-    bStarOnCooldown = true;
-    GetWorld()->GetTimerManager().SetTimer(StarCooldownTimer, this,
-        &UWTBRFeryxTrigger::ClearStarCooldown,
-        FMath::Max(DataAsset->MeleeHitbox.SwingCooldown, 0.05f), false);
+    bSpent = true;
+    const float ReconjureSeconds = FMath::Max(Params.ReconjureSeconds, 0.0f);
+    if (ReconjureSeconds <= 0.0f)
+    {
+        CompleteReconjure();
+        return;
+    }
+    GetWorld()->GetTimerManager().SetTimer(
+        ReconjureTimer, this, &UWTBRFeryxTrigger::CompleteReconjure, ReconjureSeconds, false);
 }
 
-void UWTBRFeryxTrigger::ClearStarCooldown()
+void UWTBRFeryxTrigger::CompleteReconjure()
 {
-    bStarOnCooldown = false;
+    if (!OwnerCharacter.IsValid() || !OwnerCharacter->HasAuthority()) return;
+
+    // TODO: real conjure system replaces this placeholder
+    bSpent = false;
+    CurrentMode = EWTBRFeryxMode::ShortBlade;
 }
 
 void UWTBRFeryxTrigger::PerformSingleSweep(TArray<FHitResult>& OutHits)

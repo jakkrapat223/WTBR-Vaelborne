@@ -5,6 +5,13 @@
 #include "Trigger/WTBRMeleeTrigger.h"
 #include "WTBRFeryxTrigger.generated.h"
 
+UENUM(BlueprintType)
+enum class EWTBRFeryxMode : uint8
+{
+    ShortBlade UMETA(DisplayName = "Short Blade"),
+    Throw UMETA(DisplayName = "Throw")
+};
+
 UCLASS(BlueprintType, Blueprintable)
 class WTBR_API UWTBRFeryxTrigger : public UWTBRMeleeTrigger
 {
@@ -18,6 +25,18 @@ public:
     virtual bool Activate_Implementation(const FInputActionValue& InputValue, bool bIsDualWield) override;
     virtual void OnTriggerActivated_Implementation(AActor* OwnerActor, bool bIsMain) override;
     virtual void OnTriggerDeactivated_Implementation(AActor* OwnerActor, bool bIsMain) override;
+    virtual void OnEquipped() override;
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Feryx | State")
+    EWTBRFeryxMode GetCurrentMode() const { return CurrentMode; }
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Feryx | State")
+    bool IsSpent() const { return bSpent; }
+
+    // Completes a hold-to-select request on the server. bHasSelection=false
+    // cancels the pending hold without changing form (wheel dead zone / cancel).
+    // Returns true only when a valid, available form was selected.
+    bool ResolveFormSelection(EWTBRFeryxMode RequestedMode, bool bHasSelection);
 
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Feryx | VFX")
     void OnFeryxSwing(bool bIsDualWield, bool bDidHit);
@@ -25,10 +44,9 @@ public:
     UFUNCTION(BlueprintImplementableEvent, Category = "WTBR | Feryx | VFX")
     void OnFeryxHit(const FHitResult& Hit, float DamageDealt);
 
-    // Hold action: throws one large blade-star (canon: Team Yuma vs Team
-    // Ninomiya), gated by StarThrowVaelCost and its own cooldown. Public so
-    // automation can drive it directly, matching the Mantorn Whip/Spin and
-    // Arcven FireChargedWave test pattern (bypassing real-time hold timing).
+    // Throw-mode tap: throws one large blade-star (canon: Team Yuma vs Team
+    // Ninomiya) and consumes this Feryx until it reconjures. Public so automation
+    // can drive the path directly, matching other trigger test patterns.
     void ThrowBladeStars();
 
 protected:
@@ -36,10 +54,13 @@ protected:
     virtual void PerformDualSweep(TArray<FHitResult>& OutHits) override;
 
 private:
-    void ClearStarCooldown();
+    void CompleteReconjure();
+    static bool IsSupportedMode(EWTBRFeryxMode Mode);
+
     float HoldStartTime = 0.0f;
     bool bHoldPending = false;
     bool bPendingDualWield = false;
-    bool bStarOnCooldown = false;
-    FTimerHandle StarCooldownTimer;
+    bool bSpent = false;
+    EWTBRFeryxMode CurrentMode = EWTBRFeryxMode::ShortBlade;
+    FTimerHandle ReconjureTimer;
 };

@@ -226,8 +226,9 @@ struct FWTBRMantornParams
     float InFormHoldThreshold = 0.2f;
 };
 
-// FWTBRFeryxParams — Feryx short-blade tap / thrown blade-star hold.
-// Hold values live here (rather than in code) so combat tuning stays DataAsset-driven.
+// FWTBRFeryxParams — Feryx short-blade / thrown blade-star form tuning.
+// Hold opens the form wheel; releasing over a form selects it. A tap performs
+// the current form's attack.
 USTRUCT(BlueprintType)
 struct FWTBRFeryxParams
 {
@@ -242,8 +243,10 @@ struct FWTBRFeryxParams
     // Single large blade-star per throw (canon: Team Yuma vs Team Ninomiya) —
     // NOT a multi-projectile fan spread.
     // ⚠ PLAYTEST PENDING
-    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "0.0"))
-    float StarThrowVaelCost = 10.0f;
+    // Deprecated tuning retained for existing DataAsset serialization. Throwing
+    // consumes the conjured Feryx and therefore has no additional Vael cost.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Throw", meta = (ClampMin = "0.0"))
+    float StarThrowVaelCost = 0.0f;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Hold", meta = (ClampMin = "0.0"))
     float StarDamage = 30.0f;
@@ -265,6 +268,10 @@ struct FWTBRFeryxParams
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Brittle", meta = (ClampMin = "0.0"))
     float BrittleDuration = 2.0f;
+
+    // Temporary consumed-weapon recovery until the real conjure lifecycle exists.
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Feryx | Reconjure", meta = (ClampMin = "0.0"))
+    float ReconjureSeconds = 3.0f;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

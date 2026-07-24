@@ -87,6 +87,21 @@ bool FWTBRWheelOpenCloseTest::RunTest(const FString& /*Parameters*/)
     TestEqual(TEXT("Nothing is highlighted while closed"),
         Wheel->GetHighlightedSlotIndex(), static_cast<int32>(INDEX_NONE));
 
+    const TArray<FText> FeryxForms{
+        FText::FromString(TEXT("Short Blade")),
+        FText::FromString(TEXT("Throw"))
+    };
+    Wheel->OpenFeryxFormWheel(FeryxForms, 0);
+    TestTrue(TEXT("Shared wheel opens in Feryx form context"),
+        Wheel->IsFeryxFormWheelOpen());
+    TestEqual(TEXT("Feryx wheel also starts in the no-selection dead zone"),
+        Wheel->GetHighlightedFeryxFormIndex(), static_cast<int32>(INDEX_NONE));
+    TestEqual(TEXT("Feryx context cannot leak a Trigger-slot selection"),
+        Wheel->GetHighlightedSlotIndex(), static_cast<int32>(INDEX_NONE));
+    Wheel->CloseWheel();
+    TestFalse(TEXT("Closing clears Feryx form context"),
+        Wheel->IsFeryxFormWheelOpen());
+
     return true;
 }
 

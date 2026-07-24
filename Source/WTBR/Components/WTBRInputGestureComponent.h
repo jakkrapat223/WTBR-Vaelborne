@@ -71,6 +71,8 @@ public:
     UFUNCTION(BlueprintCallable, Category="Input")
     void NotifySubReleased();
 
+    bool AreBothTriggerInputsDown() const { return bMainDown && bSubDown; }
+
 protected:
     virtual void BeginPlay() override;
 

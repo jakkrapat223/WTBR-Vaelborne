@@ -663,7 +663,8 @@ bool UWTBRTriggerSetComponent::AreBothActiveFeryxMantornCapable() const
     const UWTBRTriggerDataAsset* SubDA  = Sub->DataAsset;
     return IsValid(MainDA) && IsValid(SubDA)
         && MainDA->MantornParams.bCanFormMantorn
-        && SubDA->MantornParams.bCanFormMantorn;
+        && SubDA->MantornParams.bCanFormMantorn
+        && !Main->IsSpent() && !Sub->IsSpent();
 }
 
 void UWTBRTriggerSetComponent::Server_RequestMantornToggle_Implementation()

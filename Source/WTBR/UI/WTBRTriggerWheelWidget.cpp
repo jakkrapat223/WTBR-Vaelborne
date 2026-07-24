@@ -56,7 +56,10 @@ int32 UWTBRTriggerWheelWidget::GetSetBaseSlotIndex() const
 
 void UWTBRTriggerWheelWidget::OpenWheel(bool bInIsMainSet)
 {
+    WheelContent = EWheelContent::TriggerSlots;
     bIsMainSet = bInIsMainSet;
+    FeryxFormNames.Reset();
+    CurrentFeryxFormIndex = INDEX_NONE;
     bIsOpen = true;
     // Start centred so a hold with no flick selects nothing and the release falls
     // back to "keep the current slot".
@@ -64,9 +67,29 @@ void UWTBRTriggerWheelWidget::OpenWheel(bool bInIsMainSet)
     SetVisibility(ESlateVisibility::HitTestInvisible);
 }
 
+void UWTBRTriggerWheelWidget::OpenFeryxFormWheel(
+    const TArray<FText>& InFormNames, int32 InCurrentFormIndex)
+{
+    WheelContent = EWheelContent::FeryxForms;
+    FeryxFormNames = InFormNames;
+    if (FeryxFormNames.Num() > SlotsPerSet)
+    {
+        FeryxFormNames.SetNum(SlotsPerSet);
+    }
+    CurrentFeryxFormIndex = FeryxFormNames.IsValidIndex(InCurrentFormIndex)
+        ? InCurrentFormIndex
+        : INDEX_NONE;
+    bIsOpen = true;
+    SelectionVector = FVector2D::ZeroVector;
+    SetVisibility(ESlateVisibility::HitTestInvisible);
+}
+
 void UWTBRTriggerWheelWidget::CloseWheel()
 {
     bIsOpen = false;
+    WheelContent = EWheelContent::TriggerSlots;
+    FeryxFormNames.Reset();
+    CurrentFeryxFormIndex = INDEX_NONE;
     SelectionVector = FVector2D::ZeroVector;
     SetVisibility(ESlateVisibility::Collapsed);
 }
@@ -93,6 +116,11 @@ int32 UWTBRTriggerWheelWidget::GetHighlightedSetIndex() const
 
 int32 UWTBRTriggerWheelWidget::GetHighlightedSlotIndex() const
 {
+    if (WheelContent != EWheelContent::TriggerSlots)
+    {
+        return INDEX_NONE;
+    }
+
     const int32 SetIndex = GetHighlightedSetIndex();
     if (SetIndex == INDEX_NONE)
     {
@@ -111,6 +139,22 @@ int32 UWTBRTriggerWheelWidget::GetHighlightedSlotIndex() const
     }
 
     return AbsoluteIndex;
+}
+
+int32 UWTBRTriggerWheelWidget::GetHighlightedFeryxFormIndex() const
+{
+    if (!bIsOpen || WheelContent != EWheelContent::FeryxForms)
+    {
+        return INDEX_NONE;
+    }
+
+    const int32 FormIndex = GetHighlightedSetIndex();
+    return FeryxFormNames.IsValidIndex(FormIndex) ? FormIndex : INDEX_NONE;
+}
+
+bool UWTBRTriggerWheelWidget::IsFeryxFormWheelOpen() const
+{
+    return bIsOpen && WheelContent == EWheelContent::FeryxForms;
 }
 
 void UWTBRTriggerWheelWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
@@ -156,9 +200,10 @@ int32 UWTBRTriggerWheelWidget::NativePaint(const FPaintArgs& Args, const FGeomet
         return LayerId;
     }
 
+    const bool bDrawingFeryxForms = WheelContent == EWheelContent::FeryxForms;
     const AWTBRCharacter* Char = GetOwningWTBRCharacter();
     const UWTBRTriggerSetComponent* TSC = Char ? Char->TriggerSetComponent : nullptr;
-    if (!TSC)
+    if (!bDrawingFeryxForms && !TSC)
     {
         return LayerId;
     }
@@ -185,9 +230,11 @@ int32 UWTBRTriggerWheelWidget::NativePaint(const FPaintArgs& Args, const FGeomet
         AllottedGeometry.ToPaintGeometry(), WhiteBrush,
         ESlateDrawEffect::None, FLinearColor(0.0f, 0.0f, 0.0f, 0.35f));
 
-    const int32 BaseSlot = GetSetBaseSlotIndex();
+    const int32 BaseSlot = bDrawingFeryxForms ? 0 : GetSetBaseSlotIndex();
     const int32 HighlightedSetIndex = GetHighlightedSetIndex();
-    const int32 ActiveSlot = bIsMainSet ? TSC->GetActiveMainIndex() : TSC->GetActiveSubIndex();
+    const int32 ActiveSlot = bDrawingFeryxForms
+        ? CurrentFeryxFormIndex
+        : (bIsMainSet ? TSC->GetActiveMainIndex() : TSC->GetActiveSubIndex());
     const float SegmentArc = 360.0f / static_cast<float>(SlotsPerSet);
 
     TArray<FVector2D> Points;
@@ -195,9 +242,13 @@ int32 UWTBRTriggerWheelWidget::NativePaint(const FPaintArgs& Args, const FGeomet
     for (int32 SetIndex = 0; SetIndex < SlotsPerSet; ++SetIndex)
     {
         const int32 AbsoluteSlot = BaseSlot + SetIndex;
-        const bool bOccupied = TSC->IsSlotOccupied(AbsoluteSlot);
+        const bool bOccupied = bDrawingFeryxForms
+            ? FeryxFormNames.IsValidIndex(SetIndex)
+            : TSC->IsSlotOccupied(AbsoluteSlot);
         const bool bHighlighted = (SetIndex == HighlightedSetIndex) && bOccupied;
-        const bool bIsCurrent = (AbsoluteSlot == ActiveSlot);
+        const bool bIsCurrent = bDrawingFeryxForms
+            ? SetIndex == ActiveSlot
+            : AbsoluteSlot == ActiveSlot;
 
         const float StartAngle = WTBRWheelStartAngleDeg + (SegmentArc * SetIndex) - (SegmentArc * 0.5f);
         const float EndAngle = StartAngle + SegmentArc;
@@ -223,7 +274,9 @@ int32 UWTBRTriggerWheelWidget::NativePaint(const FPaintArgs& Args, const FGeomet
             AllottedGeometry.ToPaintGeometry(), Points,
             ESlateDrawEffect::None, DimColor, true, 1.0f);
 
-        const FText SlotName = TSC->GetSlotDisplayName(AbsoluteSlot);
+        const FText SlotName = bDrawingFeryxForms
+            ? (FeryxFormNames.IsValidIndex(SetIndex) ? FeryxFormNames[SetIndex] : FText::GetEmpty())
+            : TSC->GetSlotDisplayName(AbsoluteSlot);
         if (!SlotName.IsEmpty())
         {
             const float MidAngle = StartAngle + (SegmentArc * 0.5f);
@@ -245,7 +298,10 @@ int32 UWTBRTriggerWheelWidget::NativePaint(const FPaintArgs& Args, const FGeomet
                 FSlateDrawElement::MakeText(OutDrawElements, ++LayerId,
                     AllottedGeometry.ToPaintGeometry(FVector2D(160.0f, 20.0f),
                         FSlateLayoutTransform(LabelCenter - LabelOffset + FVector2D(0.0f, 18.0f))),
-                    NSLOCTEXT("WTBRWheel", "EquippedTag", "equipped"), HintFont,
+                    bDrawingFeryxForms
+                        ? NSLOCTEXT("WTBRWheel", "CurrentFormTag", "current")
+                        : NSLOCTEXT("WTBRWheel", "EquippedTag", "equipped"),
+                    HintFont,
                     ESlateDrawEffect::None, DimColor);
             }
         }
@@ -258,9 +314,11 @@ int32 UWTBRTriggerWheelWidget::NativePaint(const FPaintArgs& Args, const FGeomet
         ESlateDrawEffect::None, DimColor, true, 1.0f);
 
     // Which set is open, in the hub.
-    const FText SetLabel = bIsMainSet
-        ? NSLOCTEXT("WTBRWheel", "MainSet", "MAIN")
-        : NSLOCTEXT("WTBRWheel", "SubSet", "SUB");
+    const FText SetLabel = bDrawingFeryxForms
+        ? NSLOCTEXT("WTBRWheel", "FeryxForms", "FERYX")
+        : (bIsMainSet
+            ? NSLOCTEXT("WTBRWheel", "MainSet", "MAIN")
+            : NSLOCTEXT("WTBRWheel", "SubSet", "SUB"));
     FSlateDrawElement::MakeText(OutDrawElements, ++LayerId,
         AllottedGeometry.ToPaintGeometry(FVector2D(120.0f, 20.0f),
             FSlateLayoutTransform(Center - FVector2D(18.0f, 8.0f))),

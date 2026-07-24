@@ -606,6 +606,7 @@ void AWTBRCharacter::FireMain(const FInputActionValue& Value)
     if (HandleEscudoFirePressed(true)) return;
     if (HandleSerpveilFirePressed(true)) return;
     if (HandleVenyxFirePressed(true)) return;
+    BeginFeryxFormHold(true);
     Server_Fire(true, true, ClientMoveInputDir);
 }
 
@@ -622,6 +623,7 @@ void AWTBRCharacter::FireMainReleased(const FInputActionValue& Value)
     if (HandleEscudoFireReleased(true)) return;
     if (HandleSerpveilFireReleased(true)) return;
     if (HandleVenyxFireReleased(true)) return;
+    if (HandleFeryxFormRelease(true)) return;
     Server_Fire(true, false, FVector::ZeroVector);
 }
 
@@ -640,6 +642,7 @@ void AWTBRCharacter::FireSub(const FInputActionValue& Value)
     if (HandleEscudoFirePressed(false)) return;
     if (HandleSerpveilFirePressed(false)) return;
     if (HandleVenyxFirePressed(false)) return;
+    BeginFeryxFormHold(false);
     Server_Fire(false, true, ClientMoveInputDir);
 }
 
@@ -656,7 +659,159 @@ void AWTBRCharacter::FireSubReleased(const FInputActionValue& Value)
     if (HandleEscudoFireReleased(false)) return;
     if (HandleSerpveilFireReleased(false)) return;
     if (HandleVenyxFireReleased(false)) return;
+    if (HandleFeryxFormRelease(false)) return;
     Server_Fire(false, false, FVector::ZeroVector);
+}
+
+UWTBRFeryxTrigger* AWTBRCharacter::GetActiveFeryxTrigger(bool bIsMain) const
+{
+    if (!IsValid(TriggerSetComponent))
+    {
+        return nullptr;
+    }
+
+    return Cast<UWTBRFeryxTrigger>(bIsMain
+        ? TriggerSetComponent->GetActiveMainTrigger()
+        : TriggerSetComponent->GetActiveSubTrigger());
+}
+
+void AWTBRCharacter::BeginFeryxFormHold(bool bIsMain)
+{
+    if (!IsLocallyControlled() || !GetWorld() || !IsValid(TriggerSetComponent)
+        || TriggerSetComponent->IsMantornFormActive())
+    {
+        return;
+    }
+
+    UWTBRFeryxTrigger* Feryx = GetActiveFeryxTrigger(bIsMain);
+    if (!IsValid(Feryx) || Feryx->IsSpent() || !IsValid(Feryx->DataAsset))
+    {
+        return;
+    }
+
+    // Holding both Feryx buttons belongs to the Mantorn gesture. If its second
+    // button arrives after this single-side watch opened, cancel the form wheel
+    // immediately so the two interactions cannot compete.
+    if (InputGestureComponent && InputGestureComponent->AreBothTriggerInputsDown()
+        && TriggerSetComponent->CanToggleMantornForm())
+    {
+        CancelLocalFeryxFormWheel();
+        return;
+    }
+
+    FTimerHandle& HoldTimer = bIsMain
+        ? MainFeryxFormHoldTimer
+        : SubFeryxFormHoldTimer;
+    GetWorldTimerManager().ClearTimer(HoldTimer);
+    GetWorldTimerManager().SetTimer(
+        HoldTimer,
+        this,
+        bIsMain
+            ? &AWTBRCharacter::OnMainFeryxFormHoldElapsed
+            : &AWTBRCharacter::OnSubFeryxFormHoldElapsed,
+        FMath::Max(Feryx->DataAsset->FeryxParams.HoldThreshold, 0.05f),
+        false);
+}
+
+bool AWTBRCharacter::HandleFeryxFormRelease(bool bIsMain)
+{
+    GetWorldTimerManager().ClearTimer(
+        bIsMain ? MainFeryxFormHoldTimer : SubFeryxFormHoldTimer);
+
+    if (!IsValid(TriggerWheelWidgetInstance)
+        || !TriggerWheelWidgetInstance->IsFeryxFormWheelOpen()
+        || bFeryxFormWheelIsMain != bIsMain)
+    {
+        return false;
+    }
+
+    const int32 ChosenForm = TriggerWheelWidgetInstance->GetHighlightedFeryxFormIndex();
+    TriggerWheelWidgetInstance->CloseWheel();
+    SetLookInputFrozen(false);
+
+    const bool bHasSelection = ChosenForm != INDEX_NONE;
+    const EWTBRFeryxMode RequestedMode = bHasSelection
+        ? static_cast<EWTBRFeryxMode>(ChosenForm)
+        : EWTBRFeryxMode::ShortBlade;
+    Server_SelectFeryxForm(bIsMain, static_cast<uint8>(RequestedMode), bHasSelection);
+    return true;
+}
+
+void AWTBRCharacter::OnMainFeryxFormHoldElapsed()
+{
+    OpenFeryxFormWheel(true);
+}
+
+void AWTBRCharacter::OnSubFeryxFormHoldElapsed()
+{
+    OpenFeryxFormWheel(false);
+}
+
+void AWTBRCharacter::OpenFeryxFormWheel(bool bIsMain)
+{
+    if (!IsLocallyControlled() || !IsValid(TriggerSetComponent))
+    {
+        return;
+    }
+
+    if (InputGestureComponent && InputGestureComponent->AreBothTriggerInputsDown()
+        && TriggerSetComponent->CanToggleMantornForm())
+    {
+        return;
+    }
+
+    UWTBRFeryxTrigger* Feryx = GetActiveFeryxTrigger(bIsMain);
+    if (!IsValid(Feryx) || Feryx->IsSpent())
+    {
+        return;
+    }
+
+    if (!IsValid(TriggerWheelWidgetInstance))
+    {
+        CreateLocalPlayerUI();
+    }
+    if (!IsValid(TriggerWheelWidgetInstance) || TriggerWheelWidgetInstance->IsWheelOpen())
+    {
+        return;
+    }
+
+    TArray<FText> FormNames;
+    const UEnum* FormEnum = StaticEnum<EWTBRFeryxMode>();
+    if (IsValid(FormEnum))
+    {
+        for (int32 EnumIndex = 0; EnumIndex < FormEnum->NumEnums(); ++EnumIndex)
+        {
+            const FString Name = FormEnum->GetNameStringByIndex(EnumIndex);
+            if (!FormEnum->HasMetaData(TEXT("Hidden"), EnumIndex)
+                && !Name.EndsWith(TEXT("_MAX")))
+            {
+                FormNames.Add(FormEnum->GetDisplayNameTextByIndex(EnumIndex));
+            }
+        }
+    }
+
+    if (FormNames.IsEmpty())
+    {
+        return;
+    }
+
+    bFeryxFormWheelIsMain = bIsMain;
+    SetLookInputFrozen(true);
+    TriggerWheelWidgetInstance->OpenFeryxFormWheel(
+        FormNames, static_cast<int32>(Feryx->GetCurrentMode()));
+}
+
+void AWTBRCharacter::CancelLocalFeryxFormWheel()
+{
+    GetWorldTimerManager().ClearTimer(MainFeryxFormHoldTimer);
+    GetWorldTimerManager().ClearTimer(SubFeryxFormHoldTimer);
+
+    if (IsValid(TriggerWheelWidgetInstance)
+        && TriggerWheelWidgetInstance->IsFeryxFormWheelOpen())
+    {
+        TriggerWheelWidgetInstance->CloseWheel();
+        SetLookInputFrozen(false);
+    }
 }
 
 void AWTBRCharacter::UpdateSniperZoom(bool bIsMain, bool bZoomIn)
@@ -2659,6 +2814,28 @@ void AWTBRCharacter::Server_SelectTriggerSlot_Implementation(bool bIsMain, int32
 }
 
 // ─── Mark/Ping ──────────────────────────────────────────────────────────────
+
+void AWTBRCharacter::Server_SelectFeryxForm_Implementation(
+    bool bIsMain, uint8 RequestedMode, bool bHasSelection)
+{
+    if (!HasAuthority() || !IsValid(TriggerSetComponent))
+    {
+        return;
+    }
+
+    UWTBRFeryxTrigger* Feryx = Cast<UWTBRFeryxTrigger>(bIsMain
+        ? TriggerSetComponent->GetActiveMainTrigger()
+        : TriggerSetComponent->GetActiveSubTrigger());
+    if (!IsValid(Feryx))
+    {
+        return;
+    }
+
+    // ResolveFormSelection re-validates the hold duration, spent state and
+    // requested enum value. The client only supplies its radial-wheel choice.
+    Feryx->ResolveFormSelection(
+        static_cast<EWTBRFeryxMode>(RequestedMode), bHasSelection);
+}
 
 void AWTBRCharacter::Input_RequestMarkPing(const FInputActionValue& /*Value*/)
 {
@@ -4959,7 +5136,7 @@ void AWTBRCharacter::ExecuteServerTriggerInput(bool bIsMain, bool bIsPressed, FV
         {
             // Record the individual press too: if the player releases without
             // completing the two-button gesture, Feryx still needs to resolve
-            // that button as either its normal tap or its blade-star hold.
+            // that button as either its normal tap or its form-wheel hold.
             Trigger->OnTriggerActivated(this, bIsMain);
             Trigger->Activate(TriggerInputValue, bIsDualWield);
             return;
@@ -6201,6 +6378,9 @@ void AWTBRCharacter::DestroyLocalPlayerUI()
 
     // The hold watch outlives the widget otherwise and would fire into a dead pointer.
     GetWorldTimerManager().ClearTimer(TriggerWheelHoldTimer);
+    GetWorldTimerManager().ClearTimer(MainFeryxFormHoldTimer);
+    GetWorldTimerManager().ClearTimer(SubFeryxFormHoldTimer);
+    SetLookInputFrozen(false);
 }
 
 void AWTBRCharacter::ShowBagLootLayer()

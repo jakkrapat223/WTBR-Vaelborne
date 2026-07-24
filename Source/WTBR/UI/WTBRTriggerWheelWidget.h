@@ -8,7 +8,8 @@
 class AWTBRCharacter;
 
 /**
- * Radial Trigger-selection wheel, opened by holding Q (Main set) or E (Sub set).
+ * Shared radial selection wheel: Trigger slots on Q/E, or Feryx forms while
+ * holding the active Feryx attack input.
  *
  * Fully native like UWTBRRadarWidget: a wheel is drawn geometry, not layout, so
  * there is nothing for UMG to lay out — segments, the highlight and the labels are
@@ -55,6 +56,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "WTBR | Wheel")
     void OpenWheel(bool bInIsMainSet);
 
+    // Reuses the exact Trigger-wheel interaction and fixed four-slot layout for
+    // Feryx form selection. Empty future-form slots remain dimmed.
+    void OpenFeryxFormWheel(const TArray<FText>& InFormNames, int32 InCurrentFormIndex);
+
     UFUNCTION(BlueprintCallable, Category = "WTBR | Wheel")
     void CloseWheel();
 
@@ -67,6 +72,12 @@ public:
     UFUNCTION(BlueprintPure, Category = "WTBR | Wheel")
     int32 GetHighlightedSlotIndex() const;
 
+    UFUNCTION(BlueprintPure, Category = "WTBR | Wheel")
+    int32 GetHighlightedFeryxFormIndex() const;
+
+    UFUNCTION(BlueprintPure, Category = "WTBR | Wheel")
+    bool IsFeryxFormWheelOpen() const;
+
 protected:
     virtual TSharedRef<SWidget> RebuildWidget() override;
     virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
@@ -75,6 +86,12 @@ protected:
         int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const override;
 
 private:
+    enum class EWheelContent : uint8
+    {
+        TriggerSlots,
+        FeryxForms
+    };
+
     AWTBRCharacter* GetOwningWTBRCharacter() const;
 
     // Index into the open set (0..SlotsPerSet-1), or INDEX_NONE inside the dead zone.
@@ -85,6 +102,9 @@ private:
 
     bool bIsOpen = false;
     bool bIsMainSet = true;
+    EWheelContent WheelContent = EWheelContent::TriggerSlots;
+    TArray<FText> FeryxFormNames;
+    int32 CurrentFeryxFormIndex = INDEX_NONE;
 
     // Accumulated mouse delta since the wheel opened, in wheel-space pixels.
     FVector2D SelectionVector = FVector2D::ZeroVector;
